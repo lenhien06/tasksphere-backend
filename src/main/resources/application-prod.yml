@@ -1,0 +1,178 @@
+logging:
+  level:
+    root: WARN
+    com.zone.tasksphere: INFO
+
+spring:
+  # ─── Database ──────────────────────────────────────────────────────────────
+  # Production MySQL configuration with RDS or on-premise server
+  datasource:
+    url: jdbc:mysql://db.tasksphere.io.vn:3306/tasksphere_prod?useSSL=true&serverTimezone=UTC&allowPublicKeyRetrieval=false&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
+    username: tasksphere_user
+    password: TaskSphere@2026#SecurePass
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 10
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      auto-commit: true
+      leak-detection-threshold: 60000
+
+  # ─── JPA ───────────────────────────────────────────────────────────────────
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+        dialect: org.hibernate.dialect.MySQLDialect
+        jdbc:
+          fetch_size: 50
+          batch_size: 25
+        order_inserts: true
+        order_updates: true
+        generate_statistics: false
+
+  # ─── Redis ─────────────────────────────────────────────────────────────────
+  # Redis for caching and session management
+  data:
+    redis:
+      host: redis.tasksphere.io.vn
+      port: 6379
+      password: Redis@2026#SecurePass
+      timeout: 3000ms
+      database: 0
+      jedis:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
+          max-wait: 2000ms
+
+  # ─── Mail ──────────────────────────────────────────────────────────────────
+  # Using AWS SES or corporate mail server
+  mail:
+    host: mail.tasksphere.io.vn
+    port: 587
+    username: noreply@tasksphere.io.vn
+    password: MailServer@2026#SecurePass
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
+    from: noreply@tasksphere.io.vn
+    from-name: TaskSphere Enterprise
+
+  main:
+    allow-bean-definition-overriding: true
+    lazy-initialization: false
+
+  # ─── Error Handling ────────────────────────────────────────────────────────
+  error:
+    include-stacktrace: never
+    include-message: always
+    include-binding-errors: always
+
+  # ─── File Upload ───────────────────────────────────────────────────────────
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+# ─── Server ────────────────────────────────────────────────────────────────
+server:
+  port: 8080
+  servlet:
+    context-path: /
+    session:
+      cookie:
+        secure: true
+        http-only: true
+        same-site: Strict
+        max-age: 86400
+      timeout: 30m
+  compression:
+    enabled: true
+    min-response-size: 2048
+  tomcat:
+    threads:
+      max: 500
+      min-spare: 50
+    connection-timeout: 30000
+    keep-alive-timeout: 60000
+    max-connections: 10000
+
+# ─── JWT ─────────────────────────────────────────────────────────────────────
+security:
+  jwt:
+    secret-key: 7E$B&E)H@McQfTjWnZr4u7x!A%D*G-KaPdSgUkXp2s5v8y/B?E(H+MbQeThWmZq4t7w!z%C&F)J@N
+    issuer: tasksphere-prod
+    expiry-time-in-seconds: 3600
+    refreshable-duration: 604800
+    algorithm: HS512
+
+# ─── App Configuration ─────────────────────────────────────────────────────
+app:
+  cors:
+    allowed-origins: "https://tasksphere.io.vn,https://www.tasksphere.io.vn,https://app.tasksphere.io.vn"
+  turnstile:
+    secret-key: 1x4AARBVgUuFe_Z-6A59RjeLycvBNNOxTw6q0NfLFYU
+    url: "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+  cookie:
+    secure: true
+    same-site: Strict
+    domain: ".tasksphere.io.vn"
+  frontend-url: "https://app.tasksphere.io.vn"
+  api-url: "https://api.tasksphere.io.vn"
+
+# ─── MinIO / Object Storage ───────────────────────────────────────────────
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://minio:9000}
+  access-key: ${MINIO_ACCESS_KEY:minioadmin}
+  secret-key: ${MINIO_SECRET_KEY:minioadmin}
+  bucket-name: ${MINIO_BUCKET:tasksphere-files}
+  public-url: ${MINIO_PUBLIC_URL:https://storage.tasksphere.io.vn}
+  presigned-url-expiry: 3600
+  preview-url-expiry: 900
+
+# ─── Monitoring & Actuator ────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+      base-path-mapping:
+        prometheus: /metrics/prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# ─── SSL/TLS Configuration (Optional if using HTTP/2) ──────────────────────
+server:
+  ssl:
+    enabled: false
+    # If using termination proxy (recommended)
+    # key-store: /etc/tasksphere/keystore.jks
+    # key-store-password: ${SSL_KEYSTORE_PASSWORD}
+    # key-store-type: JKS

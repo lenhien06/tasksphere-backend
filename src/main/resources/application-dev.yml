@@ -1,0 +1,102 @@
+logging:
+  level:
+    root: INFO
+    com.zone.tasksphere: DEBUG
+    org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG
+    org.springframework.web.servlet.mvc.method.annotation.RequestResponseBodyMethodProcessor: DEBUG
+
+spring:
+  # ─── Database ──────────────────────────────────────────────────────────────
+  datasource:
+    url: jdbc:mysql://localhost:3308/task_sphere_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456zoneteam
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+
+  # ─── JPA ───────────────────────────────────────────────────────────────────
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+        use_sql_comments: true
+        jdbc:
+          time_zone: UTC
+
+  # ─── Redis ─────────────────────────────────────────────────────────────────
+  data:
+    redis:
+      host: localhost
+      port: 6380
+      timeout: 2000ms
+      jedis:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+  # ─── Mail ──────────────────────────────────────────────────────────────────
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: nguyenvanbinhkg1586@gmail.com
+    password: xrkbakmtostrtqia
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 3000
+          writetimeout: 5000
+    from: nguyenvanbinhkg1586@gmail.com
+
+  main:
+    allow-bean-definition-overriding: true
+
+  # ─── File Upload ───────────────────────────────────────────────────────────
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 25MB
+      max-request-size: 26MB
+
+# ─── JWT ─────────────────────────────────────────────────────────────────────
+security:
+  jwt:
+    secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+    issuer: tasksphere-dev
+    expiry-time-in-seconds: 3600
+    refreshable-duration: 604800
+
+# ─── MinIO (local dev) ───────────────────────────────────────────────────────
+minio:
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket-name: tasksphere-files
+  public-url: http://localhost:9000
+
+# ─── App ─────────────────────────────────────────────────────────────────────
+app:
+  cors:
+    allowed-origins: "http://localhost:3000,http://localhost:5173,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:5173"
+  turnstile:
+    secret-key: 1x0000000000000000000000000000000AA
+    url: "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+  cookie:
+    secure: false
+    same-site: Lax
+  frontend-url: "http://localhost:3000"
+  api-url: "http://localhost:8080"
+

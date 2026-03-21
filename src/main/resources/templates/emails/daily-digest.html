@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskSphere — Tóm tắt công việc</title>
+    <style>
+        body { font-family: Arial, sans-serif; color: #1a1a2e; margin: 0; padding: 0; background: #f5f5f5; }
+        .container { max-width: 640px; margin: 24px auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .header { background: #0F172A; color: white; padding: 24px 28px; }
+        .header h2 { margin: 0 0 6px; font-size: 20px; }
+        .header p { margin: 0; font-size: 14px; color: #94a3b8; }
+        .body { padding: 24px 28px; }
+        .section { margin-bottom: 24px; }
+        .section-title { font-size: 15px; font-weight: bold; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #f1f5f9; }
+        .section-overdue .section-title { color: #dc2626; }
+        .section-today .section-title { color: #ca8a04; }
+        .section-new .section-title { color: #2563eb; }
+        .task-row { padding: 8px 4px; border-bottom: 1px solid #f1f5f9; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+        .task-row:last-child { border-bottom: none; }
+        .task-link { color: #1d4ed8; text-decoration: none; font-weight: 500; }
+        .task-link:hover { text-decoration: underline; }
+        .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+        .badge-critical { background: #fee2e2; color: #dc2626; }
+        .badge-high { background: #ffedd5; color: #ea580c; }
+        .badge-medium { background: #fef9c3; color: #ca8a04; }
+        .badge-low { background: #dcfce7; color: #16a34a; }
+        .due-date { color: #6b7280; font-size: 12px; }
+        .footer { padding: 16px 28px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; }
+        .footer a { color: #6b7280; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h2>📋 TaskSphere — Tóm tắt công việc hôm nay</h2>
+        <p th:text="'Xin chào ' + ${user.fullName} + '! Đây là danh sách công việc cần chú ý.'"></p>
+    </div>
+
+    <div class="body">
+
+        <!-- Quá hạn -->
+        <div class="section section-overdue" th:if="${content.overdueTasks != null and not #lists.isEmpty(content.overdueTasks)}">
+            <div class="section-title">
+                🚨 Task quá hạn (<span th:text="${#lists.size(content.overdueTasks)}"></span>)
+            </div>
+            <div class="task-row" th:each="task : ${content.overdueTasks}">
+                <a class="task-link" th:href="${task.taskUrl}" th:text="${task.taskCode + ' — ' + task.title}">TASK-001 — Task title</a>
+                <span th:class="'badge badge-' + ${#strings.toLowerCase(task.priority)}"
+                      th:text="${task.priority}">HIGH</span>
+                <span class="due-date" th:if="${task.dueDate != null}" th:text="'Hạn: ' + ${task.dueDate}"></span>
+                <span class="due-date" th:if="${task.projectName != null}" th:text="'[' + ${task.projectName} + ']'"></span>
+            </div>
+        </div>
+
+        <!-- Đến hạn hôm nay -->
+        <div class="section section-today" th:if="${content.dueTodayTasks != null and not #lists.isEmpty(content.dueTodayTasks)}">
+            <div class="section-title">
+                ⏰ Đến hạn hôm nay (<span th:text="${#lists.size(content.dueTodayTasks)}"></span>)
+            </div>
+            <div class="task-row" th:each="task : ${content.dueTodayTasks}">
+                <a class="task-link" th:href="${task.taskUrl}" th:text="${task.taskCode + ' — ' + task.title}">TASK-002 — Task title</a>
+                <span th:class="'badge badge-' + ${#strings.toLowerCase(task.priority)}"
+                      th:text="${task.priority}">MEDIUM</span>
+                <span class="due-date" th:if="${task.projectName != null}" th:text="'[' + ${task.projectName} + ']'"></span>
+            </div>
+        </div>
+
+        <!-- Mới được giao -->
+        <div class="section section-new" th:if="${content.newlyAssignedTasks != null and not #lists.isEmpty(content.newlyAssignedTasks)}">
+            <div class="section-title">
+                📌 Mới được giao (<span th:text="${#lists.size(content.newlyAssignedTasks)}"></span>)
+            </div>
+            <div class="task-row" th:each="task : ${content.newlyAssignedTasks}">
+                <a class="task-link" th:href="${task.taskUrl}" th:text="${task.taskCode + ' — ' + task.title}">TASK-003 — Task title</a>
+                <span th:class="'badge badge-' + ${#strings.toLowerCase(task.priority)}"
+                      th:text="${task.priority}">LOW</span>
+                <span class="due-date" th:if="${task.projectName != null}" th:text="'[' + ${task.projectName} + ']'"></span>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="footer">
+        <p>Bạn nhận email này vì đã bật thông báo tóm tắt hàng ngày trên TaskSphere.</p>
+        <a th:href="${unsubscribeUrl}">Hủy nhận email tổng hợp</a>
+    </div>
+</div>
+</body>
+</html>

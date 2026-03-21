@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Chào mừng bạn gia nhập TaskSphere Enterprise</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #020617;">
+<div style="background-color: #020617; padding: 50px 20px; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #f9fafb; line-height: 1.6;">
+    <div style="max-width: 500px; margin: 0 auto; background-color: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.3);">
+
+        <div style="padding: 40px 30px 20px; text-align: center;">
+            <div style="display: inline-block; margin-bottom: 15px;">
+                <img src="https://your-domain.com/images/logo.png" alt="TaskSphere Logo" style="width: 45px; height: 45px; border-radius: 12px;" />
+            </div>
+            <h1 style="color: #ffffff; margin: 0; font-size: 26px; font-weight: bold; letter-spacing: -0.5px;">TaskSphere <span style="color: #3b82f6; font-size: 14px; font-weight: 400; vertical-align: middle;">Enterprise</span></h1>
+        </div>
+
+        <div style="padding: 10px 40px 40px;">
+            <div style="height: 1px; background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.5), transparent); margin-bottom: 30px;"></div>
+
+            <h2 style="margin-top: 0; color: #ffffff; font-size: 22px; text-align: center;">Chào mừng, <span style="color: #3b82f6;" th:text="${fullName}">Thành viên mới</span>!</h2>
+
+            <p style="font-size: 15px; color: #9ca3af; text-align: center; margin-top: 20px;">
+                Chào mừng bạn đến với không gian làm việc số tập trung. Tài khoản của bạn đã được thiết lập sẵn sàng để bắt đầu các quy trình vận hành dự án.
+            </p>
+
+            <div style="background-color: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 20px; margin: 30px 0;">
+                <p style="font-size: 14px; color: #d1d5db; margin: 0 0 10px 0;">🚀 <strong>Bạn có thể làm gì ngay bây giờ?</strong></p>
+                <ul style="font-size: 13px; color: #9ca3af; margin: 0; padding-left: 20px; line-height: 1.8;">
+                    <li>Quản lý tiến độ qua bảng Kanban tùy chỉnh.</li>
+                    <li>Tham gia lập kế hoạch Sprint cùng đội ngũ.</li>
+                    <li>Cộng tác thời gian thực và theo dõi nguồn lực hiệu quả.</li>
+                </ul>
+            </div>
+
+            <div style="text-align: center; margin: 40px 0;">
+                <a href="https://your-domain.com/login"
+                   style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 16px 32px; border-radius: 12px; font-weight: 600; font-size: 15px; box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);">
+                    Truy cập Không gian làm việc
+                </a>
+            </div>
+
+            <p style="font-size: 14px; color: #6b7280; text-align: center; margin-top: 30px;">
+                Trân trọng,<br/>
+                <strong style="color: #ffffff;">Ban quản trị TaskSphere Enterprise</strong>
+            </p>
+        </div>
+
+        <div style="background-color: #020617; padding: 20px; text-align: center; border-top: 1px solid rgba(255,255,255,0.05);">
+            <p style="font-size: 11px; color: #4b5563; margin: 0;">© 2026 TaskSphere Inc. | Tuân thủ tiêu chuẩn bảo mật dữ liệu GDPR</p>
+        </div>
+    </div>
+</div>
+</body>
+</html>
