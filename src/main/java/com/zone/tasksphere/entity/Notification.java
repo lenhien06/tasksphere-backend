@@ -36,7 +36,8 @@ public class Notification extends BaseEntity {
     private User recipient;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 50,
+            columnDefinition = "VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
     private NotificationType type;
 
     @NotBlank
@@ -60,4 +61,9 @@ public class Notification extends BaseEntity {
 
     @Column(name = "read_at")
     private Instant readAt;
+
+    @Version
+    @Column(nullable = false)
+    @Builder.Default
+    private Long version = 0L;
 }

@@ -62,7 +62,7 @@ public class NotificationService {
     @Transactional
     public int markAllAsRead(UUID userId) {
         // FIX: P5-BE-05 - ATOMIC update
-        int count = notificationRepository.markAllAsRead(userId);
+        int count = notificationRepository.markAllAsRead(userId, Instant.now());
         invalidateUnreadCache(userId);
         return count;
     }

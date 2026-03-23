@@ -19,6 +19,7 @@ public enum NotificationType {
     PROJECT_ROLE_CHANGED("Project Role Changed", true),
     MEMBER_JOINED("Member Joined", true),
     PROJECT_MEMBER_REMOVED("Project Member Removed", true),
+    PROJECT_RESTORED("Project Restored", true),
     SYSTEM_ANNOUNCEMENT("System Announcement", true);
 
     private final String displayName;

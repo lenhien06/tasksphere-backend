@@ -251,6 +251,15 @@ public class TaskServiceImpl implements TaskService {
                                          UpdateTaskRequest request, UUID currentUserId) {
         Task task = getTaskInProject(taskId, projectId);
         User currentUser = getUser(currentUserId);
+        ProjectMember actorMember = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
+            .orElse(null);
+        boolean isAdmin = currentUser.getSystemRole() == SystemRole.ADMIN;
+        if (actorMember == null && !isAdmin) {
+            throw new Forbidden("Bạn không phải thành viên dự án này");
+        }
+        if (actorMember != null && actorMember.getProjectRole() == ProjectRole.VIEWER) {
+            throw new Forbidden("VIEWER không được sửa task");
+        }
         UUID oldAssigneeId = task.getAssignee() != null ? task.getAssignee().getId() : null;
         String oldAssigneeName = task.getAssignee() != null ? task.getAssignee().getFullName() : null;
         UUID oldSprintId = task.getSprint() != null ? task.getSprint().getId() : null;
@@ -260,14 +269,14 @@ public class TaskServiceImpl implements TaskService {
         // Quyền: MEMBER chỉ sửa task mình là assignee; PM sửa được tất cả
         boolean isAssignee = task.getAssignee() != null
             && task.getAssignee().getId().equals(currentUserId);
-        boolean isPM = isMemberPM(projectId, currentUserId);
+        boolean isPM = actorMember != null && actorMember.getProjectRole() == ProjectRole.PROJECT_MANAGER;
 
-        if (!isAssignee && !isPM && currentUser.getSystemRole() != SystemRole.ADMIN) {
+        if (!isAssignee && !isPM && !isAdmin) {
             throw new Forbidden("MEMBER chỉ được sửa task mà mình là Assignee");
         }
 
         // Assignee (của task này), PM, hoặc ADMIN mới được đổi assignee (spec RBAC)
-        if (request.getAssigneeId() != null && (isAssignee || isPM || currentUser.getSystemRole() == SystemRole.ADMIN)) {
+        if (request.getAssigneeId() != null && (isAssignee || isPM || isAdmin)) {
             if (!projectMemberRepository.existsByProjectIdAndUserId(projectId, request.getAssigneeId())) {
                 throw new BadRequestException("Assignee không phải member dự án");
             }
@@ -290,6 +299,14 @@ public class TaskServiceImpl implements TaskService {
                     || !task.getStatusColumn().getId().equals(request.getStatusColumnId()))) {
             ProjectStatusColumn newCol = columnRepository.findById(request.getStatusColumnId())
                 .orElseThrow(() -> new NotFoundException("Column not found"));
+            if (newCol.getMappedStatus() != null) {
+                TaskStatus current = task.getTaskStatus();
+                TaskStatus mapped = newCol.getMappedStatus();
+                if (!current.equals(mapped) && !current.canTransitionTo(mapped)) {
+                    throw new BusinessRuleException(
+                            String.format("Không thể chuyển từ %s sang %s khi đổi cột qua cập nhật task (BR-14).", current, mapped));
+                }
+            }
             task.setStatusColumn(newCol);
             if (newCol.getMappedStatus() != null) {
                 task.setTaskStatus(newCol.getMappedStatus());
@@ -305,7 +322,7 @@ public class TaskServiceImpl implements TaskService {
             if (sprint.getStatus() == SprintStatus.COMPLETED) {
                 throw new BusinessRuleException("Không thể thêm task vào sprint đã hoàn thành");
             }
-            if (sprint.getStatus() == SprintStatus.ACTIVE && !isPM && currentUser.getSystemRole() != SystemRole.ADMIN) {
+            if (sprint.getStatus() == SprintStatus.ACTIVE && !isPM && !isAdmin) {
                 throw new Forbidden("BR-20: Chỉ PM mới được thêm task vào sprint đang ACTIVE");
             }
             task.setSprint(sprint);
@@ -350,13 +367,22 @@ public class TaskServiceImpl implements TaskService {
                                                    UpdateTaskStatusRequest request, UUID currentUserId) {
         Task task = getTaskInProject(taskId, projectId);
         User currentUser = getUser(currentUserId);
+        ProjectMember actorMember = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
+            .orElse(null);
+        boolean isAdmin = currentUser.getSystemRole() == SystemRole.ADMIN;
+        if (actorMember == null && !isAdmin) {
+            throw new Forbidden("Bạn không phải thành viên dự án này");
+        }
+        if (actorMember != null && actorMember.getProjectRole() == ProjectRole.VIEWER) {
+            throw new Forbidden("VIEWER không được đổi trạng thái task");
+        }
 
         // Quyền: Assignee hoặc PM/ADMIN
         boolean isAssignee = task.getAssignee() != null
             && task.getAssignee().getId().equals(currentUserId);
-        boolean isPM = isMemberPM(projectId, currentUserId);
+        boolean isPM = actorMember != null && actorMember.getProjectRole() == ProjectRole.PROJECT_MANAGER;
 
-        if (!isAssignee && !isPM && currentUser.getSystemRole() != SystemRole.ADMIN) {
+        if (!isAssignee && !isPM && !isAdmin) {
             throw new Forbidden("Chỉ Assignee hoặc PM mới được đổi trạng thái");
         }
 
@@ -443,7 +469,13 @@ public class TaskServiceImpl implements TaskService {
         task.setStatusColumn(newColumn);
         task.setTaskPosition(request.getNewPosition());
         if (newColumn.getMappedStatus() != null) {
-            task.setTaskStatus(newColumn.getMappedStatus());
+            TaskStatus current = task.getTaskStatus();
+            TaskStatus mapped = newColumn.getMappedStatus();
+            if (!current.equals(mapped) && !current.canTransitionTo(mapped)) {
+                throw new BusinessRuleException(
+                        String.format("Không thể chuyển trạng thái từ %s sang %s khi kéo cột (BR-14).", current, mapped));
+            }
+            task.setTaskStatus(mapped);
         }
         taskRepository.save(task);
 
@@ -473,7 +505,7 @@ public class TaskServiceImpl implements TaskService {
         User currentUser = getUser(currentUserId);
         boolean isPM = isMemberPM(projectId, currentUserId);
         if (!isPM && currentUser.getSystemRole() != SystemRole.ADMIN) {
-            throw new Forbidden("Chỉ Project Manager mới được xóa task");
+            throw new Forbidden("Chỉ PM hoặc Admin mới có quyền xoá task");
         }
 
         Task task = getTaskInProject(taskId, projectId);
@@ -490,7 +522,7 @@ public class TaskServiceImpl implements TaskService {
                     "taskCode", task.getTaskCode(),
                     "title", task.getTitle(),
                     "status", task.getTaskStatus() != null ? task.getTaskStatus().name() : null
-            )), null);
+            )), toJson(Map.of("deletedAt", now.toString())));
 
         log.info("Task {} soft-deleted by {}", task.getTaskCode(), currentUserId);
         reportService.invalidateOverviewCache(projectId);

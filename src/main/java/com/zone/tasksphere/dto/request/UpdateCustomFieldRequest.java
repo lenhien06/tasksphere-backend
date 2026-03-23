@@ -23,4 +23,11 @@ public class UpdateCustomFieldRequest {
 
     @Schema(description = "Required", example = "true")
     private Boolean required;
+
+    /**
+     * {@code true} = ẩn field đối với MEMBER/VIEWER khi GET danh sách definitions;
+     * PM và System Admin vẫn thấy đầy đủ. Dùng để hiện lại field đã bị ẩn nhầm (đặt {@code false}).
+     */
+    @Schema(description = "Ẩn field với member (false = hiện lại). PM/Admin luôn thấy mọi field.", example = "false")
+    private Boolean hidden;
 }

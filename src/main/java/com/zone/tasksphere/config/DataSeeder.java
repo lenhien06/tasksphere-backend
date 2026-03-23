@@ -158,7 +158,7 @@ public class DataSeeder implements CommandLineRunner {
 
     @Transactional
     void seedDemoProject() {
-        if (projectRepository.existsByProjectKey("DEMO")) return;
+        if (projectRepository.findByKeyWithDeleted("DEMO").isPresent()) return;
         User admin    = u("admin@tasksphere.local");
         User pm       = u("pm@tasksphere.local");
         User dev1     = u("dev1@tasksphere.local");
@@ -193,7 +193,7 @@ public class DataSeeder implements CommandLineRunner {
 
     @Transactional
     void seedEcomProject() {
-        if (projectRepository.existsByProjectKey("ECOM")) return;
+        if (projectRepository.findByKeyWithDeleted("ECOM").isPresent()) return;
         User admin = u("admin@tasksphere.local");
         User pm    = u("pm@tasksphere.local");
         User dev1  = u("dev1@tasksphere.local");
@@ -222,7 +222,7 @@ public class DataSeeder implements CommandLineRunner {
 
     @Transactional
     void seedMobileProject() {
-        if (projectRepository.existsByProjectKey("MOBILE")) return;
+        if (projectRepository.findByKeyWithDeleted("MOBILE").isPresent()) return;
         User admin    = u("admin@tasksphere.local");
         User pm       = u("pm@tasksphere.local");
         User dev2     = u("dev2@tasksphere.local");

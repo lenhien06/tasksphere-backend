@@ -8,9 +8,9 @@ logging:
 spring:
   # ─── Database ──────────────────────────────────────────────────────────────
   datasource:
-    url: jdbc:mysql://localhost:3308/task_sphere_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: root
-    password: 123456zoneteam
+    url: jdbc:mysql://localhost:3308/tasksphere_prod?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: tasksphere_user
+    password: "TaskSphere@2026#SecurePass"
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 10

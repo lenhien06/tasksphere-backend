@@ -14,12 +14,14 @@ import com.zone.tasksphere.exception.BusinessRuleException;
 import com.zone.tasksphere.exception.ConflictException;
 import com.zone.tasksphere.exception.Forbidden;
 import com.zone.tasksphere.exception.NotFoundException;
+import com.zone.tasksphere.exception.StructuredApiException;
 import com.zone.tasksphere.repository.ProjectMemberRepository;
 import com.zone.tasksphere.repository.RecurringTaskConfigRepository;
 import com.zone.tasksphere.repository.TaskRepository;
 import com.zone.tasksphere.service.RecurringTaskService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +39,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class RecurringTaskServiceImpl implements RecurringTaskService {
+
+    /** Khi chỉ có endDate (không gửi maxOccurrences), BE dùng giới hạn nội bộ để tránh vòng lặp vô hạn. */
+    private static final int MAX_OCCURRENCES_WHEN_END_DATE_ONLY = 10_000;
 
     private final TaskRepository taskRepository;
     private final RecurringTaskConfigRepository recurringConfigRepository;
@@ -66,7 +71,7 @@ public class RecurringTaskServiceImpl implements RecurringTaskService {
 
         Instant nextRunAt = request.getFirstRunAt().toInstant(ZoneOffset.UTC);
         String frequencyConfig = buildFrequencyConfig(request);
-        int maxOcc = request.getMaxOccurrences() != null ? request.getMaxOccurrences() : 100;
+        int maxOcc = resolveMaxOccurrencesForCreate(request);
 
         RecurringTaskConfig config = RecurringTaskConfig.builder()
                 .task(task)
@@ -121,7 +126,7 @@ public class RecurringTaskServiceImpl implements RecurringTaskService {
         validateRequest(request);
 
         String frequencyConfig = buildFrequencyConfig(request);
-        int maxOcc = request.getMaxOccurrences() != null ? request.getMaxOccurrences() : config.getMaxOccurrences();
+        int maxOcc = resolveMaxOccurrencesForUpdate(request, config);
 
         config.setFrequency(request.getFrequency());
         config.setEndDate(request.getEndDate());
@@ -213,7 +218,32 @@ public class RecurringTaskServiceImpl implements RecurringTaskService {
         }
     }
 
+    /**
+     * FE/contract: phải có ít nhất một điều kiện dừng — {@code endDate} hoặc {@code maxOccurrences}.
+     */
+    private void validateEndCondition(SetRecurrenceRequest request) {
+        if (request.getEndDate() == null && request.getMaxOccurrences() == null) {
+            throw new StructuredApiException(HttpStatus.BAD_REQUEST, "RECURRING_NO_END_CONDITION",
+                    "Cần ít nhất một trong hai: endDate hoặc maxOccurrences để giới hạn lịch lặp.");
+        }
+    }
+
+    private int resolveMaxOccurrencesForCreate(SetRecurrenceRequest request) {
+        if (request.getMaxOccurrences() != null) {
+            return request.getMaxOccurrences();
+        }
+        return MAX_OCCURRENCES_WHEN_END_DATE_ONLY;
+    }
+
+    private int resolveMaxOccurrencesForUpdate(SetRecurrenceRequest request, RecurringTaskConfig config) {
+        if (request.getMaxOccurrences() != null) {
+            return request.getMaxOccurrences();
+        }
+        return config.getMaxOccurrences();
+    }
+
     private void validateRequest(SetRecurrenceRequest request) {
+        validateEndCondition(request);
         if (request.getMaxOccurrences() != null && request.getMaxOccurrences() > 100) {
             throw new BusinessRuleException("TSK_010: maxOccurrences tối đa 100");
         }

@@ -21,7 +21,8 @@ public class SaveCustomFieldValuesRequest {
     @Data
 @Schema(description = "Custom Field Value Item")
 public static class CustomFieldValueItem {
-        @Schema(description = "Field id", example = "550e8400-e29b-41d4-a716-446655440000")
+        @NotNull(message = "fieldId là bắt buộc cho mỗi phần tử values")
+        @Schema(description = "Field id", example = "550e8400-e29b-41d4-a716-446655440000", requiredMode = Schema.RequiredMode.REQUIRED)
         private UUID fieldId;
         @Schema(description = "Value", example = "string")
         private String value; // null = delete

@@ -10,13 +10,15 @@ import com.zone.tasksphere.dto.response.ProjectMemberResponse;
 import com.zone.tasksphere.entity.*;
 import com.zone.tasksphere.entity.enums.*;
 import com.zone.tasksphere.exception.BadRequestException;
-import com.zone.tasksphere.exception.ConflictException;
 import com.zone.tasksphere.exception.NotFoundException;
+import com.zone.tasksphere.exception.StructuredApiException;
 import com.zone.tasksphere.repository.*;
 import com.zone.tasksphere.exception.Forbidden;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,6 +38,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class ProjectMemberService {
+    private static final long INVITE_EXPIRES_HOURS = 72L;
 
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
@@ -45,6 +49,12 @@ public class ProjectMemberService {
     private final ActivityLogService activityLogService;
     private final com.zone.tasksphere.repository.TaskRepository taskRepository;
     private final ReportService reportService;
+
+    @Value("${app.membership.max-members-per-project:50}")
+    private int maxMembersPerProject;
+
+    @Value("${app.membership.subscription-plan:FREE}")
+    private String subscriptionPlan;
 
     // =========================================================================
     // 1. LẤY DANH SÁCH THÀNH VIÊN
@@ -83,7 +93,8 @@ public class ProjectMemberService {
         }
 
         if (projectMemberRepository.existsByProjectIdAndUserId(projectId, user.getId())) {
-            throw new ConflictException("Người dùng này đã là thành viên của dự án.");
+            throw new StructuredApiException(HttpStatus.CONFLICT, "ALREADY_MEMBER",
+                    "Người dùng này đã là thành viên của dự án.");
         }
 
         // Logic giới hạn gói dịch vụ có thể thêm ở đây (BR-12)
@@ -131,108 +142,104 @@ public class ProjectMemberService {
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new NotFoundException("Dự án không tồn tại"));
 
-        User actor = userRepository.findById(actorId)
-                .orElseThrow(() -> new NotFoundException("User thao tác không tồn tại"));
+        User actor = requireInviteManager(projectId, actorId);
+
+        if (request.getRole() != ProjectRole.MEMBER && request.getRole() != ProjectRole.VIEWER) {
+            throw new BadRequestException("Role mời qua email chỉ được là MEMBER hoặc VIEWER");
+        }
 
         String email = request.getEmail().trim().toLowerCase();
 
-        // Bước 2: Kiểm tra trùng lặp (ACTIVE hoặc PENDING)
-        // Kiểm tra ACTIVE (đã là thành viên)
+        // BR-12: chặn mời khi đã chạm ngưỡng thành viên + pending invite.
+        ensureMemberLimitNotExceeded(projectId);
+
         Optional<User> inviteeOpt = userRepository.findByEmail(email);
         if (inviteeOpt.isPresent()) {
             if (projectMemberRepository.existsByProjectIdAndUserId(projectId, inviteeOpt.get().getId())) {
-                throw new BadRequestException("Email này đã là thành viên hoặc đang có lời mời chờ xác nhận.");
+                throw new StructuredApiException(HttpStatus.CONFLICT, "ALREADY_MEMBER",
+                        "Người dùng đã là thành viên của dự án");
             }
         }
 
-        // Kiểm tra PENDING (đã được mời nhưng chưa chấp nhận)
-        if (projectInviteRepository.findByProjectIdAndInviteeEmailAndStatus(projectId, email, InviteStatus.PENDING).isPresent()) {
-            throw new BadRequestException("Email này đã là thành viên hoặc đang có lời mời chờ xác nhận.");
+        // Nếu đã có invite pending cùng email trong dự án thì revoke token cũ trước khi tạo token mới.
+        Optional<ProjectInvite> pendingInvite = projectInviteRepository
+                .findByProjectIdAndInviteeEmailAndStatus(projectId, email, InviteStatus.PENDING);
+        if (pendingInvite.isPresent()) {
+            ProjectInvite oldInvite = pendingInvite.get();
+            oldInvite.setStatus(InviteStatus.REVOKED);
+            projectInviteRepository.save(oldInvite);
         }
 
-        // Bước 3: Rẽ nhánh Logic
+        String token = UUID.randomUUID().toString();
+        ProjectInvite invite = ProjectInvite.builder()
+                .project(project)
+                .invitedBy(actor)
+                .inviteeEmail(email)
+                .token(token)
+                .projectRole(request.getRole())
+                .status(InviteStatus.PENDING)
+                .expiresAt(Instant.now().plus(INVITE_EXPIRES_HOURS, ChronoUnit.HOURS))
+                .inviteeUser(inviteeOpt.orElse(null))
+                .build();
+        invite = projectInviteRepository.save(invite);
+
+        // Có tài khoản sẵn: gửi notification nội bộ + email.
         if (inviteeOpt.isPresent()) {
-            // Trường hợp A: Email ĐÃ CÓ tài khoản
             User invitee = inviteeOpt.get();
-
-            ProjectMember newMember = ProjectMember.builder()
-                    .project(project)
-                    .user(invitee)
-                    .projectRole(request.getRole())
-                    .joinedAt(Instant.now())
-                    .invitedBy(actorId)
-                    .build();
-
-            projectMemberRepository.save(newMember);
-            reportService.invalidateOverviewCache(projectId);
-
-            // Ghi log hoạt động
-            HttpServletRequest httpServletRequest = ((ServletRequestAttributes) RequestContextHolder.currentRequestAttributes()).getRequest();
-            activityLogService.logActivity(projectId, actorId, EntityType.MEMBER, newMember.getId(), 
-                    ActionType.CREATED, null, request.getRole().name(), httpServletRequest);
-
-            // Thông báo cho user
-            notificationService.createNotification(invitee, NotificationType.PROJECT_INVITED, 
-                    "Bạn đã được thêm vào dự án", 
-                    "Bạn đã được thêm trực tiếp vào dự án " + project.getName() + " với vai trò " + request.getRole().getDisplayName(),
+            notificationService.createNotification(invitee, NotificationType.PROJECT_INVITED,
+                    "Bạn nhận được lời mời vào dự án",
+                    "Bạn được mời vào dự án " + project.getName() + " với vai trò " + request.getRole().getDisplayName(),
                     EntityType.PROJECT.name(), projectId);
-
-            // Gửi email thông báo (token=null → link đến trang dự án)
-            emailService.sendProjectInviteEmail(email, project.getName(), actor.getFullName(), null, projectId);
-
-            return InviteMemberResponse.builder()
-                    .email(email)
-                    .role(request.getRole())
-                    .status("active")
-                    .isNewUser(false)
-                    .build();
-
-        } else {
-            // Trường hợp B: Email CHƯA CÓ tài khoản
-            String token = UUID.randomUUID().toString();
-            ProjectInvite invite = ProjectInvite.builder()
-                    .project(project)
-                    .invitedBy(actor)
-                    .inviteeEmail(email)
-                    .token(token)
-                    .projectRole(request.getRole())
-                    .status(InviteStatus.PENDING)
-                    .expiresAt(Instant.now().plus(7, ChronoUnit.DAYS)) // Đặt 7 ngày theo spec mới
-                    .build();
-
-            projectInviteRepository.save(invite);
-
-            // Bắn Email Lời Mời (token != null → link đến trang /invite?token=)
-            emailService.sendProjectInviteEmail(email, project.getName(), actor.getFullName(), token, projectId);
-
-            // Ghi log
-            HttpServletRequest httpServletRequest = ((ServletRequestAttributes) RequestContextHolder.currentRequestAttributes()).getRequest();
-            activityLogService.logActivity(projectId, actorId, EntityType.PROJECT, projectId, 
-                    ActionType.UPDATED, "INVITED_MEMBER", email, httpServletRequest);
-
-            return InviteMemberResponse.builder()
-                    .email(email)
-                    .role(request.getRole())
-                    .status("pending")
-                    .isNewUser(true)
-                    .build();
         }
+
+        emailService.sendProjectInviteEmail(
+                email,
+                project.getName(),
+                actor.getFullName(),
+                request.getRole().name(),
+                token,
+                projectId
+        );
+
+        logActivity(projectId, actorId, EntityType.PROJECT, invite.getId(), ActionType.MEMBER_INVITED, null,
+                "email=" + email + ",role=" + request.getRole().name());
+
+        return InviteMemberResponse.builder()
+                .email(email)
+                .role(request.getRole())
+                .status("pending")
+                .isNewUser(inviteeOpt.isEmpty())
+                .build();
     }
 
     /**
-     * Xác thực Token lời mời
+     * Xác thực Token lời mời (có thể ghi EXPIRED khi đã quá hạn).
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public ProjectInvite verifyInviteToken(String token) {
         ProjectInvite invite = projectInviteRepository.findByToken(token)
-                .orElseThrow(() -> new NotFoundException("Đường dẫn lời mời không tồn tại hoặc không hợp lệ."));
+                .orElseThrow(() -> new StructuredApiException(HttpStatus.NOT_FOUND, "TOKEN_NOT_FOUND",
+                        "Đường dẫn lời mời không tồn tại hoặc không hợp lệ."));
+
+        if (invite.getStatus() == InviteStatus.REVOKED) {
+            throw new StructuredApiException(HttpStatus.GONE, "TOKEN_EXPIRED_OR_REVOKED", "Lời mời đã bị hủy");
+        }
+
+        boolean timeExpired = invite.getExpiresAt().isBefore(Instant.now());
+        if (invite.getStatus() == InviteStatus.EXPIRED
+                || (invite.getStatus() == InviteStatus.PENDING && timeExpired)) {
+            if (invite.getStatus() == InviteStatus.PENDING) {
+                invite.setStatus(InviteStatus.EXPIRED);
+                projectInviteRepository.save(invite);
+            }
+            throw new StructuredApiException(HttpStatus.GONE, "TOKEN_EXPIRED_OR_REVOKED", "Lời mời đã hết hạn");
+        }
 
         if (invite.getStatus() != InviteStatus.PENDING) {
-            throw new BadRequestException("Lời mời này đã được xử lý hoặc bị thu hồi.");
+            throw new StructuredApiException(HttpStatus.GONE, "TOKEN_EXPIRED_OR_REVOKED",
+                    "Lời mời không còn hiệu lực.");
         }
-        if (invite.getExpiresAt().isBefore(Instant.now())) {
-            throw new BadRequestException("Lời mời này đã hết hạn.");
-        }
+
         return invite;
     }
 
@@ -242,8 +249,13 @@ public class ProjectMemberService {
     @Transactional
     public void acceptInviteAfterSignup(String token, User newUser) {
         ProjectInvite invite = projectInviteRepository.findByToken(token).orElse(null);
-        if (invite == null || invite.getStatus() != InviteStatus.PENDING || invite.getExpiresAt().isBefore(Instant.now())) {
+        if (invite == null || invite.getStatus() != InviteStatus.PENDING) {
             return; // Token không hợp lệ hoặc hết hạn thì bỏ qua, không chặn việc đăng ký
+        }
+        if (invite.getExpiresAt().isBefore(Instant.now())) {
+            invite.setStatus(InviteStatus.EXPIRED);
+            projectInviteRepository.save(invite);
+            return;
         }
 
         // Kiểm tra email khớp
@@ -265,6 +277,8 @@ public class ProjectMemberService {
         invite.setAcceptedAt(Instant.now());
         invite.setInviteeUser(newUser);
         projectInviteRepository.save(invite);
+        logActivity(invite.getProject().getId(), newUser.getId(), EntityType.MEMBER, newMember.getId(),
+                ActionType.MEMBER_JOINED, null, invite.getProjectRole().name());
 
         log.info("User {} tự động gia nhập dự án {} sau khi đăng ký.", newUser.getEmail(), invite.getProject().getName());
     }
@@ -277,12 +291,7 @@ public class ProjectMemberService {
      */
     @Transactional
     public Page<ProjectInviteResponse> getInvitesByStatus(UUID projectId, UUID actorId, InviteStatus status, Pageable pageable) {
-        // Permission check
-        ProjectMember actor = projectMemberRepository.findByProjectIdAndUserId(projectId, actorId)
-                .orElseThrow(() -> new Forbidden("Bạn không có quyền xem danh sách lời mời của dự án này."));
-        if (!actor.getProjectRole().canManageProject()) {
-            throw new Forbidden("Bạn không có quyền xem danh sách lời mời của dự án này.");
-        }
+        requireInviteManager(projectId, actorId);
 
         // Auto-expire: cập nhật các invite PENDING đã quá hạn trước khi query
         if (status == InviteStatus.PENDING) {
@@ -312,7 +321,8 @@ public class ProjectMemberService {
     }
 
     @Transactional
-    public void revokeInvite(UUID projectId, UUID inviteId) {
+    public void revokeInvite(UUID projectId, UUID inviteId, UUID actorId) {
+        requireInviteManager(projectId, actorId);
         ProjectInvite invite = projectInviteRepository.findById(inviteId)
                 .orElseThrow(() -> new NotFoundException("Không tìm thấy lời mời này."));
 
@@ -325,12 +335,12 @@ public class ProjectMemberService {
 
         invite.setStatus(InviteStatus.REVOKED);
         projectInviteRepository.save(invite);
+        logActivity(projectId, actorId, EntityType.PROJECT, inviteId, ActionType.UPDATED, "PENDING", "REVOKED");
     }
 
     @Transactional
     public void resendInvite(UUID projectId, UUID inviteId, UUID actorId) {
-        User actor = userRepository.findById(actorId)
-                .orElseThrow(() -> new NotFoundException("User thao tác không tồn tại"));
+        User actor = requireInviteManager(projectId, actorId);
 
         ProjectInvite invite = projectInviteRepository.findById(inviteId)
                 .orElseThrow(() -> new NotFoundException("Không tìm thấy lời mời này."));
@@ -339,18 +349,20 @@ public class ProjectMemberService {
             throw new BadRequestException("Lời mời này không thuộc dự án.");
         }
         if (invite.getStatus() != InviteStatus.PENDING) {
-            throw new BadRequestException("Chỉ có thể gửi lại lời mời đang ở trạng thái PENDING.");
+            throw new StructuredApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVITE_NOT_RESENDABLE",
+                    "Chỉ có thể gửi lại lời mời đang ở trạng thái PENDING");
         }
 
-        // Reset token và gia hạn 7 ngày
+        // Reset token và gia hạn 72 giờ
         invite.setToken(UUID.randomUUID().toString());
-        invite.setExpiresAt(Instant.now().plus(7, ChronoUnit.DAYS));
+        invite.setExpiresAt(Instant.now().plus(INVITE_EXPIRES_HOURS, ChronoUnit.HOURS));
         projectInviteRepository.save(invite);
 
         emailService.sendProjectInviteEmail(
                 invite.getInviteeEmail(),
                 invite.getProject().getName(),
                 actor.getFullName(),
+                invite.getProjectRole().name(),
                 invite.getToken(),
                 invite.getProject().getId()
         );
@@ -380,26 +392,45 @@ public class ProjectMemberService {
     @Transactional
     public void declineInvite(String token, UUID currentUserId) {
         ProjectInvite invite = projectInviteRepository.findByToken(token)
-                .orElseThrow(() -> new NotFoundException("Đường dẫn lời mời không tồn tại hoặc không hợp lệ."));
+                .orElseThrow(() -> new StructuredApiException(HttpStatus.NOT_FOUND, "TOKEN_NOT_FOUND",
+                        "Đường dẫn lời mời không tồn tại hoặc không hợp lệ."));
+
+        if (invite.getStatus() == InviteStatus.ACCEPTED) {
+            throw new StructuredApiException(HttpStatus.CONFLICT, "ALREADY_ACCEPTED",
+                    "Lời mời đã được chấp nhận trước đó");
+        }
+
+        if (invite.getStatus() == InviteStatus.REVOKED
+                || invite.getStatus() == InviteStatus.EXPIRED
+                || invite.getStatus() == InviteStatus.DECLINED) {
+            throw new StructuredApiException(HttpStatus.GONE, "TOKEN_EXPIRED_OR_REVOKED",
+                    "Lời mời không còn hiệu lực.");
+        }
 
         if (invite.getStatus() != InviteStatus.PENDING) {
-            throw new BadRequestException("Lời mời này đã được xử lý hoặc bị thu hồi.");
+            throw new StructuredApiException(HttpStatus.GONE, "TOKEN_EXPIRED_OR_REVOKED",
+                    "Lời mời không còn hiệu lực.");
         }
+
         if (invite.getExpiresAt().isBefore(Instant.now())) {
             invite.setStatus(InviteStatus.EXPIRED);
             projectInviteRepository.save(invite);
-            throw new BadRequestException("Lời mời này đã hết hạn.");
+            throw new StructuredApiException(HttpStatus.GONE, "TOKEN_EXPIRED_OR_REVOKED", "Lời mời đã hết hạn");
         }
 
         User currentUser = userRepository.findById(currentUserId)
                 .orElseThrow(() -> new NotFoundException("Tài khoản không tồn tại."));
 
         if (!currentUser.getEmail().equalsIgnoreCase(invite.getInviteeEmail())) {
-            throw new BadRequestException("Email của bạn không khớp với email được mời.");
+            throw new StructuredApiException(HttpStatus.FORBIDDEN, "EMAIL_MISMATCH",
+                    "Tài khoản đang đăng nhập không khớp với email được mời.");
         }
 
         invite.setStatus(InviteStatus.DECLINED);
         projectInviteRepository.save(invite);
+
+        logActivity(invite.getProject().getId(), currentUserId, EntityType.PROJECT, invite.getId(),
+                ActionType.INVITE_DECLINED, "PENDING", "DECLINED");
     }
 
     // =========================================================================
@@ -440,7 +471,8 @@ public class ProjectMemberService {
                 .orElseThrow(() -> new NotFoundException("Thành viên không nằm trong dự án này"));
 
         if (project.getOwner().getId().equals(targetUserId)) {
-            throw new BadRequestException("Không thể xóa Chủ sở hữu (Owner) ra khỏi dự án.");
+            throw new StructuredApiException(HttpStatus.FORBIDDEN, "CANNOT_REMOVE_OWNER",
+                    "Không thể xóa Chủ sở hữu (Owner) ra khỏi dự án.");
         }
 
         // Kiểm tra nếu đây là PROJECT_MANAGER duy nhất
@@ -471,7 +503,8 @@ public class ProjectMemberService {
                 .orElseThrow(() -> new NotFoundException("Dự án không tồn tại"));
 
         if (project.getOwner().getId().equals(actorId)) {
-            throw new BadRequestException("Chủ sở hữu (Owner) không thể rời dự án. Hãy chuyển quyền sở hữu trước.");
+            throw new StructuredApiException(HttpStatus.FORBIDDEN, "OWNER_CANNOT_LEAVE",
+                    "Owner không thể rời dự án. Hãy chuyển quyền sở hữu cho thành viên khác trước.");
         }
 
         ProjectMember member = projectMemberRepository.findByProjectIdAndUserId(projectId, actorId)
@@ -489,6 +522,9 @@ public class ProjectMemberService {
         member.setDeletedAt(Instant.now());
         projectMemberRepository.save(member);
         reportService.invalidateOverviewCache(projectId);
+
+        taskRepository.unassignTasksByUserInProject(projectId, actorId);
+        logActivity(projectId, actorId, EntityType.MEMBER, member.getId(), ActionType.MEMBER_LEFT, null, null);
     }
 
     // =========================================================================
@@ -523,27 +559,46 @@ public class ProjectMemberService {
     @Transactional
     public UUID acceptInvite(String token, UUID currentUserId) {
         ProjectInvite invite = projectInviteRepository.findByToken(token)
-                .orElseThrow(() -> new NotFoundException("Đường dẫn lời mời không tồn tại hoặc không hợp lệ."));
+                .orElseThrow(() -> new StructuredApiException(HttpStatus.NOT_FOUND, "TOKEN_NOT_FOUND",
+                        "Đường dẫn lời mời không tồn tại hoặc không hợp lệ."));
+
+        if (invite.getStatus() == InviteStatus.REVOKED) {
+            throw new StructuredApiException(HttpStatus.GONE, "TOKEN_EXPIRED_OR_REVOKED", "Lời mời đã bị hủy");
+        }
+
+        if (invite.getStatus() == InviteStatus.ACCEPTED) {
+            throw new StructuredApiException(HttpStatus.CONFLICT, "ALREADY_MEMBER",
+                    "Lời mời đã được chấp nhận trước đó.");
+        }
+
+        boolean timeExpired = invite.getExpiresAt().isBefore(Instant.now());
+        if (invite.getStatus() == InviteStatus.EXPIRED
+                || (invite.getStatus() == InviteStatus.PENDING && timeExpired)) {
+            if (invite.getStatus() == InviteStatus.PENDING) {
+                invite.setStatus(InviteStatus.EXPIRED);
+                projectInviteRepository.save(invite);
+            }
+            throw new StructuredApiException(HttpStatus.GONE, "TOKEN_EXPIRED_OR_REVOKED", "Lời mời đã hết hạn");
+        }
 
         if (invite.getStatus() != InviteStatus.PENDING) {
-            throw new BadRequestException("Lời mời này đã được xử lý hoặc bị thu hồi.");
-        }
-        if (invite.getExpiresAt().isBefore(Instant.now())) {
-            invite.setStatus(InviteStatus.EXPIRED);
-            throw new BadRequestException("Lời mời này đã hết hạn (quá 7 ngày).");
+            throw new StructuredApiException(HttpStatus.GONE, "TOKEN_EXPIRED_OR_REVOKED",
+                    "Lời mời không còn hiệu lực.");
         }
 
         User currentUser = userRepository.findById(currentUserId)
                 .orElseThrow(() -> new NotFoundException("Tài khoản không tồn tại."));
 
         if (!currentUser.getEmail().equalsIgnoreCase(invite.getInviteeEmail())) {
-            throw new BadRequestException("Email của bạn không khớp với email được mời.");
+            throw new StructuredApiException(HttpStatus.BAD_REQUEST, "EMAIL_MISMATCH",
+                    String.format(
+                            "Tài khoản đang đăng nhập không khớp với email được mời. Vui lòng đăng nhập bằng %s.",
+                            invite.getInviteeEmail()));
         }
 
         if (projectMemberRepository.existsByProjectIdAndUserId(invite.getProject().getId(), currentUserId)) {
-            invite.setStatus(InviteStatus.ACCEPTED);
-            projectInviteRepository.save(invite);
-            throw new ConflictException("Bạn đã là thành viên của dự án này rồi.");
+            throw new StructuredApiException(HttpStatus.CONFLICT, "ALREADY_MEMBER",
+                    "Bạn đã là thành viên của dự án này rồi.");
         }
 
         ProjectMember newMember = ProjectMember.builder()
@@ -557,8 +612,60 @@ public class ProjectMemberService {
         reportService.invalidateOverviewCache(invite.getProject().getId());
 
         invite.setStatus(InviteStatus.ACCEPTED);
+        invite.setAcceptedAt(Instant.now());
+        invite.setInviteeUser(currentUser);
         projectInviteRepository.save(invite);
+        logActivity(invite.getProject().getId(), currentUserId, EntityType.MEMBER, newMember.getId(),
+                ActionType.MEMBER_JOINED, null, invite.getProjectRole().name());
 
         return invite.getProject().getId();
+    }
+
+    private User requireInviteManager(UUID projectId, UUID actorId) {
+        User actor = userRepository.findById(actorId)
+                .orElseThrow(() -> new NotFoundException("User thao tác không tồn tại"));
+
+        if (actor.getSystemRole() == SystemRole.ADMIN) {
+            return actor;
+        }
+
+        ProjectMember actorMember = projectMemberRepository.findByProjectIdAndUserId(projectId, actorId)
+                .orElseThrow(() -> new StructuredApiException(HttpStatus.FORBIDDEN, "FORBIDDEN",
+                        "Chỉ PM hoặc Admin mới có quyền thao tác lời mời."));
+        if (actorMember.getProjectRole() != ProjectRole.PROJECT_MANAGER) {
+            throw new StructuredApiException(HttpStatus.FORBIDDEN, "FORBIDDEN",
+                    "Chỉ PM hoặc Admin mới có quyền thao tác lời mời.");
+        }
+        return actor;
+    }
+
+    private void ensureMemberLimitNotExceeded(UUID projectId) {
+        if (maxMembersPerProject <= 0) {
+            return;
+        }
+        long activeMembers = projectMemberRepository.countByProjectId(projectId);
+        long pendingInvites = projectInviteRepository.findByProjectIdAndStatus(projectId, InviteStatus.PENDING).size();
+        if (activeMembers + pendingInvites >= maxMembersPerProject) {
+            throw new StructuredApiException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "MEMBER_LIMIT_EXCEEDED",
+                    "Đã đạt giới hạn thành viên theo gói dịch vụ hiện tại",
+                    Map.of(
+                            "currentCount", activeMembers + pendingInvites,
+                            "limit", maxMembersPerProject,
+                            "plan", subscriptionPlan
+                    )
+            );
+        }
+    }
+
+    private void logActivity(UUID projectId, UUID actorId, EntityType entityType, UUID entityId,
+                             ActionType actionType, String oldValue, String newValue) {
+        try {
+            HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.currentRequestAttributes()).getRequest();
+            activityLogService.logActivity(projectId, actorId, entityType, entityId, actionType, oldValue, newValue, request);
+        } catch (Exception e) {
+            log.warn("Không thể ghi activity log {} cho entity {}: {}", actionType, entityId, e.getMessage());
+        }
     }
 }

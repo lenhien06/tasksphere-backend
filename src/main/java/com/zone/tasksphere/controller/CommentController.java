@@ -81,6 +81,7 @@ public class CommentController {
 
             **isEdited:** Tự động set = true sau khi sửa.
             Content mới cũng được sanitize Jsoup.
+            **@mention:** Mention mới (so với trước khi sửa) → gửi TASK_MENTIONED như khi tạo comment.
             """
     )
     @PutMapping("/comments/{commentId}")

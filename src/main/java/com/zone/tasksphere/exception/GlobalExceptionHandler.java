@@ -1,6 +1,7 @@
 package com.zone.tasksphere.exception;
 
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import com.zone.tasksphere.dto.response.ApiErrorResponse;
 import com.zone.tasksphere.dto.response.ApiResponse;
 import com.zone.tasksphere.utils.CookieUtils;
 import jakarta.servlet.http.HttpServletResponse;
@@ -130,6 +131,26 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusinessRuleException(BusinessRuleException ex) {
         log.warn("Business Rule Violation: {}", ex.getMessage());
         return buildResponse(ex.getMessage(), HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+
+    // 8b. Lỗi có mã ổn định (Member/Invite & các API chuẩn hóa)
+    @ExceptionHandler(StructuredApiException.class)
+    public ResponseEntity<ApiErrorResponse> handleStructuredApiException(StructuredApiException ex) {
+        log.warn("Structured API error [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return ResponseEntity.status(ex.getStatus()).body(
+                ApiErrorResponse.builder()
+                        .error(ex.getErrorCode())
+                        .message(ex.getMessage())
+                        .meta(ex.getMeta())
+                        .build()
+        );
+    }
+
+    // 9. Resource hợp lệ nhưng không còn khả dụng (410)
+    @ExceptionHandler(GoneException.class)
+    public ResponseEntity<ApiResponse<Void>> handleGoneException(GoneException ex) {
+        log.warn("Gone: {}", ex.getMessage());
+        return buildResponse(ex.getMessage(), HttpStatus.GONE);
     }
 
     // 10. CATCH-ALL: Lỗi hệ thống (500)

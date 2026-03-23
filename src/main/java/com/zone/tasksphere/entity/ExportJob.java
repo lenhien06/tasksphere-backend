@@ -6,6 +6,8 @@ import com.zone.tasksphere.entity.enums.ExportScope;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -36,6 +38,7 @@ public class ExportJob extends BaseEntity {
     @Builder.Default
     private ExportScope scope = ExportScope.ALL;
 
+    @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "sprint_id", columnDefinition = "CHAR(36)")
     private UUID sprintId;
 

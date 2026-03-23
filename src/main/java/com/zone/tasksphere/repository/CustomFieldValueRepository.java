@@ -20,6 +20,24 @@ public interface CustomFieldValueRepository extends JpaRepository<CustomFieldVal
 
     boolean existsByCustomFieldId(UUID customFieldId);
 
+    /**
+     * {@code hasValues} trên definition: chỉ true khi có ít nhất một bản ghi với giá trị thực sự
+     * (một trong các cột typed khác null; text phải non-blank sau trim).
+     * Không dùng {@link #existsByCustomFieldId} — nó đếm cả hàng “rỗng” (mọi cột null).
+     */
+    @Query("""
+            SELECT CASE WHEN COUNT(v) > 0 THEN true ELSE false END
+            FROM CustomFieldValue v
+            WHERE v.customField.id = :fieldId
+              AND (
+                   (v.textValue IS NOT NULL AND TRIM(v.textValue) <> '')
+                OR v.numberValue IS NOT NULL
+                OR v.dateValue IS NOT NULL
+                OR v.booleanValue IS NOT NULL
+              )
+            """)
+    boolean existsNonEmptyValueByCustomFieldId(@Param("fieldId") UUID fieldId);
+
     @Modifying
     @Query("DELETE FROM CustomFieldValue v WHERE v.customField.id = :fieldId")
     void deleteByCustomFieldId(@Param("fieldId") UUID fieldId);

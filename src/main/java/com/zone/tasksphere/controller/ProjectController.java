@@ -28,6 +28,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -117,6 +118,15 @@ public class ProjectController {
                 .body(ApiResponse.success(project, "Dự án đã được tạo thành công"));
     }
 
+    /**
+     * Literal path so {@code /ping} is not bound as {@code /{id}} (UUID) — avoids 500 on invalid UUID.
+     * Endpoint không dùng; trả 404 theo contract test/legacy client.
+     */
+    @GetMapping("/ping")
+    public ResponseEntity<Void> projectPingNotFound() {
+        return ResponseEntity.notFound().build();
+    }
+
     @Operation(summary = "Lấy chi tiết dự án theo ID")
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<ProjectResponse>> getProjectById(
@@ -172,7 +182,7 @@ public class ProjectController {
             3. Gửi notification đến TẤT CẢ thành viên
             4. Ghi activity log
             
-            **Lưu ý:** Dự án đã archive có thể khôi phục bởi Admin.
+            **Lưu ý:** Dự án đã archive có thể khôi phục bởi Owner hoặc Admin.
             """
     )
     @DeleteMapping("/{id}")
@@ -190,6 +200,22 @@ public class ProjectController {
 
         projectService.deleteProject(id, request.getConfirmName(), actorId, isAdmin);
         return ResponseEntity.ok(ApiResponse.success(null, "Dự án đã được xóa thành công"));
+    }
+
+    @Operation(
+        summary = "Khôi phục dự án đã archive",
+        description = """
+            **BR-11:** Dự án archived phải có thể khôi phục.
+            
+            **Quyền hạn:**
+            - Chỉ Owner hoặc System Admin được phép khôi phục dự án đã archive.
+            """
+    )
+    @PatchMapping("/{projectId}/restore")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<ProjectResponse>> restoreProject(
+            @Parameter(description = "UUID của dự án cần khôi phục") @PathVariable UUID projectId) {
+        return ResponseEntity.ok(ApiResponse.success(projectService.restoreProject(projectId)));
     }
 
     @Operation(

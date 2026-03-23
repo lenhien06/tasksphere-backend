@@ -28,7 +28,22 @@ public enum ActionType {
     ASSIGNED("Đã phân công"),
 
     @Schema(description = "Đã đăng nhập")
-    LOGIN("Đã đăng nhập");
+    LOGIN("Đã đăng nhập"),
+
+    @Schema(description = "Đã gửi lời mời thành viên")
+    MEMBER_INVITED("Đã mời thành viên"),
+
+    @Schema(description = "Thành viên đã tham gia dự án")
+    MEMBER_JOINED("Thành viên đã tham gia"),
+
+    @Schema(description = "Thành viên đã rời dự án")
+    MEMBER_LEFT("Thành viên đã rời dự án"),
+
+    @Schema(description = "Lời mời đã bị từ chối")
+    INVITE_DECLINED("Đã từ chối lời mời"),
+
+    @Schema(description = "Đã khôi phục dự án từ archive")
+    PROJECT_RESTORED("Đã khôi phục dự án");
 
     private final String description;
 

@@ -7,9 +7,9 @@ spring:
   # ─── Database ──────────────────────────────────────────────────────────────
   # Production MySQL configuration with RDS or on-premise server
   datasource:
-    url: jdbc:mysql://db.tasksphere.io.vn:3306/tasksphere_prod?useSSL=true&serverTimezone=UTC&allowPublicKeyRetrieval=false&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
+    url: jdbc:mysql://db:3306/tasksphere_prod?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048
     username: tasksphere_user
-    password: TaskSphere@2026#SecurePass
+    password: "TaskSphere@2026#SecurePass"
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 30
@@ -40,9 +40,9 @@ spring:
   # Redis for caching and session management
   data:
     redis:
-      host: redis.tasksphere.io.vn
+      host: redis
       port: 6379
-      password: Redis@2026#SecurePass
+      password: ""
       timeout: 3000ms
       database: 0
       jedis:
@@ -58,7 +58,7 @@ spring:
     host: mail.tasksphere.io.vn
     port: 587
     username: noreply@tasksphere.io.vn
-    password: MailServer@2026#SecurePass
+    password: "MailServer@2026#SecurePass"
     properties:
       mail:
         smtp:
@@ -110,11 +110,14 @@ server:
     connection-timeout: 30000
     keep-alive-timeout: 60000
     max-connections: 10000
+  forward-headers-strategy: framework
+  ssl:
+    enabled: false
 
 # ─── JWT ─────────────────────────────────────────────────────────────────────
 security:
   jwt:
-    secret-key: 7E$B&E)H@McQfTjWnZr4u7x!A%D*G-KaPdSgUkXp2s5v8y/B?E(H+MbQeThWmZq4t7w!z%C&F)J@N
+    secret-key: "7E$B&E)H@McQfTjWnZr4u7x!A%D*G-KaPdSgUkXp2s5v8y/B?E(H+MbQeThWmZq4t7w!z%C&F)J@N"
     issuer: tasksphere-prod
     expiry-time-in-seconds: 3600
     refreshable-duration: 604800
@@ -136,13 +139,19 @@ app:
 
 # ─── MinIO / Object Storage ───────────────────────────────────────────────
 minio:
-  endpoint: ${MINIO_ENDPOINT:http://minio:9000}
-  access-key: ${MINIO_ACCESS_KEY:minioadmin}
-  secret-key: ${MINIO_SECRET_KEY:minioadmin}
-  bucket-name: ${MINIO_BUCKET:tasksphere-files}
-  public-url: ${MINIO_PUBLIC_URL:https://storage.tasksphere.io.vn}
+  endpoint: http://minio:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket-name: tasksphere-files
+  public-url: https://storage.tasksphere.io.vn
   presigned-url-expiry: 3600
   preview-url-expiry: 900
+
+# ─── ClamAV ─────────────────────────────────────────────────────────────────
+clamav:
+  host: clamav
+  port: 3310
+  timeout: 30000
 
 # ─── Monitoring & Actuator ────────────────────────────────────────────────
 management:
@@ -168,11 +177,3 @@ management:
       prometheus:
         enabled: true
 
-# ─── SSL/TLS Configuration (Optional if using HTTP/2) ──────────────────────
-server:
-  ssl:
-    enabled: false
-    # If using termination proxy (recommended)
-    # key-store: /etc/tasksphere/keystore.jks
-    # key-store-password: ${SSL_KEYSTORE_PASSWORD}
-    # key-store-type: JKS

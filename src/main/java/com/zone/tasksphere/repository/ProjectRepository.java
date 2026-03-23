@@ -28,10 +28,10 @@ public interface ProjectRepository extends JpaRepository<Project, UUID>, JpaSpec
 
     Optional<Project> findByProjectKey(String projectKey);
 
-    @Query(value = "SELECT * FROM projects WHERE id = :id", nativeQuery = true)
+    @Query("SELECT p FROM Project p WHERE p.id = :id")
     Optional<Project> findByIdWithDeleted(@Param("id") UUID id);
 
-    @Query(value = "SELECT * FROM projects WHERE project_key = :key", nativeQuery = true)
+    @Query("SELECT p FROM Project p WHERE p.projectKey = :key")
     Optional<Project> findByKeyWithDeleted(@Param("key") String key);
 
     /**

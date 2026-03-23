@@ -57,6 +57,27 @@ cp src/main/resources/application-example.properties \
 # Swagger: http://localhost:8080/swagger-ui.html
 ```
 
+### Tài liệu cho FE (Member & Invite)
+
+- **[docs/FE_MEMBER_INVITE_API.md](docs/FE_MEMBER_INVITE_API.md)** — đặc tả từng endpoint, body, response, mã lỗi, enum.
+
+### Tài liệu cho FE (Task)
+
+- **[docs/FE_TASK_API.md](docs/FE_TASK_API.md)** — CRUD task, Kanban, sub-task, checklist, comment, attachment, worklog, dependency, sprint/backlog, recurrence, version; custom field có bản tóm tắt + link chi tiết.
+
+### Tài liệu cho FE (Comment / @mention / Rich text)
+
+- **[docs/FE_COMMENT_API.md](docs/FE_COMMENT_API.md)** — autocomplete member search, format HTML mention, sanitize & thẻ rich text, notification.
+
+### Tài liệu cho FE (Custom fields)
+
+- **[docs/FE_CUSTOM_FIELD_API.md](docs/FE_CUSTOM_FIELD_API.md)** — định nghĩa field theo project, giá trị trên task, enum kiểu, validation, quyền, DELETE (HIDDEN vs DELETED).
+- **[docs/DB_CUSTOM_FIELDS_VERIFY.md](docs/DB_CUSTOM_FIELDS_VERIFY.md)** — SQL kiểm tra `hasValues` đúng schema, dọn hàng value rỗng, unhide field.
+
+### Quyết định PM (Task API)
+
+- **[docs/PM_TASK_API_DECISIONS.md](docs/PM_TASK_API_DECISIONS.md)** — FEATURE vs SRS, story points, BR-14 (trạng thái đã áp dụng trên BE ghi trong file).
+
 ---
 
 ## License

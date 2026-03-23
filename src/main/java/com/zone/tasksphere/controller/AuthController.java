@@ -183,6 +183,7 @@ public class AuthController {
     )
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout(
+            @org.springframework.web.bind.annotation.RequestBody(required = false) LogoutRequest body,
             HttpServletRequest request,
             HttpServletResponse response
     ) {
@@ -202,6 +203,12 @@ public class AuthController {
                     refreshToken = cookie.getValue();
                 }
             }
+        }
+
+        // BFF calls logout server-to-server (no browser cookies forwarded),
+        // so the refresh token is passed in the request body instead.
+        if (refreshToken == null && body != null && body.getRefreshToken() != null) {
+            refreshToken = body.getRefreshToken();
         }
 
         if (accessToken != null) {

@@ -35,7 +35,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -158,11 +160,23 @@ public class CommentServiceImpl implements CommentService {
 
         // Re-parse mentions from updated content
         UUID projectId = comment.getTask().getProject().getId();
+        Set<UUID> previousMentionUserIds = commentMentionRepository.findByCommentId(commentId).stream()
+                .map(m -> m.getMentionedUser().getId())
+                .collect(Collectors.toSet());
+
         List<User> mentionedUsers = parseMentionsFromHtml(sanitized, projectId);
         commentMentionRepository.deleteByCommentId(commentId);
         saveMentions(comment, mentionedUsers);
 
         comment = commentRepository.save(comment);
+
+        List<User> newlyMentioned = mentionedUsers.stream()
+                .filter(u -> !previousMentionUserIds.contains(u.getId()))
+                .toList();
+        if (!newlyMentioned.isEmpty()) {
+            notificationService.sendMentionNotification(newlyMentioned, comment.getTask(), comment, comment.getAuthor());
+        }
+
         boolean isPM = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
             .map(m -> m.getProjectRole() == com.zone.tasksphere.entity.enums.ProjectRole.PROJECT_MANAGER)
             .orElse(false);

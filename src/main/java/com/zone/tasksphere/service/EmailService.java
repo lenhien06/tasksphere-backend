@@ -80,7 +80,7 @@ public class EmailService {
      */
     @Async
     public void sendProjectInviteEmail(String toEmail, String projectName, String inviterName,
-                                       String token, UUID projectId) {
+                                       String projectRole, String token, UUID projectId) {
         boolean hasInviteToken = (token != null && !token.isEmpty());
         String subject = hasInviteToken
                 ? inviterName + " mời bạn tham gia dự án " + projectName + " trên TaskSphere"
@@ -95,6 +95,7 @@ public class EmailService {
         Context context = new Context();
         context.setVariable("projectName", projectName);
         context.setVariable("inviterName", inviterName);
+        context.setVariable("projectRole", projectRole);
         context.setVariable("inviteLink", inviteLink);
         context.setVariable("isNewUser", hasInviteToken);
 

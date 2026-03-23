@@ -75,6 +75,9 @@ minio:
 
 # ─── Attachment ───────────────────────────────────────────────────────────────
 app:
+  membership:
+    max-members-per-project: 50
+    subscription-plan: FREE
   attachment:
     max-file-size: 26214400       # 25MB in bytes
     allowed-mime-types:

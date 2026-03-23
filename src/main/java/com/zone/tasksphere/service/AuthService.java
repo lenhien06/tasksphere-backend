@@ -46,7 +46,7 @@ public class AuthService {
     private static final int LOCK_DURATION_MINUTES = 15;
     // FIX: Bug3 - Multi-tab race condition: track recently-used refresh tokens
     private static final String REUSED_REFRESH_PREFIX = "reused_refresh:";
-    private static final long REUSED_REFRESH_TTL_SECONDS = 30;
+    private static final long REUSED_REFRESH_TTL_SECONDS = 120; // 30 → 120s: đủ cho multi-tab race condition
 
     // =========================================================
     // 1. THÊM LẠI HÀM GỬI MÃ OTP

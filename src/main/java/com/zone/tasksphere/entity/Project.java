@@ -7,7 +7,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
-import org.hibernate.annotations.SQLRestriction;
 
 import java.util.List;
 
@@ -21,7 +20,6 @@ import java.util.List;
         @Index(name = "idx_projects_key", columnList = "project_key", unique = true)
     }
 )
-@SQLRestriction("deleted_at IS NULL")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -89,4 +87,8 @@ public class Project extends BaseEntity {
 
     @OneToMany(mappedBy = "project", fetch = FetchType.LAZY)
     private List<Webhook> webhooks;
+
+    @Version
+    @Column(nullable = false)
+    private Long version;
 }

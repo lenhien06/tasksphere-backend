@@ -20,6 +20,7 @@ import com.zone.tasksphere.repository.ProjectStatusColumnRepository;
 import com.zone.tasksphere.repository.TaskRepository;
 import com.zone.tasksphere.repository.UserRepository;
 import com.zone.tasksphere.specification.ProjectSpecification;
+import com.zone.tasksphere.utils.AuthUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -167,10 +168,15 @@ public class ProjectService {
 
     @Transactional
     public ProjectResponse createProject(ProjectRequest request, UUID ownerId) {
-        String normalizedKey = request.getProjectKey() != null ? request.getProjectKey().trim().toUpperCase() : null;
+        String normalizedKey = request.getProjectKey() != null ? request.getProjectKey().trim() : null;
         if (normalizedKey == null || !normalizedKey.matches("^[A-Z0-9]{2,10}$")) {
             throw new com.zone.tasksphere.exception.BadRequestException(
                     "Project Key không hợp lệ. Chỉ cho phép 2-10 ký tự IN HOA và số.");
+        }
+
+        if (request.getStartDate() != null && request.getEndDate() != null
+                && !request.getEndDate().isAfter(request.getStartDate())) {
+            throw new com.zone.tasksphere.exception.BadRequestException("endDate phải sau startDate");
         }
 
         if (projectRepository.existsByProjectKey(normalizedKey)) {
@@ -189,7 +195,7 @@ public class ProjectService {
                 .projectKey(normalizedKey)
                 .description(request.getDescription())
                 .visibility(request.getVisibility() != null ? request.getVisibility() : ProjectVisibility.PRIVATE)
-                .startDate(request.getStartDate() != null ? request.getStartDate() : Instant.now())
+                .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
                 .status(ProjectStatus.ACTIVE)
                 .taskCounter(0)
@@ -211,13 +217,30 @@ public class ProjectService {
 
         ProjectMember projectMember = ProjectMember.builder()
                 .project(savedProject).user(owner).projectRole(ProjectRole.PROJECT_MANAGER).joinedAt(Instant.now()).build();
-        projectMemberRepository.save(projectMember);
-        
+        ProjectMember savedMember = projectMemberRepository.save(projectMember);
+
         eventPublisher.publishEvent(ActivityLogEvent.builder()
                 .projectId(savedProject.getId()).actorId(ownerId).entityType(EntityType.PROJECT)
                 .entityId(savedProject.getId()).action(ActionType.CREATED).build());
 
-        return toResponse(savedProject, ownerId, false);
+        // Inverse `project.members` không được JPA hydrate sau save riêng → FE thấy members=[].
+        ProjectResponse response = toResponse(savedProject, ownerId, false);
+        response.setMembers(List.of(toProjectMemberResponse(savedMember, owner)));
+        return response;
+    }
+
+    private static ProjectMemberResponse toProjectMemberResponse(ProjectMember m, User u) {
+        return ProjectMemberResponse.builder()
+                .id(m.getId())
+                .projectRole(m.getProjectRole())
+                .joinedAt(m.getJoinedAt())
+                .user(ProjectMemberResponse.UserInfo.builder()
+                        .id(u.getId())
+                        .fullName(u.getFullName())
+                        .email(u.getEmail())
+                        .avatarUrl(u.getAvatarUrl())
+                        .build())
+                .build();
     }
 
     public ProjectResponse getProjectById(UUID id, UUID userId, boolean isAdmin) {
@@ -350,6 +373,66 @@ public class ProjectService {
                 );
             }
         });
+    }
+
+    @Transactional
+    public ProjectResponse restoreProject(UUID projectId) {
+        com.zone.tasksphere.dto.response.UserDetail currentUser = AuthUtils.getUserDetail();
+        if (currentUser == null) {
+            throw new com.zone.tasksphere.exception.SignInRequiredException("Sign in required");
+        }
+
+        UUID actorId = currentUser.getId();
+        boolean isAdmin = SystemRole.ADMIN.equals(currentUser.getSystemRole());
+
+        log.info("[restoreProject] Querying project by id (include deleted). projectId={}, actorId={}, isAdmin={}",
+                projectId, actorId, isAdmin);
+        Project project = projectRepository.findByIdWithDeleted(projectId)
+                .orElseThrow(() -> new NotFoundException("Dự án không tồn tại"));
+        log.info("[restoreProject] Project found. id={}, status={}, deletedAt={}, ownerId={}",
+                project.getId(), project.getStatus(), project.getDeletedAt(),
+                project.getOwner() != null ? project.getOwner().getId() : null);
+
+        if (project.getDeletedAt() == null) {
+            throw new com.zone.tasksphere.exception.BadRequestException("Dự án chưa bị archive");
+        }
+
+        boolean isOwner = project.getOwner() != null && project.getOwner().getId().equals(actorId);
+        if (!isOwner && !isAdmin) {
+            throw new com.zone.tasksphere.exception.Forbidden("Chỉ Owner hoặc Admin được khôi phục dự án");
+        }
+
+        project.setDeletedAt(null);
+        project.setStatus(ProjectStatus.ACTIVE);
+        Project restoredProject = projectRepository.save(project);
+
+        String notifTitle = "Dự án đã được khôi phục";
+        String notifBody = "Dự án \"" + restoredProject.getName() + "\" đã được khôi phục";
+        List<ProjectMember> members = projectMemberRepository.findByProjectId(restoredProject.getId());
+        members.forEach(member -> {
+            if (member.getUser() != null) {
+                notificationService.createNotification(
+                        member.getUser(),
+                        NotificationType.PROJECT_RESTORED,
+                        notifTitle,
+                        notifBody,
+                        "PROJECT",
+                        restoredProject.getId()
+                );
+            }
+        });
+
+        eventPublisher.publishEvent(ActivityLogEvent.builder()
+                .projectId(restoredProject.getId())
+                .actorId(actorId)
+                .entityType(EntityType.PROJECT)
+                .entityId(restoredProject.getId())
+                .action(ActionType.PROJECT_RESTORED)
+                .oldValues(ProjectStatus.ARCHIVED.name())
+                .newValues(ProjectStatus.ACTIVE.name())
+                .build());
+
+        return toResponse(restoredProject, actorId, isAdmin);
     }
 
     /**

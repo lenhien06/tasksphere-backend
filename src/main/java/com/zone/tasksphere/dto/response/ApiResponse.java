@@ -76,6 +76,14 @@ public class ApiResponse<T> {
                 .build();
     }
 
+    /** Trả về data = null với meta chuẩn (tránh ambiguity khi gọi success(null)). */
+    public static ApiResponse<Void> voidSuccess() {
+        return ApiResponse.<Void>builder()
+                .data(null)
+                .meta(new HashMap<>(defaultMeta()))
+                .build();
+    }
+
     public static <T> ApiResponse<T> error(String message) {
         Map<String, Object> meta = new HashMap<>(defaultMeta());
         meta.put("error", "Error"); // Default error name

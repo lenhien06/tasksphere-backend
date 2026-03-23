@@ -64,6 +64,8 @@ public class SecurityConfig {
                 .addFilterBefore(new JWTFilter(jwtUtils), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_MATCHERS).permitAll()
+                        // SRS 4.3.2.1: xác thực token lời mời công khai (path param, không log query)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/invites/*").permitAll()
                         // FR-38: Cho phép đọc project public/internal qua service-level visibility checks
                         .requestMatchers(HttpMethod.GET, "/api/v1/projects", "/api/v1/projects/**").permitAll()
                         .anyRequest().authenticated()

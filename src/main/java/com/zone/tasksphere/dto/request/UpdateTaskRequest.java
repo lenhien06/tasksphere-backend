@@ -38,9 +38,9 @@ public class UpdateTaskRequest {
     @Schema(description = "Due date", example = "2023-12-31T23:59:59Z")
     private LocalDate dueDate;
 
-    @Min(value = 0, message = "Story points không được âm")
+    @Min(value = 1, message = "Story points phải từ 1 đến 100 (SRS: positive integer)")
     @Max(value = 100, message = "Story points tối đa 100")
-    @Schema(description = "Story points", example = "1")
+    @Schema(description = "Story points 1–100 (optional, null = giữ nguyên hoặc chưa gán)", example = "5")
     private Integer storyPoints;
 
     @DecimalMin(value = "0.0", message = "Số giờ ước tính không được âm")

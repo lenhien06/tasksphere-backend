@@ -26,6 +26,9 @@
                 <p style="font-size: 14px; color: #9ca3af; text-align: center;">
                     Nhấn nút bên dưới để xem chi tiết lời mời và chấp nhận hoặc từ chối tham gia dự án.
                 </p>
+                <p style="font-size: 14px; color: #9ca3af; text-align: center;">
+                    Vai trò được gán: <strong style="color: #ffffff;" th:text="${projectRole}">MEMBER</strong>
+                </p>
                 <div style="text-align: center; margin: 40px 0;">
                     <a th:href="${inviteLink}"
                        style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 16px 32px; border-radius: 12px; font-weight: 600; font-size: 15px; box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);">
@@ -42,6 +45,9 @@
                 <p style="font-size: 14px; color: #9ca3af; text-align: center;">
                     Bây giờ bạn có thể truy cập dự án này trực tiếp từ bảng điều khiển của mình.
                 </p>
+                <p style="font-size: 14px; color: #9ca3af; text-align: center;">
+                    Vai trò được gán: <strong style="color: #ffffff;" th:text="${projectRole}">MEMBER</strong>
+                </p>
                 <div style="text-align: center; margin: 40px 0;">
                     <a th:href="${inviteLink}"
                        style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 16px 32px; border-radius: 12px; font-weight: 600; font-size: 15px; box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);">
@@ -52,7 +58,7 @@
 
             <div style="background-color: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 20px; margin: 30px 0;">
                 <p style="font-size: 13px; color: #6b7280; margin: 0; text-align: center;">
-                    Lời mời này có hiệu lực trong vòng 7 ngày. Sau thời gian này, đường dẫn sẽ hết hạn.
+                    Lời mời này có hiệu lực trong vòng 72 giờ. Sau thời gian này, đường dẫn sẽ hết hạn.
                 </p>
             </div>
 

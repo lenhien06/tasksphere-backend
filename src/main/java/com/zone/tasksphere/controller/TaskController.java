@@ -63,7 +63,7 @@ public class TaskController {
                 **priority**: CRITICAL | HIGH | MEDIUM | LOW (default: MEDIUM)
                 **assigneeId**: UUID của member (optional)
                 **dueDate**: Hạn chót ISO 8601 (optional, phải >= hôm nay)
-                **storyPoints**: Story points 0-100 (optional)
+                **storyPoints**: Story points 1-100 (optional, null = chưa gán)
                 **sprintId**: UUID sprint (null = backlog)
                 **parentTaskId**: UUID task cha (null = root task)
                 **statusColumnId**: UUID cột Kanban (null = cột đầu tiên)
@@ -247,10 +247,10 @@ public class TaskController {
             **FR-16:** Chuyển task sang trạng thái mới theo workflow.
             
             **Business Rules kiểm tra theo thứ tự:**
-            1. **BR-14 — Transition hợp lệ:**
+            1. **BR-14 — Transition hợp lệ (strict, bắt qua IN_REVIEW trước DONE):**
                - TODO → IN_PROGRESS ✅
                - IN_PROGRESS → IN_REVIEW ✅
-               - IN_PROGRESS → DONE ✅ (skip review được phép)
+               - IN_PROGRESS → DONE ❌ (phải qua IN_REVIEW)
                - IN_REVIEW → DONE ✅
                - IN_REVIEW → IN_PROGRESS ✅ (rework)
                - DONE → * ❌ (không thể đổi trạng thái đã DONE)

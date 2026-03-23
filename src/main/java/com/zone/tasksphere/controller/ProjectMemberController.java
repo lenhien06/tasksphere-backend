@@ -87,7 +87,7 @@ public class ProjectMemberController {
         description = """
             **FR-12:** Xóa member và reassign task của họ.
             
-            **BR-09:** Owner KHÔNG thể bị xóa → 422.
+            **BR-09:** Owner KHÔNG thể bị xóa → 403 CANNOT_REMOVE_OWNER.
             
             **Sau khi xóa:**
             - Task của member đó → assignee = NULL (unassigned)
@@ -136,10 +136,10 @@ public class ProjectMemberController {
     ) {
         UUID currentUserId = getCurrentUserId();
         InviteMemberResponse response = projectMemberService.inviteMember(projectId, request, currentUserId);
-        
-        String message = response.isNewUser() 
-                ? "Người dùng chưa có tài khoản. Lời mời tham gia đã được gửi qua email."
-                : "Đã thêm thành viên vào dự án trực tiếp.";
+
+        String message = response.isNewUser()
+                ? "Người dùng chưa có tài khoản. Lời mời qua email đã được gửi."
+                : "Đã gửi lời mời thành viên qua email.";
 
         return ResponseEntity.ok(ApiResponse.success(response, message));
     }
@@ -176,7 +176,8 @@ public class ProjectMemberController {
             @PathVariable UUID projectId,
             @PathVariable UUID inviteId
     ) {
-        projectMemberService.revokeInvite(projectId, inviteId);
+        UUID currentUserId = getCurrentUserId();
+        projectMemberService.revokeInvite(projectId, inviteId, currentUserId);
         return ResponseEntity.ok(ApiResponse.success(null, "Đã thu hồi lời mời thành công."));
     }
 
@@ -188,7 +189,7 @@ public class ProjectMemberController {
     ) {
         UUID currentUserId = getCurrentUserId();
         projectMemberService.resendInvite(projectId, inviteId, currentUserId);
-        return ResponseEntity.ok(ApiResponse.success(null, "Đã gửi lại email lời mời thành công."));
+        return ResponseEntity.ok(ApiResponse.success(null, "Đã gửi lại lời mời"));
     }
 
     @Operation(summary = "Tự rời dự án", description = "Thành viên tự nguyện rời khỏi dự án.")

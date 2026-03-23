@@ -154,6 +154,10 @@ public class CustomFieldServiceImpl implements CustomFieldService {
             field.setRequired(request.getRequired());
         }
 
+        if (request.getHidden() != null) {
+            field.setHidden(request.getHidden());
+        }
+
         field = customFieldRepository.save(field);
         return toDefinitionResponse(field);
     }
@@ -165,7 +169,7 @@ public class CustomFieldServiceImpl implements CustomFieldService {
         CustomField field = customFieldRepository.findByIdAndProjectIdAndDeletedAtIsNull(fieldId, projectId)
                 .orElseThrow(() -> new NotFoundException("Custom field không tồn tại"));
 
-        boolean hasValues = customFieldValueRepository.existsByCustomFieldId(fieldId);
+        boolean hasValues = customFieldValueRepository.existsNonEmptyValueByCustomFieldId(fieldId);
         if (hasValues) {
             field.setHidden(true);
             customFieldRepository.save(field);
@@ -235,7 +239,11 @@ public class CustomFieldServiceImpl implements CustomFieldService {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    /** PM của project hoặc System Admin (BR-05). */
     private void requirePm(UUID projectId, UUID userId) {
+        if (isCurrentUserAdmin(userId)) {
+            return;
+        }
         var member = projectMemberRepository.findByProjectIdAndUserId(projectId, userId)
                 .orElseThrow(() -> new Forbidden("Bạn không phải thành viên dự án"));
         if (member.getProjectRole() != ProjectRole.PROJECT_MANAGER) {
@@ -360,7 +368,7 @@ public class CustomFieldServiceImpl implements CustomFieldService {
             }
         }
 
-        boolean hasValues = customFieldValueRepository.existsByCustomFieldId(field.getId());
+        boolean hasValues = customFieldValueRepository.existsNonEmptyValueByCustomFieldId(field.getId());
 
         return CustomFieldDefinitionResponse.builder()
                 .id(field.getId())

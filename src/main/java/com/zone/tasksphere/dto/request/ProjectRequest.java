@@ -2,6 +2,7 @@ package com.zone.tasksphere.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.zone.tasksphere.entity.enums.ProjectVisibility;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -17,6 +18,7 @@ import java.time.Instant;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Schema(description = "Project Request")
 public class ProjectRequest {
     @NotBlank(message = "Tên dự án không được để trống")
@@ -25,8 +27,9 @@ public class ProjectRequest {
     private String name;
 
     @NotBlank(message = "Key dự án không được để trống")
-    @Pattern(regexp = "^[A-Z0-9]{2,10}$", message = "Key dự án phải từ 2 đến 10 ký tự, chỉ chứa chữ cái in hoa và số, không có khoảng trắng")
-    @Schema(description = "Project key", example = "PROJ-123")
+    @Size(min = 2, max = 10, message = "Project Key phải từ 2 đến 10 ký tự")
+    @Pattern(regexp = "^[A-Z0-9]+$", message = "Project Key chỉ được chứa chữ cái in hoa và số")
+    @Schema(description = "Project key", example = "PROJ123")
     private String projectKey;
 
     @Schema(description = "Description", example = "Description of the item")

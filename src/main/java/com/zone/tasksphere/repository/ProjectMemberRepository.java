@@ -16,6 +16,7 @@ import org.springframework.data.repository.query.Param;
 @Repository
 public interface ProjectMemberRepository extends JpaRepository<ProjectMember, UUID> {
     List<ProjectMember> findByProjectId(UUID projectId);
+    long countByProjectId(UUID projectId);
     Optional<ProjectMember> findByProjectIdAndUserId(UUID projectId, UUID userId);
     boolean existsByProjectIdAndUserId(UUID projectId, UUID userId);
     Optional<ProjectMember> findByProjectAndUser(Project project, User user);

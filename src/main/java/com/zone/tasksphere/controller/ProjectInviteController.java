@@ -6,12 +6,14 @@ import com.zone.tasksphere.dto.response.UserDetail;
 import com.zone.tasksphere.dto.response.VerifyInviteResponse;
 import com.zone.tasksphere.entity.ProjectInvite;
 import com.zone.tasksphere.exception.CustomAuthenticationException;
+import com.zone.tasksphere.exception.StructuredApiException;
 import com.zone.tasksphere.service.ProjectMemberService;
 import com.zone.tasksphere.utils.AuthUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -34,9 +36,16 @@ public class ProjectInviteController {
         return userDetail;
     }
 
-    @Operation(summary = "Xác thực Token lời mời", description = "Dùng để kiểm tra xem link mời còn hạn hay không.")
+    @Operation(summary = "[Deprecated] /invites/verify — đã bỏ", description = "Luôn 404 (kể cả ?token=). Dùng GET /api/v1/invites/{token}.")
     @GetMapping("/api/v1/invites/verify")
-    public ResponseEntity<ApiResponse<VerifyInviteResponse>> verifyInvite(@RequestParam String token) {
+    public ResponseEntity<ApiResponse<VerifyInviteResponse>> legacyVerifyInviteRemoved() {
+        throw new StructuredApiException(HttpStatus.NOT_FOUND, "NOT_FOUND",
+                "Endpoint không còn tồn tại. Sử dụng GET /api/v1/invites/{token}.");
+    }
+
+    @Operation(summary = "Xác thực Token lời mời (public)", description = "SRS 4.3.2.1 — token trên path, không dùng query string.")
+    @GetMapping("/api/v1/invites/{token}")
+    public ResponseEntity<ApiResponse<VerifyInviteResponse>> verifyInviteByPath(@PathVariable String token) {
         ProjectInvite invite = projectMemberService.verifyInviteToken(token);
         VerifyInviteResponse response = VerifyInviteResponse.builder()
                 .projectId(invite.getProject().getId())
@@ -64,7 +73,7 @@ public class ProjectInviteController {
     public ResponseEntity<ApiResponse<Void>> declineInvite(@PathVariable String token) {
         UUID currentUserId = requireAuth().getId();
         projectMemberService.declineInvite(token, currentUserId);
-        return ResponseEntity.ok(ApiResponse.success(null, "Đã từ chối lời mời."));
+        return ResponseEntity.ok(ApiResponse.voidSuccess());
     }
 
     @Operation(summary = "Danh sách lời mời của tôi", description = "Trả về các lời mời đang PENDING dành cho user hiện tại. Dùng cho tab thông báo.")

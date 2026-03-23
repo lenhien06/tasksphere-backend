@@ -84,9 +84,10 @@ public class JwtUtils {
         } catch (JwtException e) {
             return false;
         } catch (Exception e) {
-            // FIX: Bug1 - catch Redis/DataAccess exceptions thay vì để bubble up thành 500
-            log.warn("Lỗi validate token (Redis có thể không khả dụng): {}", e.getMessage());
-            return false;
+            // FIX: Redis không khả dụng → chỉ validate expiry từ JWT payload (không cần Redis)
+            // Trước đây return false → kick user khi Redis restart. Giờ fallback về JWT expiry.
+            log.warn("Redis không khả dụng, bỏ qua kiểm tra revocation: {}", e.getMessage());
+            return !isTokenExpired(token);
         }
     }
 
