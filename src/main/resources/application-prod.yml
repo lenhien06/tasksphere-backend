@@ -37,16 +37,19 @@ spring:
         generate_statistics: false
 
   # ─── Redis ─────────────────────────────────────────────────────────────────
-  # Redis for caching and session management
+  # Lettuce (matches RedisConfig); pool sizing tuned for prod
   data:
     redis:
       host: redis
       port: 6379
       password: ""
       timeout: 3000ms
+      connect-timeout: 3000ms
       database: 0
-      jedis:
+      lettuce:
+        shutdown-timeout: 200ms
         pool:
+          enabled: true
           max-active: 20
           max-idle: 10
           min-idle: 5
@@ -160,8 +163,6 @@ management:
       exposure:
         include: health,info,metrics,prometheus
       base-path: /actuator
-      base-path-mapping:
-        prometheus: /metrics/prometheus
   endpoint:
     health:
       show-details: when-authorized

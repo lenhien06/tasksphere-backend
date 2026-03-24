@@ -2,7 +2,7 @@ spring:
   application:
     name: tasksphere
   profiles:
-    active: dev
+    active: prod
 
 server:
   port: 8080

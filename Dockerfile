@@ -27,7 +27,7 @@ COPY --from=build /app/target/*.jar app.jar
 # -XX:+UseContainerSupport: Ensures JVM respects container memory limits
 # -Xmx: Set max heap size (can be overridden via environment)
 ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -Djava.security.egd=file:/dev/./urandom -Duser.timezone=UTC"
-ENV SPRING_PROFILES_ACTIVE=dev
+ENV SPRING_PROFILES_ACTIVE=prod
 
 EXPOSE 8080
 

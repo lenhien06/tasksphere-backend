@@ -68,7 +68,7 @@ services:
     environment:
       - CLAMAV_NO_FRESHCLAMD=false
     healthcheck:
-      test: ["CMD", "clamdscan", "--ping", "1"]
+      test: ["CMD", "bash", "-c", "echo PING | nc localhost 3310 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -94,11 +94,6 @@ services:
       - "8080:8080"
     environment:
       SPRING_PROFILES_ACTIVE: prod
-    extra_hosts:
-      - "tasksphere.io.vn:127.0.0.1"
-      - "api.tasksphere.io.vn:127.0.0.1"
-      - "storage.tasksphere.io.vn:127.0.0.1"
-
 volumes:
   mysql_data:
   redis_data:

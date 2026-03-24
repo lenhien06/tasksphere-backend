@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisPassword;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettucePoolingClientConfiguration;
@@ -27,34 +28,55 @@ public class RedisConfig {
     @Value("${spring.data.redis.port:6380}")
     private int port;
 
+    @Value("${spring.data.redis.password:}")
+    private String redisPassword;
+
+    @Value("${spring.data.redis.connect-timeout:2000ms}")
+    private Duration connectTimeout;
+
+    @Value("${spring.data.redis.timeout:2000ms}")
+    private Duration commandTimeout;
+
+    @Value("${spring.data.redis.lettuce.pool.max-active:8}")
+    private int poolMaxActive;
+
+    @Value("${spring.data.redis.lettuce.pool.max-idle:8}")
+    private int poolMaxIdle;
+
+    @Value("${spring.data.redis.lettuce.pool.min-idle:0}")
+    private int poolMinIdle;
+
+    @Value("${spring.data.redis.lettuce.pool.max-wait:2000ms}")
+    private Duration poolMaxWait;
+
     @Bean
     public LettuceConnectionFactory redisConnectionFactory() {
-        // Socket-level timeout: 2s to connect + 2s per command
         SocketOptions socketOptions = SocketOptions.builder()
-                .connectTimeout(Duration.ofSeconds(2))
+                .connectTimeout(connectTimeout)
                 .build();
 
-        // Command timeout: any Redis command must complete within 2s
         ClientOptions clientOptions = ClientOptions.builder()
                 .socketOptions(socketOptions)
-                .timeoutOptions(TimeoutOptions.enabled(Duration.ofSeconds(2)))
+                .timeoutOptions(TimeoutOptions.enabled(commandTimeout))
                 .disconnectedBehavior(ClientOptions.DisconnectedBehavior.REJECT_COMMANDS)
                 .build();
 
-        // Connection pool: max-wait 2s to avoid infinite block
         GenericObjectPoolConfig<StatefulConnection<?, ?>> poolConfig = new GenericObjectPoolConfig<>();
-        poolConfig.setMaxTotal(8);
-        poolConfig.setMaxIdle(8);
-        poolConfig.setMinIdle(0);
-        poolConfig.setMaxWait(Duration.ofSeconds(2));
+        poolConfig.setMaxTotal(poolMaxActive);
+        poolConfig.setMaxIdle(poolMaxIdle);
+        poolConfig.setMinIdle(poolMinIdle);
+        poolConfig.setMaxWait(poolMaxWait);
 
         LettucePoolingClientConfiguration clientConfig = LettucePoolingClientConfiguration.builder()
-                .commandTimeout(Duration.ofSeconds(2))
+                .commandTimeout(commandTimeout)
                 .clientOptions(clientOptions)
                 .poolConfig(poolConfig)
                 .build();
 
         RedisStandaloneConfiguration serverConfig = new RedisStandaloneConfiguration(host, port);
+        if (redisPassword != null && !redisPassword.isBlank()) {
+            serverConfig.setPassword(RedisPassword.of(redisPassword));
+        }
         return new LettuceConnectionFactory(serverConfig, clientConfig);
     }
 
