@@ -46,4 +46,42 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, UUID>,
             @Param("sprintId") UUID sprintId,
             @Param("startDate") Instant startDate,
             @Param("endDate") Instant endDate);
+
+    @Query(
+        value = """
+            SELECT al.* FROM activity_logs al
+            WHERE al.project_id = :projectId
+              AND (
+                    (al.entity_type = 'TASK' AND al.entity_id = :taskId)
+                 OR (al.entity_type = 'COMMENT' AND EXISTS (
+                        SELECT 1 FROM comments c
+                        WHERE c.id = al.entity_id AND c.task_id = :taskId
+                    ))
+                 OR (al.entity_type = 'ATTACHMENT' AND EXISTS (
+                        SELECT 1 FROM attachments a
+                        WHERE a.id = al.entity_id AND a.task_id = :taskId
+                    ))
+                  )
+            ORDER BY al.created_at DESC
+        """,
+        countQuery = """
+            SELECT COUNT(*) FROM activity_logs al
+            WHERE al.project_id = :projectId
+              AND (
+                    (al.entity_type = 'TASK' AND al.entity_id = :taskId)
+                 OR (al.entity_type = 'COMMENT' AND EXISTS (
+                        SELECT 1 FROM comments c
+                        WHERE c.id = al.entity_id AND c.task_id = :taskId
+                    ))
+                 OR (al.entity_type = 'ATTACHMENT' AND EXISTS (
+                        SELECT 1 FROM attachments a
+                        WHERE a.id = al.entity_id AND a.task_id = :taskId
+                    ))
+                  )
+        """,
+        nativeQuery = true
+    )
+    Page<ActivityLog> findTaskActivities(@Param("projectId") UUID projectId,
+                                         @Param("taskId") UUID taskId,
+                                         Pageable pageable);
 }

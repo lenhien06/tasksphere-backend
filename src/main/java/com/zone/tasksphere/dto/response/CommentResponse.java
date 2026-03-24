@@ -28,6 +28,8 @@ public class CommentResponse {
     private boolean isEdited;
     @Schema(description = "Mentioned users", example = "[]")
     private List<UserSummary> mentionedUsers;
+    @Schema(description = "Attachments of this comment", example = "[]")
+    private List<AttachmentResponse> attachments;
     @Schema(description = "Replies (1 level only — no nested replies)", example = "[]")
     private List<CommentResponse> replies;
     @Schema(description = "Current user can edit this comment", example = "true")

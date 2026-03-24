@@ -1,5 +1,5 @@
 # TaskSphere Backend — Hướng dẫn cho Team
-
+docker compose up -d db redis minio clamav
 ```
 ### Bước 1 — Clone & cấu hình env
 ### Bước 2 — Khởi động Database & Redis

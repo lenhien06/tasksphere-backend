@@ -9,6 +9,7 @@ import com.zone.tasksphere.entity.Task;
 import com.zone.tasksphere.entity.User;
 import com.zone.tasksphere.entity.enums.CustomFieldType;
 import com.zone.tasksphere.entity.enums.TaskStatus;
+import com.zone.tasksphere.repository.AttachmentRepository;
 import com.zone.tasksphere.repository.CustomFieldValueRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ import java.util.List;
 public class TaskMapper {
 
     private final CustomFieldValueRepository customFieldValueRepository;
+    private final AttachmentRepository attachmentRepository;
 
     // ── Light response (Kanban / List view) ──────────────────────────
 
@@ -37,6 +39,7 @@ public class TaskMapper {
                 .filter(t -> t.getTaskStatus() == TaskStatus.DONE)
                 .count()
             : 0;
+        int taskOnlyAttachmentCount = (int) attachmentRepository.countByTaskIdAndCommentIsNull(task.getId());
 
         return TaskResponse.builder()
             .id(task.getId())
@@ -56,7 +59,7 @@ public class TaskMapper {
             .subtaskCount(subtaskCount)
             .subtaskDone(subtaskDone)
             .commentsCount(task.getComments() != null ? task.getComments().size() : 0)
-            .attachmentsCount(task.getAttachments() != null ? task.getAttachments().size() : 0)
+            .attachmentsCount(taskOnlyAttachmentCount)
             .createdAt(task.getCreatedAt())
             .updatedAt(task.getUpdatedAt())
             .assignee(toUserSummary(assignee))
@@ -74,6 +77,7 @@ public class TaskMapper {
         int subtaskDone = (int) subtasks.stream()
             .filter(s -> s.getTaskStatus() == TaskStatus.DONE)
             .count();
+        int taskOnlyAttachmentCount = (int) attachmentRepository.countByTaskIdAndCommentIsNull(task.getId());
 
         List<CustomFieldValueResponse> customFieldValues = toCustomFieldValueResponses(task.getId());
 
@@ -100,7 +104,7 @@ public class TaskMapper {
             .parentTask(toTaskSummary(task.getParentTask()))
             .subtasks(subtasks)
             .commentCount(task.getComments() != null ? task.getComments().size() : 0)
-            .attachmentCount(task.getAttachments() != null ? task.getAttachments().size() : 0)
+            .attachmentCount(taskOnlyAttachmentCount)
             .assignee(toDetailUserSummary(task.getAssignee()))
             .reporter(toDetailUserSummary(task.getReporter()))
             .sprint(toSprintSummary(task))

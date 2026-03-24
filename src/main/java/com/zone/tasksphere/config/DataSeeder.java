@@ -1050,7 +1050,7 @@ public class DataSeeder implements CommandLineRunner {
         User dev2 = u("dev2@tasksphere.local");
         User dev3 = u("dev3@tasksphere.local");
 
-        if (t025 != null && attachmentRepository.countByTaskId(t025.getId()) == 0) {
+        if (t025 != null && attachmentRepository.countByTaskIdAndCommentIsNull(t025.getId()) == 0) {
             attachmentRepository.save(Attachment.builder()
                     .task(t025)
                     .uploadedBy(dev2)
@@ -1064,7 +1064,7 @@ public class DataSeeder implements CommandLineRunner {
                     .build());
         }
 
-        if (t011 != null && attachmentRepository.countByTaskId(t011.getId()) == 0) {
+        if (t011 != null && attachmentRepository.countByTaskIdAndCommentIsNull(t011.getId()) == 0) {
             attachmentRepository.save(Attachment.builder()
                     .task(t011)
                     .uploadedBy(dev3)

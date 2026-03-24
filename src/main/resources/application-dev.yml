@@ -37,12 +37,16 @@ spring:
     redis:
       host: localhost
       port: 6380
-      timeout: 2000ms
-      jedis:
+      timeout: 2000ms          # command timeout cho Lettuce
+      connect-timeout: 2000ms  # TCP connection timeout
+      lettuce:
+        shutdown-timeout: 200ms
         pool:
+          enabled: true
           max-active: 8
           max-idle: 8
           min-idle: 0
+          max-wait: 2000ms     # tối đa 2s chờ lấy connection từ pool
 
   # ─── Mail ──────────────────────────────────────────────────────────────────
   mail:

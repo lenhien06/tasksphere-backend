@@ -14,11 +14,13 @@ public interface AttachmentService {
 
     /** Initiates an async upload — returns 202 + jobId immediately */
     UploadJobResponse initiateAsyncUpload(UUID projectId, UUID taskId, MultipartFile file, UUID currentUserId);
+    AttachmentResponse uploadCommentAttachment(UUID projectId, UUID taskId, UUID commentId, MultipartFile file, UUID currentUserId);
 
     /** Polls the status of an async upload job */
     UploadJobResponse getJobStatus(UUID jobId, UUID currentUserId);
 
     List<AttachmentResponse> getAttachments(UUID projectId, UUID taskId, UUID currentUserId);
+    List<AttachmentResponse> getCommentAttachments(UUID projectId, UUID taskId, UUID commentId, UUID currentUserId);
 
     /** Returns full AttachmentResponse including a fresh previewUrl (TTL 15min) */
     AttachmentResponse getPreviewUrl(UUID attachmentId, UUID currentUserId);

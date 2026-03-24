@@ -8,6 +8,9 @@ import lombok.Getter;
 public enum ActionType {
     @Schema(description = "Đã tạo mới")
     CREATED("Đã tạo"),
+
+    @Schema(description = "Đã tạo task")
+    TASK_CREATED("Đã tạo task"),
     
     @Schema(description = "Đã cập nhật dữ liệu")
     UPDATED("Đã cập nhật"),
@@ -26,6 +29,30 @@ public enum ActionType {
     
     @Schema(description = "Đã phân công người thực hiện")
     ASSIGNED("Đã phân công"),
+
+    @Schema(description = "Đã thay đổi người được giao")
+    ASSIGNEE_CHANGED("Đã thay đổi assignee"),
+
+    @Schema(description = "Đã thay đổi độ ưu tiên")
+    PRIORITY_CHANGED("Đã thay đổi priority"),
+
+    @Schema(description = "Đã thêm bình luận")
+    COMMENT_ADDED("Đã thêm bình luận"),
+
+    @Schema(description = "Đã xóa bình luận")
+    COMMENT_DELETED("Đã xóa bình luận"),
+
+    @Schema(description = "Đã upload tệp đính kèm")
+    ATTACHMENT_UPLOADED("Đã upload tệp"),
+
+    @Schema(description = "Đã xóa tệp đính kèm")
+    ATTACHMENT_DELETED("Đã xóa tệp"),
+
+    @Schema(description = "Đã tạo sub-task")
+    SUBTASK_CREATED("Đã tạo sub-task"),
+
+    @Schema(description = "Đã xóa sub-task")
+    SUBTASK_DELETED("Đã xóa sub-task"),
 
     @Schema(description = "Đã đăng nhập")
     LOGIN("Đã đăng nhập"),

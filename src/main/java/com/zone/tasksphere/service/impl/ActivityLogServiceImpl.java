@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -71,6 +72,15 @@ public class ActivityLogServiceImpl implements ActivityLogService {
 
         Page<ActivityLog> logPage = activityLogRepository.findAll(spec, pageable);
 
+        return PageResponse.fromPage(logPage.map(this::mapToResponse));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<ActivityLogResponse> getTaskActivities(UUID projectId, UUID taskId, Pageable pageable) {
+        // Native query already has ORDER BY created_at DESC; avoid appending pageable sort
+        Pageable safePageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
+        Page<ActivityLog> logPage = activityLogRepository.findTaskActivities(projectId, taskId, safePageable);
         return PageResponse.fromPage(logPage.map(this::mapToResponse));
     }
 

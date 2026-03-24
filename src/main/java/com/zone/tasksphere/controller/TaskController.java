@@ -247,13 +247,8 @@ public class TaskController {
             **FR-16:** Chuyển task sang trạng thái mới theo workflow.
             
             **Business Rules kiểm tra theo thứ tự:**
-            1. **BR-14 — Transition hợp lệ (strict, bắt qua IN_REVIEW trước DONE):**
-               - TODO → IN_PROGRESS ✅
-               - IN_PROGRESS → IN_REVIEW ✅
-               - IN_PROGRESS → DONE ❌ (phải qua IN_REVIEW)
-               - IN_REVIEW → DONE ✅
-               - IN_REVIEW → IN_PROGRESS ✅ (rework)
-               - DONE → * ❌ (không thể đổi trạng thái đã DONE)
+            1. **Transition mở (Jira-like):**
+               Cho phép chuyển từ bất kỳ status nào sang bất kỳ status nào.
             
             2. **BR-18 — Done condition:**
                Khi chuyển sang DONE: TẤT CẢ sub-task cấp 1 phải DONE/CANCELLED.
@@ -282,7 +277,7 @@ public class TaskController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Đổi trạng thái thành công"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Chỉ PM hoặc Assignee mới được đổi"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "ETag conflict — dữ liệu đã thay đổi"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "422", description = "Vi phạm BR-14/BR-18/BR-28")
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "422", description = "Vi phạm BR-18/BR-28")
         }
     )
     @PatchMapping("/{taskId}/status")

@@ -53,12 +53,14 @@ public class CommentServiceImpl implements CommentService {
 
     private final CommentRepository commentRepository;
     private final CommentMentionRepository commentMentionRepository;
+    private final AttachmentRepository attachmentRepository;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final NotificationService notificationService;
     private final ActivityLogService activityLogService;
     private final WebSocketService webSocketService;
+    private final MinioStorageService minioStorageService;
 
     /** FR-22 spec 96: Only 1 level of reply. depth 0=root, 1=reply (no nesting) */
     private static final int MAX_COMMENT_DEPTH = 1;
@@ -110,7 +112,7 @@ public class CommentServiceImpl implements CommentService {
             notificationService.sendTaskCommented(task, task.getAssignee(), author);
         }
 
-        logActivity(projectId, currentUserId, EntityType.COMMENT, comment.getId(), ActionType.CREATED, null, null);
+        logActivity(projectId, currentUserId, EntityType.COMMENT, comment.getId(), ActionType.COMMENT_ADDED, null, null);
 
         boolean isPM = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
             .map(m -> m.getProjectRole() == com.zone.tasksphere.entity.enums.ProjectRole.PROJECT_MANAGER)
@@ -199,6 +201,9 @@ public class CommentServiceImpl implements CommentService {
 
         comment.setDeletedAt(Instant.now());
         commentRepository.save(comment);
+        String oldPreview = comment.getContent() == null ? null
+            : (comment.getContent().length() <= 50 ? comment.getContent() : comment.getContent().substring(0, 50));
+        logActivity(projectId, currentUserId, EntityType.COMMENT, comment.getId(), ActionType.COMMENT_DELETED, oldPreview, null);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -304,6 +309,12 @@ public class CommentServiceImpl implements CommentService {
                 .build())
             .toList();
 
+        List<com.zone.tasksphere.dto.response.AttachmentResponse> attachments = attachmentRepository
+            .findByCommentIdOrderByCreatedAtDesc(comment.getId())
+            .stream()
+            .map(this::toAttachmentResponse)
+            .toList();
+
         boolean canEdit = comment.getAuthor().getId().equals(currentUserId)
             && comment.getCreatedAt() != null
             && comment.getCreatedAt().isAfter(Instant.now().minus(Duration.ofHours(24)));
@@ -322,11 +333,32 @@ public class CommentServiceImpl implements CommentService {
             .depth(comment.getDepth())
             .isEdited(comment.isEdited())
             .mentionedUsers(mentionSummaries)
+            .attachments(attachments)
             .replies(replies)
             .canEdit(canEdit)
             .canDelete(canDelete)
             .createdAt(comment.getCreatedAt())
             .updatedAt(comment.getUpdatedAt())
+            .build();
+    }
+
+    private com.zone.tasksphere.dto.response.AttachmentResponse toAttachmentResponse(Attachment a) {
+        boolean previewable = minioStorageService.isPreviewable(a.getContentType());
+        String previewUrl = previewable ? minioStorageService.generatePreviewUrl(a.getS3Key()) : null;
+        return com.zone.tasksphere.dto.response.AttachmentResponse.builder()
+            .id(a.getId())
+            .fileName(a.getOriginalFilename())
+            .fileSize(a.getFileSize())
+            .mimeType(a.getContentType())
+            .downloadUrl(minioStorageService.generateDownloadUrl(a.getS3Key()))
+            .previewUrl(previewUrl)
+            .previewable(previewable)
+            .uploadedBy(com.zone.tasksphere.dto.response.AttachmentResponse.UserSummary.builder()
+                .id(a.getUploadedBy().getId())
+                .fullName(a.getUploadedBy().getFullName())
+                .avatarUrl(a.getUploadedBy().getAvatarUrl())
+                .build())
+            .uploadedAt(a.getCreatedAt())
             .build();
     }
 }

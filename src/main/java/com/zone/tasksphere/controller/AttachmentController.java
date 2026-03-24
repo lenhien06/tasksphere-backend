@@ -69,6 +69,18 @@ public class AttachmentController {
         return ResponseEntity.accepted().body(ApiResponse.success(response));
     }
 
+    @Operation(summary = "Upload attachment cho comment", description = "Upload trực tiếp file gắn vào 1 comment cụ thể.")
+    @PostMapping("/projects/{projectId}/tasks/{taskId}/comments/{commentId}/attachments")
+    public ResponseEntity<ApiResponse<AttachmentResponse>> uploadCommentAttachment(
+            @PathVariable UUID projectId,
+            @PathVariable UUID taskId,
+            @PathVariable UUID commentId,
+            @RequestParam("file") MultipartFile file) {
+        AttachmentResponse response = attachmentService.uploadCommentAttachment(
+                projectId, taskId, commentId, file, getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
     @Operation(
         summary = "Kiểm tra trạng thái upload job",
         description = """
@@ -101,6 +113,17 @@ public class AttachmentController {
             @PathVariable UUID projectId,
             @PathVariable UUID taskId) {
         List<AttachmentResponse> response = attachmentService.getAttachments(projectId, taskId, getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Lấy danh sách attachment của comment")
+    @GetMapping("/projects/{projectId}/tasks/{taskId}/comments/{commentId}/attachments")
+    public ResponseEntity<ApiResponse<List<AttachmentResponse>>> getCommentAttachments(
+            @PathVariable UUID projectId,
+            @PathVariable UUID taskId,
+            @PathVariable UUID commentId) {
+        List<AttachmentResponse> response = attachmentService.getCommentAttachments(
+                projectId, taskId, commentId, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

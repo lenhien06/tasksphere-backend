@@ -152,7 +152,7 @@ public class TaskServiceImpl implements TaskService {
 
         // Ghi activity log
         logActivity(project.getId(), currentUserId, EntityType.TASK, task.getId(),
-            ActionType.CREATED, null, toJson(Map.of(
+            ActionType.TASK_CREATED, null, toJson(Map.of(
                     "taskCode", taskCode,
                     "title", task.getTitle(),
                     "type", task.getType() != null ? task.getType().name() : null,
@@ -262,6 +262,7 @@ public class TaskServiceImpl implements TaskService {
         }
         UUID oldAssigneeId = task.getAssignee() != null ? task.getAssignee().getId() : null;
         String oldAssigneeName = task.getAssignee() != null ? task.getAssignee().getFullName() : null;
+        String oldPriority = task.getPriority() != null ? task.getPriority().name() : null;
         UUID oldSprintId = task.getSprint() != null ? task.getSprint().getId() : null;
         String oldSprintName = task.getSprint() != null ? task.getSprint().getName() : null;
         Map<String, Object> oldSnapshot = buildTaskSnapshot(task);
@@ -299,14 +300,6 @@ public class TaskServiceImpl implements TaskService {
                     || !task.getStatusColumn().getId().equals(request.getStatusColumnId()))) {
             ProjectStatusColumn newCol = columnRepository.findById(request.getStatusColumnId())
                 .orElseThrow(() -> new NotFoundException("Column not found"));
-            if (newCol.getMappedStatus() != null) {
-                TaskStatus current = task.getTaskStatus();
-                TaskStatus mapped = newCol.getMappedStatus();
-                if (!current.equals(mapped) && !current.canTransitionTo(mapped)) {
-                    throw new BusinessRuleException(
-                            String.format("Không thể chuyển từ %s sang %s khi đổi cột qua cập nhật task (BR-14).", current, mapped));
-                }
-            }
             task.setStatusColumn(newCol);
             if (newCol.getMappedStatus() != null) {
                 task.setTaskStatus(newCol.getMappedStatus());
@@ -340,9 +333,15 @@ public class TaskServiceImpl implements TaskService {
         if ((oldAssigneeId == null && newAssigneeId != null)
                 || (oldAssigneeId != null && !oldAssigneeId.equals(newAssigneeId))) {
             logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
-                    ActionType.ASSIGNED,
+                    ActionType.ASSIGNEE_CHANGED,
                     toJson(mapOf("assigneeId", oldAssigneeId, "assigneeName", oldAssigneeName)),
                     toJson(mapOf("assigneeId", newAssigneeId, "assigneeName", newAssigneeName)));
+        }
+
+        String newPriority = task.getPriority() != null ? task.getPriority().name() : null;
+        if ((oldPriority == null && newPriority != null) || (oldPriority != null && !oldPriority.equals(newPriority))) {
+            logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
+                    ActionType.PRIORITY_CHANGED, oldPriority, newPriority);
         }
 
         UUID newSprintId = task.getSprint() != null ? task.getSprint().getId() : null;
@@ -386,14 +385,8 @@ public class TaskServiceImpl implements TaskService {
             throw new Forbidden("Chỉ Assignee hoặc PM mới được đổi trạng thái");
         }
 
-        // BR-14: Validate transition
         TaskStatus oldStatus = task.getTaskStatus();
         TaskStatus newStatus = request.getStatus();
-
-        if (!oldStatus.canTransitionTo(newStatus)) {
-            throw new BusinessRuleException(
-                String.format("Không thể chuyển từ %s sang %s", oldStatus, newStatus));
-        }
 
         // BR-18: Kiểm tra sub-tasks khi chuyển sang DONE
         if (newStatus == TaskStatus.DONE) {
@@ -469,12 +462,7 @@ public class TaskServiceImpl implements TaskService {
         task.setStatusColumn(newColumn);
         task.setTaskPosition(request.getNewPosition());
         if (newColumn.getMappedStatus() != null) {
-            TaskStatus current = task.getTaskStatus();
             TaskStatus mapped = newColumn.getMappedStatus();
-            if (!current.equals(mapped) && !current.canTransitionTo(mapped)) {
-                throw new BusinessRuleException(
-                        String.format("Không thể chuyển trạng thái từ %s sang %s khi kéo cột (BR-14).", current, mapped));
-            }
             task.setTaskStatus(mapped);
         }
         taskRepository.save(task);
@@ -515,7 +503,7 @@ public class TaskServiceImpl implements TaskService {
         taskRepository.save(task);
 
         // BR-24: Đệ quy soft delete sub-tasks
-        softDeleteSubtasksRecursively(taskId, now);
+        softDeleteSubtasksRecursively(projectId, currentUserId, taskId, now);
 
         logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
             ActionType.DELETED, toJson(Map.of(
@@ -604,7 +592,7 @@ public class TaskServiceImpl implements TaskService {
             .build();
 
         subTask = taskRepository.save(subTask);
-        logActivity(projectId, currentUserId, EntityType.TASK, subTask.getId(), ActionType.CREATED, null, toJson(Map.of(
+        logActivity(projectId, currentUserId, EntityType.TASK, subTask.getId(), ActionType.SUBTASK_CREATED, null, toJson(Map.of(
                 "taskCode", taskCode,
                 "title", subTask.getTitle(),
                 "parentTaskId", parentTask.getId()
@@ -745,10 +733,14 @@ public class TaskServiceImpl implements TaskService {
             .build();
     }
 
-    private void softDeleteSubtasksRecursively(UUID parentId, Instant now) {
+    private void softDeleteSubtasksRecursively(UUID projectId, UUID actorId, UUID parentId, Instant now) {
         List<Task> children = taskRepository.findByParentTaskId(parentId);
+        for (Task child : children) {
+            logActivity(projectId, actorId, EntityType.TASK, child.getId(),
+                ActionType.SUBTASK_DELETED, child.getTitle(), null);
+        }
         taskRepository.softDeleteDirectSubtasks(parentId, now);
-        children.forEach(child -> softDeleteSubtasksRecursively(child.getId(), now));
+        children.forEach(child -> softDeleteSubtasksRecursively(projectId, actorId, child.getId(), now));
     }
 
     private void validateMembership(UUID projectId, UUID userId) {

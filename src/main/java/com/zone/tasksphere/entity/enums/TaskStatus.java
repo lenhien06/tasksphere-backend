@@ -17,17 +17,8 @@ public enum TaskStatus {
     private final int sortOrder;
     private final boolean isTerminal;
 
-    /**
-     * BR-14 (strict theo SRS): không cho IN_PROGRESS → DONE trực tiếp;
-     * bắt buộc qua IN_REVIEW (trừ rework IN_REVIEW → IN_PROGRESS).
-     */
     public boolean canTransitionTo(TaskStatus next) {
-        return switch (this) {
-            case TODO        -> next == IN_PROGRESS;
-            case IN_PROGRESS -> next == IN_REVIEW;
-            case IN_REVIEW   -> next == DONE || next == IN_PROGRESS;
-            case DONE        -> false;
-            case CANCELLED   -> false;
-        };
+        // Open transition model (Jira-like): allow moving between any statuses.
+        return next != null;
     }
 }

@@ -29,3 +29,41 @@ Thumbs.db
 
 ### Claude ###
 .claude/
+
+### Local config & secrets ###
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+secrets/
+
+### Sensitive YAML / config ###
+*.yml
+*.yaml
+!docker-compose.yml
+!docker-compose*.yml
+!application.yml
+!application-example.yml
+!application-*.example.yml
+!*.template.yml
+!*.template.yaml
+
+### Security keys / certificates ###
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_rsa.pub
+known_hosts
+
+### Cloud credentials ###
+credentials.json
+service-account*.json
+google-credentials*.json
+aws-credentials*

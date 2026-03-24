@@ -445,7 +445,7 @@ public class SprintServiceImpl implements SprintService {
 
         task = taskRepository.save(task);
         UUID newSprintId = task.getSprint() != null ? task.getSprint().getId() : null;
-        String newSprintName = task.getSprint() != null ? task.getSprint().getName() : null;
+        String newSprintName = task.getSprint() != null ? task.getSprint().getName() : "Backlog";
         if ((oldSprintId == null && newSprintId != null)
                 || (oldSprintId != null && !oldSprintId.equals(newSprintId))) {
             logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, task.getId(),

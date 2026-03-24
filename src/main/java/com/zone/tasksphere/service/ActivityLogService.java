@@ -24,4 +24,9 @@ public interface ActivityLogService {
     PageResponse<ActivityLogResponse> getProjectActivities(
             UUID projectId, UUID actorId, EntityType type, ActionType action, 
             Instant from, Instant to, Pageable pageable);
+
+    /**
+     * Truy vấn activity theo phạm vi task (bao gồm TASK/COMMENT/ATTACHMENT của task đó)
+     */
+    PageResponse<ActivityLogResponse> getTaskActivities(UUID projectId, UUID taskId, Pageable pageable);
 }

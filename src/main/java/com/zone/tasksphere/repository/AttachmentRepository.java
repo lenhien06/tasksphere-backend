@@ -10,7 +10,9 @@ import java.util.UUID;
 @Repository
 public interface AttachmentRepository extends JpaRepository<Attachment, UUID> {
 
-    List<Attachment> findByTaskIdOrderByCreatedAtDesc(UUID taskId);
+    List<Attachment> findByTaskIdAndCommentIsNullOrderByCreatedAtDesc(UUID taskId);
+    List<Attachment> findByCommentIdOrderByCreatedAtDesc(UUID commentId);
 
-    long countByTaskId(UUID taskId);
+    long countByTaskIdAndCommentIsNull(UUID taskId);
+    long countByCommentId(UUID commentId);
 }
