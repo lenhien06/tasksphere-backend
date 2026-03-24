@@ -636,18 +636,17 @@ public class TaskServiceImpl implements TaskService {
 
         subTask.setParentTask(null);
         subTask.setDepth(0);
-        subTask = taskRepository.save(subTask);
+        final Task promotedTask = taskRepository.save(subTask);
 
-        logActivity(projectId, currentUserId, EntityType.TASK, subTask.getId(),
+        logActivity(projectId, currentUserId, EntityType.TASK, promotedTask.getId(),
             ActionType.SUBTASK_PROMOTED,
             toJson(Map.of("parentTaskId", oldParentId, "parentTaskCode", oldParent.getTaskCode())),
-            toJson(Map.of("taskCode", subTask.getTaskCode(), "title", subTask.getTitle())));
+            toJson(Map.of("taskCode", promotedTask.getTaskCode(), "title", promotedTask.getTitle())));
 
         // Notify: PM(s) + reporter of old parent + assignee of sub-task
-        User actor = getUser(currentUserId);
         String notifTitle = "Sub-task được chuyển thành task độc lập";
         String notifBody = String.format("[%s] %s đã được tách ra từ [%s]",
-            subTask.getTaskCode(), subTask.getTitle(), oldParent.getTaskCode());
+            promotedTask.getTaskCode(), promotedTask.getTitle(), oldParent.getTaskCode());
 
         projectMemberRepository.findByProjectId(projectId).stream()
             .filter(m -> m.getProjectRole() == ProjectRole.PROJECT_MANAGER)
@@ -655,21 +654,21 @@ public class TaskServiceImpl implements TaskService {
             .filter(u -> !u.getId().equals(currentUserId))
             .forEach(pm -> notificationService.createNotification(
                 pm, NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
-                EntityType.TASK.name(), subTask.getId()));
+                EntityType.TASK.name(), promotedTask.getId()));
 
         if (oldParent.getReporter() != null && !oldParent.getReporter().getId().equals(currentUserId)) {
             notificationService.createNotification(
                 oldParent.getReporter(), NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
-                EntityType.TASK.name(), subTask.getId());
+                EntityType.TASK.name(), promotedTask.getId());
         }
-        if (subTask.getAssignee() != null && !subTask.getAssignee().getId().equals(currentUserId)) {
+        if (promotedTask.getAssignee() != null && !promotedTask.getAssignee().getId().equals(currentUserId)) {
             notificationService.createNotification(
-                subTask.getAssignee(), NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
-                EntityType.TASK.name(), subTask.getId());
+                promotedTask.getAssignee(), NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
+                EntityType.TASK.name(), promotedTask.getId());
         }
 
-        log.info("Sub-task {} promoted to root task by {}", subTask.getTaskCode(), currentUserId);
-        return taskMapper.toDetailResponse(subTask);
+        log.info("Sub-task {} promoted to root task by {}", promotedTask.getTaskCode(), currentUserId);
+        return taskMapper.toDetailResponse(promotedTask);
     }
 
     // ════════════════════════════════════════
