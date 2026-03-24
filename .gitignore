@@ -48,6 +48,10 @@ secrets/
 !application-*.example.yml
 !*.template.yml
 !*.template.yaml
+!.github/
+!.github/**
+!.github/workflows/
+!.github/workflows/*.yml
 
 ### Security keys / certificates ###
 *.pem

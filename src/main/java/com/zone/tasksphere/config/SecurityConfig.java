@@ -50,6 +50,7 @@ public class SecurityConfig {
             "/configuration/**",
             "/api-docs/**",
             "/actuator/health",
+            "/actuator/health/**",
             "/actuator/info",
             "/ws/**",           // WebSocket SockJS endpoint
     };

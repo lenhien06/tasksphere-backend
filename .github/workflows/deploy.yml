@@ -1,0 +1,70 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # allow manual trigger from GitHub UI
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false   # never cancel an in-progress deploy
+
+jobs:
+  deploy:
+    name: Build & Deploy to VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── 1. Checkout (for context/diff only) ─────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Validate — no localhost in prod config ────────────────────────
+      - name: Safety check — no localhost in prod config
+        run: |
+          if grep -r "localhost" src/main/resources/application-prod.yml 2>/dev/null; then
+            echo "::error::application-prod.yml contains 'localhost' — refusing to deploy!"
+            exit 1
+          fi
+          echo "Safety check passed."
+
+      # ── 3. SSH Deploy ────────────────────────────────────────────────────
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          command_timeout: 15m
+          script: |
+            set -e
+            echo "=== Starting backend deployment on VPS ==="
+            bash /root/deploy-backend.sh
+            echo "=== Done ==="
+
+      # ── 4. Verify health endpoint ────────────────────────────────────────
+      - name: Verify API health
+        run: |
+          echo "Waiting 15s for service to stabilise..."
+          sleep 15
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            https://api.tasksphere.io.vn/actuator/health || echo "000")
+          echo "Health endpoint returned: $HTTP_STATUS"
+          if [[ "$HTTP_STATUS" != "200" ]]; then
+            echo "::error::Health check failed (HTTP $HTTP_STATUS). Check VPS logs."
+            exit 1
+          fi
+          echo "API is healthy."
+
+      # ── 5. Notify on failure ─────────────────────────────────────────────
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "::error::Backend deployment FAILED."
+          echo "To debug, SSH into VPS and run:"
+          echo "  docker logs tasksphere-app --tail 100"
+          echo "  tail -100 /var/log/tasksphere-deploy.log"
+          echo "  docker ps -a"
