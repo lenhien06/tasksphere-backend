@@ -33,6 +33,8 @@ public class SubTaskResponse {
     private int depth;
     @Schema(description = "Subtask count", example = "10")
     private int subtaskCount;
+    @Schema(description = "Completed subtask count", example = "3")
+    private int completedSubtaskCount;
 
     @Data
     @Builder

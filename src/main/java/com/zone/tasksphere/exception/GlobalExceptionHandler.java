@@ -133,6 +133,19 @@ public class GlobalExceptionHandler {
         return buildResponse(ex.getMessage(), HttpStatus.UNPROCESSABLE_ENTITY);
     }
 
+    // 8a. BR-18: Sub-task pending (422 với danh sách subtask chưa xong)
+    @ExceptionHandler(SubtaskPendingException.class)
+    public ResponseEntity<ApiErrorResponse> handleSubtaskPendingException(SubtaskPendingException ex) {
+        log.warn("BR-18 subtask pending: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(
+                ApiErrorResponse.builder()
+                        .error("SUBTASK_PENDING")
+                        .message(ex.getMessage())
+                        .meta(java.util.Map.of("pendingSubtasks", ex.getPendingSubtasks()))
+                        .build()
+        );
+    }
+
     // 8b. Lỗi có mã ổn định (Member/Invite & các API chuẩn hóa)
     @ExceptionHandler(StructuredApiException.class)
     public ResponseEntity<ApiErrorResponse> handleStructuredApiException(StructuredApiException ex) {

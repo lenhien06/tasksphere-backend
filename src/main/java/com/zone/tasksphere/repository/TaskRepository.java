@@ -43,6 +43,17 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
            nativeQuery = true)
     Optional<Integer> findMaxTaskSequence(@Param("projectId") UUID projectId, @Param("projectKey") String projectKey);
 
+    /** BR-18: Lấy sub-tasks chưa hoàn thành để trả về structured 422 */
+    @Query("""
+        SELECT t FROM Task t
+        WHERE t.parentTask.id = :parentTaskId
+          AND t.taskStatus NOT IN :terminalStatuses
+    """)
+    List<Task> findUnfinishedSubtasks(
+        @Param("parentTaskId") UUID parentTaskId,
+        @Param("terminalStatuses") List<TaskStatus> terminalStatuses
+    );
+
     /** BR-18: Đếm sub-tasks chưa hoàn thành để kiểm tra trước khi DONE */
     @Query("""
         SELECT COUNT(t) FROM Task t

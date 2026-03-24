@@ -54,6 +54,9 @@ public enum ActionType {
     @Schema(description = "Đã xóa sub-task")
     SUBTASK_DELETED("Đã xóa sub-task"),
 
+    @Schema(description = "Đã chuyển sub-task thành task độc lập")
+    SUBTASK_PROMOTED("Đã chuyển thành task"),
+
     @Schema(description = "Đã đăng nhập")
     LOGIN("Đã đăng nhập"),
 

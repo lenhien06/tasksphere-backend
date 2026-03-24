@@ -68,6 +68,8 @@ public class TaskDetailResponse {
     private int subtaskCount;
     @Schema(description = "Subtask done count", example = "10")
     private int subtaskDoneCount;
+    @Schema(description = "Subtask progress 0–100, null if no subtasks", example = "60")
+    private Integer subtaskProgress;
     @Schema(description = "Parent task", example = "example")
     private TaskSummary parentTask;
     @Schema(description = "Subtasks", example = "[]")

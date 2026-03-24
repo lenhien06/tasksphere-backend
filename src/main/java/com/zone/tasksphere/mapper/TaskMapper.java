@@ -101,6 +101,7 @@ public class TaskMapper {
             .depth(task.getDepth())
             .subtaskCount(subtasks.size())
             .subtaskDoneCount(subtaskDone)
+            .subtaskProgress(subtasks.isEmpty() ? null : (int) Math.round((double) subtaskDone / subtasks.size() * 100))
             .parentTask(toTaskSummary(task.getParentTask()))
             .subtasks(subtasks)
             .commentCount(task.getComments() != null ? task.getComments().size() : 0)

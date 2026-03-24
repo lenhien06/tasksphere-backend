@@ -390,11 +390,18 @@ public class TaskServiceImpl implements TaskService {
 
         // BR-18: Kiểm tra sub-tasks khi chuyển sang DONE
         if (newStatus == TaskStatus.DONE) {
-            long unfinished = taskRepository.countUnfinishedSubtasks(
+            List<Task> pendingChildren = taskRepository.findUnfinishedSubtasks(
                 taskId, List.of(TaskStatus.DONE, TaskStatus.CANCELLED));
-            if (unfinished > 0) {
-                throw new BusinessRuleException(
-                    String.format("Còn %d sub-task chưa hoàn thành. Hoàn thành tất cả trước khi đóng task.", unfinished));
+            if (!pendingChildren.isEmpty()) {
+                List<Map<String, Object>> pendingList = pendingChildren.stream().map(st -> {
+                    Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("id", st.getId().toString());
+                    m.put("taskCode", st.getTaskCode());
+                    m.put("title", st.getTitle());
+                    m.put("taskStatus", st.getTaskStatus().name());
+                    return m;
+                }).toList();
+                throw new com.zone.tasksphere.exception.SubtaskPendingException(pendingList);
             }
 
             // P3-BE-06: Kiểm tra task dependencies — tất cả blocker phải DONE/CANCELLED
@@ -546,9 +553,7 @@ public class TaskServiceImpl implements TaskService {
         }
 
         int newDepth = parentTask.getDepth() + 1;
-        if (newDepth > 3) {
-            throw new BusinessRuleException("TSK_003: Sub-task depth limit exceeded (max 3 levels)");
-        }
+        // Unlimited depth — no BR-15 check per xlsx spec
 
         if (parentTask.getProject() == null) {
             throw new NotFoundException("Parent task không thuộc dự án hợp lệ");
@@ -626,14 +631,44 @@ public class TaskServiceImpl implements TaskService {
             throw new BadRequestException("Task này không phải sub-task");
         }
 
+        Task oldParent = subTask.getParentTask();
+        UUID oldParentId = oldParent.getId();
+
         subTask.setParentTask(null);
         subTask.setDepth(0);
         subTask = taskRepository.save(subTask);
 
         logActivity(projectId, currentUserId, EntityType.TASK, subTask.getId(),
-            ActionType.UPDATED, null, "promoted");
+            ActionType.SUBTASK_PROMOTED,
+            toJson(Map.of("parentTaskId", oldParentId, "parentTaskCode", oldParent.getTaskCode())),
+            toJson(Map.of("taskCode", subTask.getTaskCode(), "title", subTask.getTitle())));
 
-        log.info("Sub-task {} promoted to root task", subTask.getTaskCode());
+        // Notify: PM(s) + reporter of old parent + assignee of sub-task
+        User actor = getUser(currentUserId);
+        String notifTitle = "Sub-task được chuyển thành task độc lập";
+        String notifBody = String.format("[%s] %s đã được tách ra từ [%s]",
+            subTask.getTaskCode(), subTask.getTitle(), oldParent.getTaskCode());
+
+        projectMemberRepository.findByProjectId(projectId).stream()
+            .filter(m -> m.getProjectRole() == ProjectRole.PROJECT_MANAGER)
+            .map(ProjectMember::getUser)
+            .filter(u -> !u.getId().equals(currentUserId))
+            .forEach(pm -> notificationService.createNotification(
+                pm, NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
+                EntityType.TASK.name(), subTask.getId()));
+
+        if (oldParent.getReporter() != null && !oldParent.getReporter().getId().equals(currentUserId)) {
+            notificationService.createNotification(
+                oldParent.getReporter(), NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
+                EntityType.TASK.name(), subTask.getId());
+        }
+        if (subTask.getAssignee() != null && !subTask.getAssignee().getId().equals(currentUserId)) {
+            notificationService.createNotification(
+                subTask.getAssignee(), NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
+                EntityType.TASK.name(), subTask.getId());
+        }
+
+        log.info("Sub-task {} promoted to root task by {}", subTask.getTaskCode(), currentUserId);
         return taskMapper.toDetailResponse(subTask);
     }
 
@@ -720,6 +755,11 @@ public class TaskServiceImpl implements TaskService {
                 .build();
         }
         int subtaskCount = task.getChildTasks() != null ? task.getChildTasks().size() : 0;
+        int completedSubtaskCount = task.getChildTasks() != null
+            ? (int) task.getChildTasks().stream()
+                .filter(c -> c.getTaskStatus() == TaskStatus.DONE || c.getTaskStatus() == TaskStatus.CANCELLED)
+                .count()
+            : 0;
 
         return SubTaskResponse.builder()
             .id(task.getId())
@@ -731,6 +771,7 @@ public class TaskServiceImpl implements TaskService {
             .dueDate(task.getDueDate())
             .depth(task.getDepth())
             .subtaskCount(subtaskCount)
+            .completedSubtaskCount(completedSubtaskCount)
             .build();
     }
 
