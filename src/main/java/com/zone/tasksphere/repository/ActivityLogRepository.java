@@ -81,7 +81,7 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, UUID>,
         """,
         nativeQuery = true
     )
-    Page<ActivityLog> findTaskActivities(@Param("projectId") UUID projectId,
-                                         @Param("taskId") UUID taskId,
+    Page<ActivityLog> findTaskActivities(@Param("projectId") String projectId,
+                                         @Param("taskId") String taskId,
                                          Pageable pageable);
 }

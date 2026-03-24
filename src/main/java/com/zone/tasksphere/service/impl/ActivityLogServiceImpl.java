@@ -80,7 +80,7 @@ public class ActivityLogServiceImpl implements ActivityLogService {
     public PageResponse<ActivityLogResponse> getTaskActivities(UUID projectId, UUID taskId, Pageable pageable) {
         // Native query already has ORDER BY created_at DESC; avoid appending pageable sort
         Pageable safePageable = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize());
-        Page<ActivityLog> logPage = activityLogRepository.findTaskActivities(projectId, taskId, safePageable);
+        Page<ActivityLog> logPage = activityLogRepository.findTaskActivities(projectId.toString(), taskId.toString(), safePageable);
         return PageResponse.fromPage(logPage.map(this::mapToResponse));
     }
 
