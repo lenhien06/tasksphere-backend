@@ -452,6 +452,7 @@ public class TaskServiceImpl implements TaskService {
         Task task = getTaskInProject(taskId, projectId);
         int oldPosition = task.getTaskPosition();
         UUID oldColumnId = task.getStatusColumn() != null ? task.getStatusColumn().getId() : null;
+        String oldColumnName = task.getStatusColumn() != null ? task.getStatusColumn().getName() : null;
 
         ProjectStatusColumn newColumn = columnRepository.findById(request.getStatusColumnId())
             .orElseThrow(() -> new NotFoundException("Column not found"));
@@ -469,8 +470,8 @@ public class TaskServiceImpl implements TaskService {
 
         logActivity(projectId, currentUserId, EntityType.TASK, taskId,
                 ActionType.POSITION_CHANGED,
-                toJson(mapOf("columnId", oldColumnId, "position", oldPosition)),
-                toJson(mapOf("columnId", newColumn.getId(), "position", request.getNewPosition())));
+                toJson(mapOf("columnId", oldColumnId, "columnName", oldColumnName, "position", oldPosition)),
+                toJson(mapOf("columnId", newColumn.getId(), "columnName", newColumn.getName(), "position", request.getNewPosition())));
 
         // FIX: P5-BE-07 - Emit WebSocket event task.position_updated
         webSocketService.sendToProject(task.getProject().getId().toString(), "task.position_updated",

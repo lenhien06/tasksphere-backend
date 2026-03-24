@@ -112,7 +112,9 @@ public class CommentServiceImpl implements CommentService {
             notificationService.sendTaskCommented(task, task.getAssignee(), author);
         }
 
-        logActivity(projectId, currentUserId, EntityType.COMMENT, comment.getId(), ActionType.COMMENT_ADDED, null, null);
+        String plainText = sanitized == null ? "" : Jsoup.parse(sanitized).text();
+        logActivity(projectId, currentUserId, EntityType.COMMENT, comment.getId(), ActionType.COMMENT_ADDED, null,
+                toActivityJson("content", plainText));
 
         boolean isPM = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
             .map(m -> m.getProjectRole() == com.zone.tasksphere.entity.enums.ProjectRole.PROJECT_MANAGER)
@@ -280,6 +282,17 @@ public class CommentServiceImpl implements CommentService {
         } catch (Exception e) {
             log.warn("Failed to log activity: {}", e.getMessage());
         }
+    }
+
+    private String toActivityJson(String key, String value) {
+        // Simple JSON builder — value is plain text (no HTML), safe to escape manually
+        String escaped = value == null ? "" : value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t");
+        return "{\"" + key + "\":\"" + escaped + "\"}";
     }
 
     private CommentResponse buildCommentTree(Comment comment, UUID currentUserId, boolean isPM) {
