@@ -403,8 +403,9 @@ public class TaskController {
     @PostMapping("/{subtaskId}/promote")
     public ResponseEntity<ApiResponse<TaskDetailResponse>> promoteSubTask(
             @PathVariable UUID projectId,
-            @PathVariable UUID subtaskId) {
-        TaskDetailResponse response = taskService.promoteSubTask(subtaskId, getCurrentUserId());
+            @PathVariable UUID subtaskId,
+            @Valid @RequestBody PromoteSubTaskRequest request) {
+        TaskDetailResponse response = taskService.promoteSubTask(subtaskId, request, getCurrentUserId(), projectId);
         return ResponseEntity.ok(ApiResponse.success(response, "Đã chuyển thành task độc lập"));
     }
 

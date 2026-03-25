@@ -2,6 +2,7 @@ package com.zone.tasksphere.controller;
 
 import com.zone.tasksphere.dto.request.AddDependencyRequest;
 import com.zone.tasksphere.dto.request.CreateTaskRequest;
+import com.zone.tasksphere.dto.request.PromoteSubTaskRequest;
 import com.zone.tasksphere.dto.response.ApiResponse;
 import com.zone.tasksphere.dto.response.DependencyResponse;
 import com.zone.tasksphere.dto.response.SubTaskResponse;
@@ -58,8 +59,9 @@ public class TaskShortcutController {
     @Operation(summary = "Promote sub-task thành task độc lập (shortcut)")
     @PostMapping("/{subtaskId}/promote")
     public ResponseEntity<ApiResponse<TaskDetailResponse>> promoteSubTask(
-            @PathVariable UUID subtaskId) {
-        TaskDetailResponse response = taskService.promoteSubTask(subtaskId, getCurrentUserId());
+            @PathVariable UUID subtaskId,
+            @Valid @RequestBody PromoteSubTaskRequest request) {
+        TaskDetailResponse response = taskService.promoteSubTask(subtaskId, request, getCurrentUserId(), null);
         return ResponseEntity.ok(ApiResponse.success(response, "Đã chuyển thành task độc lập"));
     }
 

@@ -47,7 +47,11 @@ public interface TaskService {
 
     List<SubTaskResponse> getSubTasks(UUID taskId, UUID currentUserId);
 
-    TaskDetailResponse promoteSubTask(UUID subtaskId, UUID currentUserId);
+    /**
+     * @param requiredProjectId null = shortcut / không kiểm tra project; non-null = task phải thuộc project đó
+     */
+    TaskDetailResponse promoteSubTask(UUID subtaskId, PromoteSubTaskRequest request, UUID currentUserId,
+                                      UUID requiredProjectId);
 
     // ── P3-BE-10: Calendar View ──────────────────────────────────────
     CalendarViewResponse getCalendarView(UUID projectId, int year, int month, UUID currentUserId);

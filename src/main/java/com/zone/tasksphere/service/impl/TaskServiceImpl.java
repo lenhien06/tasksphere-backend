@@ -64,6 +64,7 @@ public class TaskServiceImpl implements TaskService {
     private final com.zone.tasksphere.service.WebSocketService webSocketService;
     private final ReportService reportService;
     private final ObjectMapper objectMapper;
+    private final CustomFieldValueRepository customFieldValueRepository;
 
     // ════════════════════════════════════════
     // P3-BE-01: CREATE TASK
@@ -620,12 +621,20 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
-    public TaskDetailResponse promoteSubTask(UUID subtaskId, UUID currentUserId) {
+    public TaskDetailResponse promoteSubTask(UUID subtaskId, PromoteSubTaskRequest request, UUID currentUserId,
+                                             UUID requiredProjectId) {
         Task subTask = taskRepository.findById(subtaskId)
             .orElseThrow(() -> new NotFoundException("Task not found: " + subtaskId));
 
         UUID projectId = subTask.getProject().getId();
-        validateMembership(projectId, currentUserId);
+        if (requiredProjectId != null && !projectId.equals(requiredProjectId)) {
+            throw new NotFoundException("Task not found: " + subtaskId);
+        }
+
+        ProjectMember member = getMember(projectId, currentUserId);
+        if (!member.getProjectRole().canEditTask()) {
+            throw new Forbidden("VIEWER không được nâng cấp sub-task");
+        }
 
         if (subTask.getParentTask() == null) {
             throw new BadRequestException("Task này không phải sub-task");
@@ -633,17 +642,70 @@ public class TaskServiceImpl implements TaskService {
 
         Task oldParent = subTask.getParentTask();
         UUID oldParentId = oldParent.getId();
+        int oldDepth = subTask.getDepth();
+
+        User actor = getUser(currentUserId);
+
+        if (subTask.getSprint() == null && oldParent.getSprint() != null) {
+            subTask.setSprint(oldParent.getSprint());
+        }
+
+        copyMissingCustomFieldValuesFromParent(subTask, oldParent);
+
+        String trimmedTitle = request.getTitle().trim();
+        subTask.setTitle(trimmedTitle);
+        if (request.getDescription() != null) {
+            subTask.setDescription(request.getDescription());
+        }
+        if (request.getDueDate() != null) {
+            subTask.setDueDate(request.getDueDate());
+        }
+
+        if (request.getAssigneeId() != null) {
+            User newAssignee = getUser(request.getAssigneeId());
+            if (!projectMemberRepository.existsByProjectIdAndUserId(projectId, request.getAssigneeId())) {
+                throw new BadRequestException("Assignee không phải thành viên dự án");
+            }
+            subTask.setAssignee(newAssignee);
+        } else {
+            subTask.setAssignee(null);
+        }
 
         subTask.setParentTask(null);
         subTask.setDepth(0);
-        final Task promotedTask = taskRepository.save(subTask);
+        if (subTask.getType() == TaskType.SUB_TASK) {
+            subTask.setType(TaskType.TASK);
+        }
 
+        final Task promotedTask = taskRepository.save(subTask);
+        decrementDepthForDescendants(promotedTask.getId(), oldDepth);
+
+        String auditMessage = String.format(
+            "Sub-task \"%s\" được nâng cấp thành Task bởi %s",
+            trimmedTitle,
+            actor.getFullName()
+        );
         logActivity(projectId, currentUserId, EntityType.TASK, promotedTask.getId(),
             ActionType.SUBTASK_PROMOTED,
-            toJson(Map.of("parentTaskId", oldParentId, "parentTaskCode", oldParent.getTaskCode())),
-            toJson(Map.of("taskCode", promotedTask.getTaskCode(), "title", promotedTask.getTitle())));
+            toJson(Map.of(
+                "parentTaskId", oldParentId.toString(),
+                "parentTaskCode", oldParent.getTaskCode()
+            )),
+            toJson(Map.of(
+                "message", auditMessage,
+                "taskCode", promotedTask.getTaskCode(),
+                "title", promotedTask.getTitle()
+            )));
 
-        // Notify: PM(s) + reporter of old parent + assignee of sub-task
+        reportService.invalidateOverviewCache(projectId);
+
+        Map<String, Object> wsPayload = new HashMap<>();
+        wsPayload.put("promotedTaskId", promotedTask.getId().toString());
+        wsPayload.put("oldParentTaskId", oldParentId.toString());
+        wsPayload.put("projectId", projectId.toString());
+        wsPayload.put("taskCode", promotedTask.getTaskCode());
+        webSocketService.sendToProject(projectId.toString(), "subtask.promoted", wsPayload);
+
         String notifTitle = "Sub-task được chuyển thành task độc lập";
         String notifBody = String.format("[%s] %s đã được tách ra từ [%s]",
             promotedTask.getTaskCode(), promotedTask.getTitle(), oldParent.getTaskCode());
@@ -669,6 +731,45 @@ public class TaskServiceImpl implements TaskService {
 
         log.info("Sub-task {} promoted to root task by {}", promotedTask.getTaskCode(), currentUserId);
         return taskMapper.toDetailResponse(promotedTask);
+    }
+
+    private void copyMissingCustomFieldValuesFromParent(Task subTask, Task oldParent) {
+        List<CustomFieldValue> parentVals = customFieldValueRepository.findByTaskId(oldParent.getId());
+        if (parentVals.isEmpty()) {
+            return;
+        }
+        List<CustomFieldValue> subVals = customFieldValueRepository.findByTaskId(subTask.getId());
+        var existingFieldIds = subVals.stream()
+            .map(v -> v.getCustomField().getId())
+            .collect(java.util.stream.Collectors.toSet());
+        for (CustomFieldValue pv : parentVals) {
+            if (existingFieldIds.contains(pv.getCustomField().getId())) {
+                continue;
+            }
+            CustomFieldValue copy = new CustomFieldValue();
+            copy.setTask(subTask);
+            copy.setCustomField(pv.getCustomField());
+            copy.setTextValue(pv.getTextValue());
+            copy.setNumberValue(pv.getNumberValue());
+            copy.setDateValue(pv.getDateValue());
+            copy.setBooleanValue(pv.getBooleanValue());
+            customFieldValueRepository.save(copy);
+        }
+    }
+
+    private void decrementDepthForDescendants(UUID parentTaskId, int subtract) {
+        if (subtract <= 0) {
+            return;
+        }
+        for (Task child : taskRepository.findByParentTaskId(parentTaskId)) {
+            int next = child.getDepth() - subtract;
+            if (next < 1) {
+                next = 1;
+            }
+            child.setDepth(next);
+            taskRepository.save(child);
+            decrementDepthForDescendants(child.getId(), subtract);
+        }
     }
 
     // ════════════════════════════════════════
