@@ -39,6 +39,9 @@ public class TaskSpecification {
                 predicates.add(cb.equal(root.get("project").get("id"), params.getProjectId()));
             }
 
+            // Chỉ task gốc: sub-task không hiển thị ở board/danh sách; sau promote parent_task_id = null
+            predicates.add(cb.isNull(root.get("parentTask")));
+
             // Tìm kiếm theo title hoặc taskCode
             if (params.getQ() != null && !params.getQ().isBlank()) {
                 String pattern = "%" + params.getQ().trim().toLowerCase() + "%";
