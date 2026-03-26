@@ -11,6 +11,7 @@ import com.zone.tasksphere.exception.BadRequestException;
 import com.zone.tasksphere.exception.BusinessRuleException;
 import com.zone.tasksphere.exception.Forbidden;
 import com.zone.tasksphere.exception.NotFoundException;
+import com.zone.tasksphere.exception.StructuredApiException;
 import com.zone.tasksphere.mapper.TaskMapper;
 import com.zone.tasksphere.repository.*;
 import com.zone.tasksphere.service.ActivityLogService;
@@ -27,6 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +40,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -138,6 +141,7 @@ public class TaskServiceImpl implements TaskService {
             .taskStatus(statusColumn.getMappedStatus() != null ? statusColumn.getMappedStatus() : TaskStatus.TODO)
             .storyPoints(request.getStoryPoints())
             .estimatedHours(request.getEstimatedHours())
+            .startDate(request.getStartDate())
             .dueDate(request.getDueDate())
             .taskPosition(position)
             .depth(depth)
@@ -405,20 +409,7 @@ public class TaskServiceImpl implements TaskService {
                 throw new com.zone.tasksphere.exception.SubtaskPendingException(pendingList);
             }
 
-            // P3-BE-06: Kiểm tra task dependencies — tất cả blocker phải DONE/CANCELLED
-            List<UUID> blockingTaskIds = dependencyRepository.findDependsOnIdsByTaskId(taskId);
-            List<String> blockerCodes = blockingTaskIds.stream()
-                .map(blockerId -> taskRepository.findById(blockerId).orElse(null))
-                .filter(blocker -> blocker != null
-                        && blocker.getTaskStatus() != TaskStatus.DONE
-                        && blocker.getTaskStatus() != TaskStatus.CANCELLED)
-                .map(Task::getTaskCode)
-                .toList();
-
-            if (!blockerCodes.isEmpty()) {
-                throw new BusinessRuleException(
-                    "Task đang bị chặn bởi task chưa hoàn thành: " + String.join(", ", blockerCodes));
-            }
+            assertNoUnfinishedBlockingDependencies(taskId);
         }
 
         task.setTaskStatus(newStatus);
@@ -546,6 +537,9 @@ public class TaskServiceImpl implements TaskService {
 
         Task task = getTaskInProject(taskId, projectId);
         Instant now = Instant.now();
+        List<UUID> deletedTaskIds = collectTaskTreeIds(taskId);
+
+        dependencyRepository.deleteAllByTaskIds(deletedTaskIds);
 
         task.setDeletedAt(now);
         taskRepository.save(task);
@@ -626,6 +620,7 @@ public class TaskServiceImpl implements TaskService {
             .taskStatus(statusColumn.getMappedStatus() != null ? statusColumn.getMappedStatus() : TaskStatus.TODO)
             .storyPoints(request.getStoryPoints())
             .estimatedHours(request.getEstimatedHours())
+            .startDate(request.getStartDate())
             .dueDate(request.getDueDate())
             .taskPosition(position)
             .depth(newDepth)
@@ -787,6 +782,80 @@ public class TaskServiceImpl implements TaskService {
             taskRepository.save(child);
             recalculateDescendantDepths(child.getId(), parentDepth + 1);
         }
+    }
+
+    // ════════════════════════════════════════
+    // P3-BE-09: TIMELINE / GANTT VIEW
+    // ════════════════════════════════════════
+    @Override
+    @Transactional(readOnly = true)
+    public TimelineViewResponse getTimelineView(UUID projectId, UUID currentUserId) {
+        validateMembership(projectId, currentUserId);
+
+        List<Task> tasks = taskRepository.findTimelineTasksByProjectId(projectId);
+        List<TaskDependency> blockerEdges = dependencyRepository.findBlockingEdgesByProjectId(projectId);
+
+        Map<UUID, List<TimelineViewResponse.DependencyRef>> blockedByMap = new HashMap<>();
+        Map<UUID, List<TimelineViewResponse.DependencyRef>> blockingMap = new HashMap<>();
+        List<TimelineViewResponse.TimelineDependencyEdge> dependencies = new ArrayList<>();
+
+        for (TaskDependency edge : blockerEdges) {
+            Task blocker = edge.getBlockingTask();
+            Task blocked = edge.getBlockedTask();
+
+            blockedByMap.computeIfAbsent(blocked.getId(), unused -> new ArrayList<>())
+                    .add(TimelineViewResponse.DependencyRef.builder()
+                            .linkId(edge.getId())
+                            .taskId(blocker.getId())
+                            .taskCode(blocker.getTaskCode())
+                            .title(blocker.getTitle())
+                            .linkType(DependencyType.BLOCKED_BY.name())
+                            .build());
+
+            blockingMap.computeIfAbsent(blocker.getId(), unused -> new ArrayList<>())
+                    .add(TimelineViewResponse.DependencyRef.builder()
+                            .linkId(edge.getId())
+                            .taskId(blocked.getId())
+                            .taskCode(blocked.getTaskCode())
+                            .title(blocked.getTitle())
+                            .linkType(DependencyType.BLOCKS.name())
+                            .build());
+
+            dependencies.add(TimelineViewResponse.TimelineDependencyEdge.builder()
+                    .linkId(edge.getId())
+                    .linkType(edge.getLinkType().name())
+                    .blockerTaskId(blocker.getId())
+                    .blockerTaskCode(blocker.getTaskCode())
+                    .blockerTitle(blocker.getTitle())
+                    .blockedTaskId(blocked.getId())
+                    .blockedTaskCode(blocked.getTaskCode())
+                    .blockedTaskTitle(blocked.getTitle())
+                    .build());
+        }
+
+        List<TimelineViewResponse.TimelineTaskItem> taskItems = tasks.stream()
+                .map(task -> TimelineViewResponse.TimelineTaskItem.builder()
+                        .id(task.getId())
+                        .taskCode(task.getTaskCode())
+                        .title(task.getTitle())
+                        .status(task.getTaskStatus())
+                        .priority(task.getPriority())
+                        .assignee(toTimelineUserSummary(task.getAssignee()))
+                        .startDate(task.getStartDate())
+                        .dueDate(task.getDueDate())
+                        .parentTaskId(task.getParentTask() != null ? task.getParentTask().getId() : null)
+                        .blockedBy(blockedByMap.getOrDefault(task.getId(), List.of()))
+                        .blocking(blockingMap.getOrDefault(task.getId(), List.of()))
+                        .build())
+                .toList();
+
+        return TimelineViewResponse.builder()
+                .projectId(projectId)
+                .totalTasks(taskItems.size())
+                .totalDependencies(dependencies.size())
+                .tasks(taskItems)
+                .dependencies(dependencies)
+                .build();
     }
 
     // ════════════════════════════════════════
@@ -1082,9 +1151,48 @@ public class TaskServiceImpl implements TaskService {
         data.put("sprintId", task.getSprint() != null ? task.getSprint().getId() : null);
         data.put("sprintName", task.getSprint() != null ? task.getSprint().getName() : null);
         data.put("columnId", task.getStatusColumn() != null ? task.getStatusColumn().getId() : null);
+        data.put("startDate", task.getStartDate());
         data.put("dueDate", task.getDueDate());
         data.put("storyPoints", task.getStoryPoints());
         return data;
+    }
+
+    private void assertNoUnfinishedBlockingDependencies(UUID taskId) {
+        List<Task> unfinishedBlockers = dependencyRepository.findBlockingTasksByBlockedTaskId(taskId).stream()
+                .filter(blocker -> blocker.getTaskStatus() != TaskStatus.DONE
+                        && blocker.getTaskStatus() != TaskStatus.CANCELLED)
+                .toList();
+
+        if (unfinishedBlockers.isEmpty()) {
+            return;
+        }
+
+        List<Map<String, Object>> blockingTasks = unfinishedBlockers.stream().map(blocker -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", blocker.getId());
+            item.put("taskCode", blocker.getTaskCode());
+            item.put("title", blocker.getTitle());
+            item.put("reason", "Task blocker chưa ở trạng thái DONE");
+            return item;
+        }).toList();
+
+        throw new StructuredApiException(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                "TASK_DEPENDENCY_BLOCKED",
+                "Task không thể chuyển sang DONE vì còn dependency blocker chưa hoàn thành",
+                Map.of("blockingTasks", blockingTasks)
+        );
+    }
+
+    private TimelineViewResponse.UserSummary toTimelineUserSummary(User user) {
+        if (user == null) {
+            return null;
+        }
+        return TimelineViewResponse.UserSummary.builder()
+                .id(user.getId())
+                .fullName(user.getFullName())
+                .avatarUrl(user.getAvatarUrl())
+                .build();
     }
 
     private Map<String, Object> mapOf(Object... kvPairs) {
@@ -1093,5 +1201,18 @@ public class TaskServiceImpl implements TaskService {
             map.put(String.valueOf(kvPairs[i]), kvPairs[i + 1]);
         }
         return map;
+    }
+
+    private List<UUID> collectTaskTreeIds(UUID rootTaskId) {
+        List<UUID> ids = new ArrayList<>();
+        collectTaskTreeIds(rootTaskId, ids);
+        return ids;
+    }
+
+    private void collectTaskTreeIds(UUID taskId, List<UUID> ids) {
+        ids.add(taskId);
+        for (Task child : taskRepository.findByParentTaskId(taskId)) {
+            collectTaskTreeIds(child.getId(), ids);
+        }
     }
 }

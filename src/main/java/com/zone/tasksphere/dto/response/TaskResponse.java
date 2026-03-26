@@ -44,6 +44,8 @@ public class TaskResponse {
 
     @Schema(description = "Story points", example = "1")
     private Integer storyPoints;
+    @Schema(description = "Start date", example = "2023-12-01")
+    private LocalDate startDate;
     @Schema(description = "Due date", example = "2023-12-31T23:59:59Z")
     private LocalDate dueDate;
     @Schema(description = "Overdue", example = "true")

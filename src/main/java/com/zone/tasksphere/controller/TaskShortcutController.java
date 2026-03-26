@@ -70,7 +70,7 @@ public class TaskShortcutController {
     @GetMapping({"/{taskId}/dependencies", "/{taskId}/links"})
     public ResponseEntity<ApiResponse<TaskDependenciesResponse>> getDependencies(
             @PathVariable UUID taskId) {
-        TaskDependenciesResponse response = taskDependencyService.getDependencies(taskId, getCurrentUserId());
+        TaskDependenciesResponse response = taskDependencyService.getDependencies(null, taskId, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -79,7 +79,7 @@ public class TaskShortcutController {
     public ResponseEntity<ApiResponse<DependencyResponse>> addDependency(
             @PathVariable UUID taskId,
             @Valid @RequestBody AddDependencyRequest request) {
-        DependencyResponse response = taskDependencyService.addDependency(taskId, request, getCurrentUserId());
+        DependencyResponse response = taskDependencyService.addDependency(null, taskId, request, getCurrentUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
@@ -88,7 +88,7 @@ public class TaskShortcutController {
     public ResponseEntity<ApiResponse<Void>> removeDependency(
             @PathVariable UUID taskId,
             @PathVariable UUID linkId) {
-        taskDependencyService.removeDependency(taskId, linkId, getCurrentUserId());
+        taskDependencyService.removeDependency(null, taskId, linkId, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success((Void) null));
     }
 

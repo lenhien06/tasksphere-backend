@@ -9,11 +9,7 @@ import com.zone.tasksphere.entity.User;
 import com.zone.tasksphere.entity.enums.DependencyType;
 import com.zone.tasksphere.entity.enums.ProjectRole;
 import com.zone.tasksphere.entity.enums.TaskStatus;
-import com.zone.tasksphere.exception.BadRequestException;
-import com.zone.tasksphere.exception.BusinessRuleException;
-import com.zone.tasksphere.exception.ConflictException;
-import com.zone.tasksphere.exception.Forbidden;
-import com.zone.tasksphere.exception.NotFoundException;
+import com.zone.tasksphere.exception.StructuredApiException;
 import com.zone.tasksphere.repository.ProjectMemberRepository;
 import com.zone.tasksphere.repository.TaskDependencyRepository;
 import com.zone.tasksphere.repository.TaskRepository;
@@ -21,12 +17,14 @@ import com.zone.tasksphere.repository.UserRepository;
 import com.zone.tasksphere.service.TaskDependencyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
@@ -46,31 +44,35 @@ public class TaskDependencyServiceImpl implements TaskDependencyService {
     // POST /api/v1/projects/{projectId}/tasks/{taskId}/links (and /dependencies backward compat)
     // ════════════════════════════════════════
     @Override
-    public DependencyResponse addDependency(UUID taskId, AddDependencyRequest request, UUID currentUserId) {
-        Task sourceTask = getTask(taskId);
-        UUID projectId = sourceTask.getProject().getId();
+    public DependencyResponse addDependency(UUID projectId, UUID taskId,
+                                            AddDependencyRequest request, UUID currentUserId) {
+        Task sourceTask = getTask(taskId, projectId);
+        UUID resolvedProjectId = sourceTask.getProject().getId();
 
-        validateMemberOrPM(projectId, currentUserId);
+        validateMemberOrPM(resolvedProjectId, currentUserId);
 
         UUID targetTaskId = request.resolveTargetTaskId();
         if (targetTaskId == null) {
-            throw new BadRequestException("targetTaskId is required");
+            throw dependencyError(HttpStatus.BAD_REQUEST, "DEPENDENCY_TARGET_REQUIRED",
+                    "targetTaskId là bắt buộc");
         }
 
         // Self-dependency guard
         if (taskId.equals(targetTaskId)) {
-            throw new BadRequestException("Task không thể liên kết với chính nó");
+            throw dependencyError(HttpStatus.BAD_REQUEST, "DEPENDENCY_SELF_REFERENCE",
+                    "Task không thể liên kết với chính nó");
         }
 
-        Task targetTask = taskRepository.findByIdAndProjectId(targetTaskId, projectId)
-                .orElseThrow(() -> new NotFoundException(
+        Task targetTask = taskRepository.findByIdAndProjectId(targetTaskId, resolvedProjectId)
+                .orElseThrow(() -> dependencyError(HttpStatus.NOT_FOUND, "DEPENDENCY_TARGET_NOT_FOUND",
                         "Task không tồn tại hoặc không thuộc dự án này: " + targetTaskId));
 
         DependencyType linkType = request.getLinkType() != null ? request.getLinkType() : DependencyType.BLOCKS;
 
         // Check duplicate: source → target already exists?
         if (dependencyRepository.existsByBlockingTaskIdAndBlockedTaskId(taskId, targetTaskId)) {
-            throw new ConflictException("Liên kết này đã tồn tại");
+            throw dependencyError(HttpStatus.CONFLICT, "DEPENDENCY_ALREADY_EXISTS",
+                    "Liên kết dependency này đã tồn tại");
         }
 
         // Circular dependency check for blocking types only
@@ -78,8 +80,8 @@ public class TaskDependencyServiceImpl implements TaskDependencyService {
             UUID effectiveBlocker = (linkType == DependencyType.BLOCKS) ? taskId : targetTaskId;
             UUID effectiveBlocked = (linkType == DependencyType.BLOCKS) ? targetTaskId : taskId;
             if (hasCircularDependency(effectiveBlocked, effectiveBlocker)) {
-                throw new BusinessRuleException(
-                        "TSK_006: Circular dependency detected — không thể tạo vòng lặp phụ thuộc");
+                throw dependencyError(HttpStatus.UNPROCESSABLE_ENTITY, "DEPENDENCY_CYCLE_DETECTED",
+                        "Không thể tạo vòng lặp phụ thuộc");
             }
         }
 
@@ -115,13 +117,11 @@ public class TaskDependencyServiceImpl implements TaskDependencyService {
     // ════════════════════════════════════════
     @Override
     @Transactional(readOnly = true)
-    public TaskDependenciesResponse getDependencies(UUID taskId, UUID currentUserId) {
-        Task task = getTask(taskId);
-        UUID projectId = task.getProject().getId();
+    public TaskDependenciesResponse getDependencies(UUID projectId, UUID taskId, UUID currentUserId) {
+        Task task = getTask(taskId, projectId);
+        UUID resolvedProjectId = task.getProject().getId();
 
-        if (!memberRepository.existsByProjectIdAndUserId(projectId, currentUserId)) {
-            throw new Forbidden("Bạn không phải thành viên dự án này");
-        }
+        validateProjectMembership(resolvedProjectId, currentUserId);
 
         // All links from this task's perspective (blockingTask = this task)
         List<TaskDependency> allLinks = dependencyRepository.findLinksBySourceTaskId(taskId);
@@ -156,17 +156,11 @@ public class TaskDependencyServiceImpl implements TaskDependencyService {
                 .toList();
 
         // canTransitionToDone: no BLOCKED_BY link whose target is not yet DONE/CANCELLED
-        boolean canDone = blockedBy.stream().allMatch(item -> {
-            // Re-fetch from allLinks to check target status
-            return allLinks.stream()
-                .filter(d -> d.getId().equals(item.getDepId()))
-                .findFirst()
-                .map(d -> {
-                    TaskStatus s = d.getBlockedTask().getTaskStatus();
-                    return s == TaskStatus.DONE || s == TaskStatus.CANCELLED;
-                })
-                .orElse(true);
-        });
+        boolean canDone = allLinks.stream()
+                .filter(d -> d.getLinkType() == DependencyType.BLOCKED_BY)
+                .map(TaskDependency::getBlockedTask)
+                .allMatch(target -> target.getTaskStatus() == TaskStatus.DONE
+                        || target.getTaskStatus() == TaskStatus.CANCELLED);
 
         return TaskDependenciesResponse.builder()
                 .blockedBy(blockedBy)
@@ -180,18 +174,19 @@ public class TaskDependencyServiceImpl implements TaskDependencyService {
     // DELETE /api/v1/projects/{projectId}/tasks/{taskId}/links/{linkId}
     // ════════════════════════════════════════
     @Override
-    public void removeDependency(UUID taskId, UUID depId, UUID currentUserId) {
-        Task task = getTask(taskId);
-        UUID projectId = task.getProject().getId();
+    public void removeDependency(UUID projectId, UUID taskId, UUID depId, UUID currentUserId) {
+        Task task = getTask(taskId, projectId);
+        UUID resolvedProjectId = task.getProject().getId();
 
         // Find by depId; the link's blockingTask must be taskId (source perspective)
         TaskDependency dependency = dependencyRepository.findById(depId)
                 .filter(d -> d.getBlockingTask().getId().equals(taskId)
                           || d.getBlockedTask().getId().equals(taskId))
-                .orElseThrow(() -> new NotFoundException("Link không tồn tại hoặc không thuộc task này"));
+                .orElseThrow(() -> dependencyError(HttpStatus.NOT_FOUND, "DEPENDENCY_NOT_FOUND",
+                        "Link không tồn tại hoặc không thuộc task này"));
 
         // Quyền: PM hoặc MEMBER
-        validateMemberOrPM(projectId, currentUserId);
+        validateMemberOrPM(resolvedProjectId, currentUserId);
 
         // Delete the inverse link first
         DependencyType inverseLinkType = getInverseLinkType(dependency.getLinkType());
@@ -244,21 +239,37 @@ public class TaskDependencyServiceImpl implements TaskDependencyService {
     // PRIVATE HELPERS
     // ════════════════════════════════════════
 
-    private Task getTask(UUID taskId) {
-        return taskRepository.findById(taskId)
-                .orElseThrow(() -> new NotFoundException("Task không tồn tại: " + taskId));
+    private Task getTask(UUID taskId, UUID expectedProjectId) {
+        Task task = taskRepository.findById(taskId)
+                .orElseThrow(() -> dependencyError(HttpStatus.NOT_FOUND, "DEPENDENCY_TASK_NOT_FOUND",
+                        "Task không tồn tại: " + taskId));
+        if (expectedProjectId != null && !expectedProjectId.equals(task.getProject().getId())) {
+            throw dependencyError(HttpStatus.NOT_FOUND, "DEPENDENCY_TASK_NOT_IN_PROJECT",
+                    "Task không thuộc project trên path",
+                    Map.of("taskId", taskId, "projectId", expectedProjectId));
+        }
+        return task;
     }
 
     private User getUser(UUID userId) {
         return userRepository.findById(userId)
-                .orElseThrow(() -> new NotFoundException("User không tồn tại: " + userId));
+                .orElseThrow(() -> dependencyError(HttpStatus.NOT_FOUND, "DEPENDENCY_USER_NOT_FOUND",
+                        "User không tồn tại: " + userId));
+    }
+
+    private void validateProjectMembership(UUID projectId, UUID userId) {
+        if (!memberRepository.existsByProjectIdAndUserId(projectId, userId)) {
+            throw dependencyError(HttpStatus.FORBIDDEN, "DEPENDENCY_PROJECT_ACCESS_DENIED",
+                    "Bạn không phải thành viên dự án này");
+        }
     }
 
     private void validateMemberOrPM(UUID projectId, UUID userId) {
         memberRepository.findByProjectIdAndUserId(projectId, userId)
                 .filter(m -> m.getProjectRole() == ProjectRole.PROJECT_MANAGER
                         || m.getProjectRole() == ProjectRole.MEMBER)
-                .orElseThrow(() -> new Forbidden("Chỉ PM hoặc MEMBER mới được thực hiện hành động này"));
+                .orElseThrow(() -> dependencyError(HttpStatus.FORBIDDEN, "DEPENDENCY_WRITE_FORBIDDEN",
+                        "Chỉ PM hoặc MEMBER mới được thực hiện hành động này"));
     }
 
     private DependencyResponse.TaskRef toTaskRef(Task task) {
@@ -272,12 +283,22 @@ public class TaskDependencyServiceImpl implements TaskDependencyService {
                 .build();
     }
 
-    private DependencyResponse toDependencyResponse(TaskDependency dep, Task blockedTask, Task blockingTask) {
+    private DependencyResponse toDependencyResponse(TaskDependency dep, Task sourceTask, Task targetTask) {
         return DependencyResponse.builder()
                 .id(dep.getId())
-                .task(toTaskRef(blockedTask))
-                .dependsOnTask(toTaskRef(blockingTask))
+                .task(toTaskRef(sourceTask))
+                .dependsOnTask(toTaskRef(targetTask))
+                .linkType(dep.getLinkType())
                 .createdAt(dep.getCreatedAt())
                 .build();
+    }
+
+    private StructuredApiException dependencyError(HttpStatus status, String code, String message) {
+        return dependencyError(status, code, message, null);
+    }
+
+    private StructuredApiException dependencyError(HttpStatus status, String code,
+                                                   String message, Map<String, Object> meta) {
+        return new StructuredApiException(status, code, message, meta);
     }
 }

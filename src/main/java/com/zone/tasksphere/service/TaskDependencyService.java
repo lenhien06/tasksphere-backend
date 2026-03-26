@@ -9,11 +9,11 @@ import java.util.UUID;
 public interface TaskDependencyService {
 
     /** POST /api/v1/tasks/{taskId}/dependencies */
-    DependencyResponse addDependency(UUID taskId, AddDependencyRequest request, UUID currentUserId);
+    DependencyResponse addDependency(UUID projectId, UUID taskId, AddDependencyRequest request, UUID currentUserId);
 
     /** GET /api/v1/tasks/{taskId}/dependencies */
-    TaskDependenciesResponse getDependencies(UUID taskId, UUID currentUserId);
+    TaskDependenciesResponse getDependencies(UUID projectId, UUID taskId, UUID currentUserId);
 
     /** DELETE /api/v1/tasks/{taskId}/dependencies/{depId} */
-    void removeDependency(UUID taskId, UUID depId, UUID currentUserId);
+    void removeDependency(UUID projectId, UUID taskId, UUID depId, UUID currentUserId);
 }

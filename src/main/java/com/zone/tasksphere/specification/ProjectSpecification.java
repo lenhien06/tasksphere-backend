@@ -51,24 +51,21 @@ public class ProjectSpecification {
                 predicates.add(cb.equal(root.get("visibility"), visibility));
             }
 
-            // 4. Phân quyền hiển thị (BR-31)
+            // 4. Phân quyền hiển thị
             // - Admin: thấy tất cả theo filter
             // - Guest: chỉ thấy PUBLIC
-            // - Logged user:
-            //   + luôn thấy PUBLIC, INTERNAL
-            //   + PRIVATE chỉ thấy khi là owner/member
+            // - Logged user: chỉ thấy project PUBLIC hoặc project mình sở hữu/tham gia
             if (!isAdmin) {
                 if (userId == null) {
                     predicates.add(cb.equal(root.get("visibility"), ProjectVisibility.PUBLIC));
                 } else {
-                    Predicate isPublicOrInternal = root.get("visibility")
-                            .in(ProjectVisibility.PUBLIC, ProjectVisibility.INTERNAL);
+                    Predicate isPublic = cb.equal(root.get("visibility"), ProjectVisibility.PUBLIC);
 
                     Predicate isOwner = cb.equal(root.get("owner").get("id"), userId);
                     Join<Project, ProjectMember> membersJoin = root.join("members", JoinType.LEFT);
                     Predicate isMember = cb.equal(membersJoin.get("user").get("id"), userId);
 
-                    predicates.add(cb.or(isPublicOrInternal, isOwner, isMember));
+                    predicates.add(cb.or(isPublic, isOwner, isMember));
                     query.distinct(true);
                 }
             }

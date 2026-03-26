@@ -58,7 +58,7 @@ public class TaskDependencyController {
             @PathVariable UUID projectId,
             @PathVariable UUID taskId,
             @Valid @RequestBody AddDependencyRequest request) {
-        DependencyResponse response = dependencyService.addDependency(taskId, request, getCurrentUserId());
+        DependencyResponse response = dependencyService.addDependency(projectId, taskId, request, getCurrentUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
@@ -67,7 +67,7 @@ public class TaskDependencyController {
     public ResponseEntity<ApiResponse<TaskDependenciesResponse>> getLinks(
             @PathVariable UUID projectId,
             @PathVariable UUID taskId) {
-        TaskDependenciesResponse response = dependencyService.getDependencies(taskId, getCurrentUserId());
+        TaskDependenciesResponse response = dependencyService.getDependencies(projectId, taskId, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -78,7 +78,7 @@ public class TaskDependencyController {
             @PathVariable UUID projectId,
             @PathVariable UUID taskId,
             @PathVariable UUID linkId) {
-        dependencyService.removeDependency(taskId, linkId, getCurrentUserId());
+        dependencyService.removeDependency(projectId, taskId, linkId, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success((Void) null));
     }
 
@@ -90,7 +90,7 @@ public class TaskDependencyController {
             @PathVariable UUID projectId,
             @PathVariable UUID taskId,
             @Valid @RequestBody AddDependencyRequest request) {
-        DependencyResponse response = dependencyService.addDependency(taskId, request, getCurrentUserId());
+        DependencyResponse response = dependencyService.addDependency(projectId, taskId, request, getCurrentUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
@@ -99,7 +99,7 @@ public class TaskDependencyController {
     public ResponseEntity<ApiResponse<TaskDependenciesResponse>> getDependencies(
             @PathVariable UUID projectId,
             @PathVariable UUID taskId) {
-        TaskDependenciesResponse response = dependencyService.getDependencies(taskId, getCurrentUserId());
+        TaskDependenciesResponse response = dependencyService.getDependencies(projectId, taskId, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -109,7 +109,7 @@ public class TaskDependencyController {
             @PathVariable UUID projectId,
             @PathVariable UUID taskId,
             @PathVariable UUID depId) {
-        dependencyService.removeDependency(taskId, depId, getCurrentUserId());
+        dependencyService.removeDependency(projectId, taskId, depId, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success((Void) null));
     }
 }

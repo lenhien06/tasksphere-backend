@@ -60,6 +60,8 @@ public interface TaskService {
                                          String q, TaskStatus status, String assigneeId,
                                          UUID sprintId, TaskPriority priority, UUID currentUserId);
 
+    TimelineViewResponse getTimelineView(UUID projectId, UUID currentUserId);
+
     // ── Calendar: Update due date ─────────────────────────────────────
     TaskDetailResponse updateDueDate(UUID projectId, UUID taskId,
                                      UpdateTaskDueDateRequest request, UUID currentUserId);

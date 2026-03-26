@@ -29,6 +29,16 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
     /** Tìm task theo id và projectId (SQLRestriction tự lọc soft-deleted) */
     Optional<Task> findByIdAndProjectId(UUID id, UUID projectId);
 
+    @Query("""
+        SELECT DISTINCT t FROM Task t
+        LEFT JOIN FETCH t.assignee
+        LEFT JOIN FETCH t.parentTask
+        WHERE t.project.id = :projectId
+          AND t.deletedAt IS NULL
+        ORDER BY t.startDate ASC, t.dueDate ASC, t.taskPosition ASC, t.createdAt ASC
+    """)
+    List<Task> findTimelineTasksByProjectId(@Param("projectId") UUID projectId);
+
     /** Tìm sub-tasks trực tiếp của task cha (SQLRestriction tự lọc) */
     List<Task> findByParentTaskId(UUID parentTaskId);
 

@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import com.zone.tasksphere.entity.enums.TaskPriority;
 import com.zone.tasksphere.entity.enums.TaskStatus;
 import com.zone.tasksphere.entity.enums.TaskType;
+import com.zone.tasksphere.entity.enums.DependencyType;
 import lombok.Builder;
 import lombok.Data;
 
@@ -22,6 +23,8 @@ public class DependencyResponse {
     private TaskRef task;
     @Schema(description = "Depends on task", example = "example")
     private TaskRef dependsOnTask;
+    @Schema(description = "Link type from source task perspective", example = "BLOCKS")
+    private DependencyType linkType;
     @Schema(description = "Created at", example = "2023-12-31T23:59:59Z")
     private Instant createdAt;
 

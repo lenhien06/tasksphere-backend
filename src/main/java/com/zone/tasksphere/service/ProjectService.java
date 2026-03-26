@@ -277,7 +277,6 @@ public class ProjectService {
         if (userId == null) {
             throw new com.zone.tasksphere.exception.SignInRequiredException("Sign in required to view this project");
         }
-        if (visibility == ProjectVisibility.INTERNAL) return;
         boolean isMember = projectMemberRepository.existsByProjectIdAndUserId(project.getId(), userId);
         if (!isMember && !project.getOwner().getId().equals(userId)) {
             throw new com.zone.tasksphere.exception.Forbidden("You do not have permission to view this project");
