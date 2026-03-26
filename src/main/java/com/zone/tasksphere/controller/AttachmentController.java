@@ -22,7 +22,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
-@Tag(name = "7. Attachments", description = "Upload/Download file đính kèm. Quét virus ClamAV async.")
+@Tag(name = "7. Attachments", description = "Upload/Download file đính kèm với xử lý nền sau khi upload.")
 @SecurityRequirement(name = "bearerAuth")
 public class AttachmentController {
 
@@ -46,11 +46,9 @@ public class AttachmentController {
 
             **Async Processing:**
             1. Nhận file → trả về ngay **202 Accepted** + jobId
-            2. Background: quét ClamAV (max 30 giây)
-            3. Nếu sạch → upload MinIO/S3 → tạo Attachment record
+            2. Background: xử lý file và hoàn tất upload
+            3. Tạo Attachment record
             4. Notify qua WebSocket: `attachment.uploaded` hoặc `attachment.scan_failed`
-
-            **FILE_003:** 422 nếu phát hiện mã độc.
 
             **Polling:** GET /attachments/jobs/{jobId} để kiểm tra tiến trình.
             """,
@@ -84,7 +82,7 @@ public class AttachmentController {
     @Operation(
         summary = "Kiểm tra trạng thái upload job",
         description = """
-            Polling để kiểm tra tiến trình quét virus và upload.
+            Polling để kiểm tra tiến trình xử lý upload.
 
             **Status flow:** PENDING → SCANNING → DONE | FAILED
 

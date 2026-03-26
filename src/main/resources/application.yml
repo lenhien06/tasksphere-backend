@@ -98,6 +98,7 @@ app:
 
 # ─── ClamAV ───────────────────────────────────────────────────────────────────
 clamav:
+  enabled: ${CLAMAV_ENABLED:false}
   host: ${CLAMAV_HOST:localhost}
   port: ${CLAMAV_PORT:3310}
   timeout: 30000

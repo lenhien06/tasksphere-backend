@@ -66,7 +66,7 @@ public class AttachmentServiceImpl implements AttachmentService {
     @Value("${app.attachment.allowed-mime-types:image/jpeg,image/png,image/gif,image/webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip,text/plain,text/csv}")
     private List<String> allowedMimeTypes;
 
-    // ── UPLOAD (sync with ClamAV + Tika) ────────────────────────────────────
+    // ── UPLOAD (sync with MIME validation + optional ClamAV) ────────────────
 
     @Override
     public AttachmentResponse upload(UUID projectId, UUID taskId, MultipartFile file, UUID currentUserId) {
@@ -96,7 +96,7 @@ public class AttachmentServiceImpl implements AttachmentService {
             throw new UnsupportedFileTypeException("File type không khớp với nội dung thực tế");
         }
 
-        // ClamAV scan
+        // Optional ClamAV scan
         try {
             if (!clamAvService.isClean(file.getInputStream())) {
                 throw new BusinessRuleException("FILE_003: File bị từ chối vì phát hiện mã độc");
@@ -183,7 +183,7 @@ public class AttachmentServiceImpl implements AttachmentService {
             .jobId(job.getId())
             .status(UploadJobStatus.PENDING)
             .fileName(file.getOriginalFilename())
-            .message("File đang được xử lý và quét virus")
+            .message("File đang được xử lý")
             .build();
     }
 

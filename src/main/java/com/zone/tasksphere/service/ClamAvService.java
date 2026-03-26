@@ -14,6 +14,9 @@ import java.net.InetSocketAddress;
 @Slf4j
 public class ClamAvService {
 
+    @Value("${clamav.enabled:false}")
+    private boolean enabled;
+
     @Value("${clamav.host:localhost}")
     private String host;
 
@@ -27,6 +30,11 @@ public class ClamAvService {
      * @return true if file is clean or ClamAV is unavailable
      */
     public boolean isClean(InputStream fileStream) {
+        if (!enabled) {
+            log.info("[ClamAV] Scan skipped because clamav.enabled=false");
+            return true;
+        }
+
         try {
             ClamavClient client = new ClamavClient(new InetSocketAddress(host, port));
             ScanResult result = client.scan(fileStream);
