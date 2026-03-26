@@ -60,8 +60,9 @@ public class TaskShortcutController {
     @PostMapping("/{subtaskId}/promote")
     public ResponseEntity<ApiResponse<TaskDetailResponse>> promoteSubTask(
             @PathVariable UUID subtaskId,
-            @Valid @RequestBody PromoteSubTaskRequest request) {
-        TaskDetailResponse response = taskService.promoteSubTask(subtaskId, request, getCurrentUserId(), null);
+            @RequestBody(required = false) PromoteSubTaskRequest request) {
+        TaskDetailResponse response =
+            taskService.promoteSubTask(subtaskId, request, getCurrentUserId(), null);
         return ResponseEntity.ok(ApiResponse.success(response, "Đã chuyển thành task độc lập"));
     }
 

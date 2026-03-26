@@ -38,8 +38,10 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -64,7 +66,6 @@ public class TaskServiceImpl implements TaskService {
     private final com.zone.tasksphere.service.WebSocketService webSocketService;
     private final ReportService reportService;
     private final ObjectMapper objectMapper;
-    private final CustomFieldValueRepository customFieldValueRepository;
 
     // ════════════════════════════════════════
     // P3-BE-01: CREATE TASK
@@ -621,154 +622,132 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
-    public TaskDetailResponse promoteSubTask(UUID subtaskId, PromoteSubTaskRequest request, UUID currentUserId,
-                                             UUID requiredProjectId) {
+    public TaskDetailResponse promoteSubTask(UUID subtaskId, PromoteSubTaskRequest request,
+                                             UUID currentUserId, UUID projectId) {
+        if (request == null) {
+            request = new PromoteSubTaskRequest();
+        }
+
         Task subTask = taskRepository.findById(subtaskId)
             .orElseThrow(() -> new NotFoundException("Task not found: " + subtaskId));
 
-        UUID projectId = subTask.getProject().getId();
-        if (requiredProjectId != null && !projectId.equals(requiredProjectId)) {
+        UUID resolvedProjectId = subTask.getProject().getId();
+        if (projectId != null && !projectId.equals(resolvedProjectId)) {
             throw new NotFoundException("Task not found: " + subtaskId);
         }
 
-        ProjectMember member = getMember(projectId, currentUserId);
-        if (!member.getProjectRole().canEditTask()) {
-            throw new Forbidden("VIEWER không được nâng cấp sub-task");
+        User currentUser = getUser(currentUserId);
+        ProjectMember actorMember = projectMemberRepository
+            .findByProjectIdAndUserId(resolvedProjectId, currentUserId)
+            .orElse(null);
+        boolean isAdmin = currentUser.getSystemRole() == SystemRole.ADMIN;
+        if (actorMember == null && !isAdmin) {
+            throw new Forbidden("Bạn không phải thành viên dự án này");
         }
-
+        if (actorMember != null && actorMember.getProjectRole() == ProjectRole.VIEWER) {
+            throw new Forbidden("VIEWER không được promote sub-task");
+        }
         if (subTask.getParentTask() == null) {
             throw new BadRequestException("Task này không phải sub-task");
         }
 
-        Task oldParent = subTask.getParentTask();
-        UUID oldParentId = oldParent.getId();
-        int oldDepth = subTask.getDepth();
-
-        User actor = getUser(currentUserId);
-
-        if (subTask.getSprint() == null && oldParent.getSprint() != null) {
-            subTask.setSprint(oldParent.getSprint());
+        boolean isAssignee = subTask.getAssignee() != null
+            && subTask.getAssignee().getId().equals(currentUserId);
+        boolean isPM = actorMember != null
+            && actorMember.getProjectRole() == ProjectRole.PROJECT_MANAGER;
+        if (!isAssignee && !isPM && !isAdmin) {
+            throw new Forbidden("Chỉ PM hoặc Assignee của sub-task mới được promote");
         }
 
-        copyMissingCustomFieldValuesFromParent(subTask, oldParent);
+        Task oldParent = subTask.getParentTask();
+        UUID oldParentId = oldParent.getId();
 
-        String trimmedTitle = request.getTitle().trim();
-        subTask.setTitle(trimmedTitle);
+        if (request.getTitle() != null) {
+            if (request.getTitle().isBlank()) {
+                throw new BadRequestException("Tiêu đề không được để trống");
+            }
+            subTask.setTitle(request.getTitle().trim());
+        }
         if (request.getDescription() != null) {
             subTask.setDescription(request.getDescription());
         }
         if (request.getDueDate() != null) {
             subTask.setDueDate(request.getDueDate());
         }
-
         if (request.getAssigneeId() != null) {
-            User newAssignee = getUser(request.getAssigneeId());
-            if (!projectMemberRepository.existsByProjectIdAndUserId(projectId, request.getAssigneeId())) {
+            if (!projectMemberRepository.existsByProjectIdAndUserId(resolvedProjectId, request.getAssigneeId())) {
                 throw new BadRequestException("Assignee không phải thành viên dự án");
             }
-            subTask.setAssignee(newAssignee);
-        } else {
-            subTask.setAssignee(null);
+            subTask.setAssignee(getUser(request.getAssigneeId()));
+        }
+
+        if (subTask.getSprint() == null && oldParent.getSprint() != null) {
+            subTask.setSprint(oldParent.getSprint());
         }
 
         subTask.setParentTask(null);
         subTask.setDepth(0);
-        if (subTask.getType() == TaskType.SUB_TASK) {
-            subTask.setType(TaskType.TASK);
-        }
+        Task promotedTask = taskRepository.save(subTask);
+        recalculateDescendantDepths(promotedTask.getId(), 0);
+        taskRepository.flush();
+        Task reloaded = taskRepository.findById(promotedTask.getId())
+            .orElseThrow(() -> new NotFoundException("Task not found: " + promotedTask.getId()));
 
-        final Task promotedTask = taskRepository.save(subTask);
-        decrementDepthForDescendants(promotedTask.getId(), oldDepth);
-
-        String auditMessage = String.format(
-            "Sub-task \"%s\" được nâng cấp thành Task bởi %s",
-            trimmedTitle,
-            actor.getFullName()
-        );
-        logActivity(projectId, currentUserId, EntityType.TASK, promotedTask.getId(),
+        String actorName = currentUser.getFullName() != null && !currentUser.getFullName().isBlank()
+            ? currentUser.getFullName()
+            : currentUser.getEmail();
+        String auditMsg = String.format("Sub-task \"%s\" được nâng cấp thành Task bởi %s",
+            reloaded.getTitle(), actorName);
+        logActivity(resolvedProjectId, currentUserId, EntityType.TASK, reloaded.getId(),
             ActionType.SUBTASK_PROMOTED,
             toJson(Map.of(
-                "parentTaskId", oldParentId.toString(),
-                "parentTaskCode", oldParent.getTaskCode()
-            )),
-            toJson(Map.of(
-                "message", auditMessage,
-                "taskCode", promotedTask.getTaskCode(),
-                "title", promotedTask.getTitle()
-            )));
-
-        reportService.invalidateOverviewCache(projectId);
-
-        Map<String, Object> wsPayload = new HashMap<>();
-        wsPayload.put("promotedTaskId", promotedTask.getId().toString());
-        wsPayload.put("oldParentTaskId", oldParentId.toString());
-        wsPayload.put("projectId", projectId.toString());
-        wsPayload.put("taskCode", promotedTask.getTaskCode());
-        webSocketService.sendToProject(projectId.toString(), "subtask.promoted", wsPayload);
+                "parentTaskId", oldParentId,
+                "parentTaskCode", oldParent.getTaskCode())),
+            auditMsg);
 
         String notifTitle = "Sub-task được chuyển thành task độc lập";
         String notifBody = String.format("[%s] %s đã được tách ra từ [%s]",
-            promotedTask.getTaskCode(), promotedTask.getTitle(), oldParent.getTaskCode());
+            reloaded.getTaskCode(), reloaded.getTitle(), oldParent.getTaskCode());
 
-        projectMemberRepository.findByProjectId(projectId).stream()
+        Set<UUID> notifiedUsers = new HashSet<>();
+        projectMemberRepository.findByProjectId(resolvedProjectId).stream()
             .filter(m -> m.getProjectRole() == ProjectRole.PROJECT_MANAGER)
             .map(ProjectMember::getUser)
             .filter(u -> !u.getId().equals(currentUserId))
-            .forEach(pm -> notificationService.createNotification(
-                pm, NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
-                EntityType.TASK.name(), promotedTask.getId()));
+            .forEach(pm -> {
+                if (notifiedUsers.add(pm.getId())) {
+                    notificationService.createNotification(
+                        pm, NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
+                        EntityType.TASK.name(), reloaded.getId());
+                }
+            });
 
-        if (oldParent.getReporter() != null && !oldParent.getReporter().getId().equals(currentUserId)) {
-            notificationService.createNotification(
-                oldParent.getReporter(), NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
-                EntityType.TASK.name(), promotedTask.getId());
-        }
-        if (promotedTask.getAssignee() != null && !promotedTask.getAssignee().getId().equals(currentUserId)) {
-            notificationService.createNotification(
-                promotedTask.getAssignee(), NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
-                EntityType.TASK.name(), promotedTask.getId());
+        if (reloaded.getAssignee() != null && !reloaded.getAssignee().getId().equals(currentUserId)) {
+            User assignee = reloaded.getAssignee();
+            if (notifiedUsers.add(assignee.getId())) {
+                notificationService.createNotification(
+                    assignee, NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
+                    EntityType.TASK.name(), reloaded.getId());
+            }
         }
 
-        log.info("Sub-task {} promoted to root task by {}", promotedTask.getTaskCode(), currentUserId);
-        return taskMapper.toDetailResponse(promotedTask);
+        webSocketService.sendToProject(resolvedProjectId.toString(), "task.subtask_promoted", Map.of(
+            "promotedTaskId", reloaded.getId(),
+            "previousParentTaskId", oldParentId
+        ));
+
+        reportService.invalidateOverviewCache(resolvedProjectId);
+
+        log.info("Sub-task {} promoted to root task by {}", reloaded.getTaskCode(), currentUserId);
+        return taskMapper.toDetailResponse(reloaded);
     }
 
-    private void copyMissingCustomFieldValuesFromParent(Task subTask, Task oldParent) {
-        List<CustomFieldValue> parentVals = customFieldValueRepository.findByTaskId(oldParent.getId());
-        if (parentVals.isEmpty()) {
-            return;
-        }
-        List<CustomFieldValue> subVals = customFieldValueRepository.findByTaskId(subTask.getId());
-        var existingFieldIds = subVals.stream()
-            .map(v -> v.getCustomField().getId())
-            .collect(java.util.stream.Collectors.toSet());
-        for (CustomFieldValue pv : parentVals) {
-            if (existingFieldIds.contains(pv.getCustomField().getId())) {
-                continue;
-            }
-            CustomFieldValue copy = new CustomFieldValue();
-            copy.setTask(subTask);
-            copy.setCustomField(pv.getCustomField());
-            copy.setTextValue(pv.getTextValue());
-            copy.setNumberValue(pv.getNumberValue());
-            copy.setDateValue(pv.getDateValue());
-            copy.setBooleanValue(pv.getBooleanValue());
-            customFieldValueRepository.save(copy);
-        }
-    }
-
-    private void decrementDepthForDescendants(UUID parentTaskId, int subtract) {
-        if (subtract <= 0) {
-            return;
-        }
-        for (Task child : taskRepository.findByParentTaskId(parentTaskId)) {
-            int next = child.getDepth() - subtract;
-            if (next < 1) {
-                next = 1;
-            }
-            child.setDepth(next);
+    private void recalculateDescendantDepths(UUID parentTaskId, int parentDepth) {
+        List<Task> children = taskRepository.findByParentTaskId(parentTaskId);
+        for (Task child : children) {
+            child.setDepth(parentDepth + 1);
             taskRepository.save(child);
-            decrementDepthForDescendants(child.getId(), subtract);
+            recalculateDescendantDepths(child.getId(), parentDepth + 1);
         }
     }
 

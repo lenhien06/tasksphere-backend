@@ -1,28 +1,28 @@
 package com.zone.tasksphere.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.time.LocalDate;
 import java.util.UUID;
 
+/**
+ * Optional overrides khi promote sub-task thành task độc lập.
+ * Trường null = giữ nguyên giá trị hiện tại trên task.
+ */
 @Data
-@Schema(description = "Nâng cấp sub-task thành task độc lập — chỉnh sửa nhanh trước khi promote")
+@Schema(description = "Promote sub-task — chỉnh nhanh title/assignee/due date/description")
 public class PromoteSubTaskRequest {
 
-    @NotBlank
-    @Size(max = 255)
-    @Schema(description = "Tiêu đề task sau khi promote", example = "Triển khai API báo cáo")
+    @Schema(description = "Tiêu đề task sau promote", example = "Triển khai API")
     private String title;
 
-    @Schema(description = "Người được giao (null = không gán)", example = "550e8400-e29b-41d4-a716-446655440000")
+    @Schema(description = "Assignee (member dự án)")
     private UUID assigneeId;
 
-    @Schema(description = "Hạn chót", example = "2026-12-31")
+    @Schema(description = "Hạn chót")
     private LocalDate dueDate;
 
-    @Schema(description = "Mô tả (HTML/Markdown-rich từ editor)", example = "<p>Chi tiết...</p>")
+    @Schema(description = "Mô tả (HTML rich text)")
     private String description;
 }
