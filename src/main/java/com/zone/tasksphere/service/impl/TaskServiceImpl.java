@@ -5,8 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zone.tasksphere.component.DefaultColumnSeeder;
 import com.zone.tasksphere.dto.request.*;
 import com.zone.tasksphere.dto.response.*;
-import com.zone.tasksphere.dto.response.CalendarViewResponse;
-import com.zone.tasksphere.dto.response.SubTaskResponse;
 import com.zone.tasksphere.entity.*;
 import com.zone.tasksphere.entity.enums.*;
 import com.zone.tasksphere.exception.BadRequestException;
@@ -37,6 +35,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -495,6 +494,45 @@ public class TaskServiceImpl implements TaskService {
             newColumn.getName(), request.getNewPosition());
     }
 
+    @Override
+    @Transactional
+    public TaskDetailResponse updateDueDate(UUID projectId, UUID taskId,
+                                            UpdateTaskDueDateRequest request, UUID currentUserId) {
+        ProjectMember actorMember = projectMemberRepository
+            .findByProjectIdAndUserId(projectId, currentUserId)
+            .orElseThrow(() -> new Forbidden("Ban khong phai thanh vien du an nay"));
+        if (actorMember.getProjectRole() == ProjectRole.VIEWER) {
+            throw new Forbidden("VIEWER khong duoc sua task");
+        }
+
+        Task task = getTaskInProject(taskId, projectId);
+        if (task.getDeletedAt() != null) {
+            throw new NotFoundException("Task khong ton tai");
+        }
+
+        LocalDate newDueDate = request.getDueDate();
+
+        Sprint sprint = task.getSprint();
+        if (sprint != null && sprint.getStatus() == SprintStatus.ACTIVE) {
+            boolean beforeStart = sprint.getStartDate() != null && newDueDate.isBefore(sprint.getStartDate());
+            boolean afterEnd = sprint.getEndDate() != null && newDueDate.isAfter(sprint.getEndDate());
+            if (beforeStart || afterEnd) {
+                throw new BadRequestException("Due date phai nam trong khoang thoi gian cua sprint dang ACTIVE");
+            }
+        }
+
+        LocalDate oldDueDate = task.getDueDate();
+        task.setDueDate(newDueDate);
+        taskRepository.save(task);
+
+        logActivity(projectId, currentUserId, EntityType.TASK, taskId,
+                ActionType.UPDATED,
+                oldDueDate == null ? null : oldDueDate.toString(),
+                newDueDate.toString());
+
+        return taskMapper.toDetailResponse(task);
+    }
+
     // ════════════════════════════════════════
     // P3-BE-04: DELETE TASK (soft delete)
     // ════════════════════════════════════════
@@ -756,7 +794,9 @@ public class TaskServiceImpl implements TaskService {
     // ════════════════════════════════════════
     @Override
     @Transactional(readOnly = true)
-    public CalendarViewResponse getCalendarView(UUID projectId, int year, int month, UUID currentUserId) {
+    public CalendarViewResponse getCalendarView(UUID projectId, int year, int month,
+                                                String q, TaskStatus status, String assigneeId,
+                                                UUID sprintId, TaskPriority priority, UUID currentUserId) {
         validateMembership(projectId, currentUserId);
 
         if (year < 2020 || year > 2030) {
@@ -767,7 +807,18 @@ public class TaskServiceImpl implements TaskService {
         }
 
         LocalDate today = LocalDate.now();
-        List<Task> tasks = taskRepository.findByProjectAndYearAndMonth(projectId, year, month);
+        // Build filter spec: project + due_date in month + provided filters + has due_date
+        CalendarFilterParams params = new CalendarFilterParams();
+        params.setProjectId(projectId);
+        params.setYear(year);
+        params.setMonth(month);
+        params.setQ(q);
+        params.setStatus(status);
+        params.setAssigneeId("me".equalsIgnoreCase(assigneeId) ? currentUserId.toString() : assigneeId);
+        params.setSprintId(sprintId);
+        params.setPriority(priority);
+
+        List<Task> tasks = taskRepository.findAll(buildCalendarSpecification(params));
 
         List<CalendarViewResponse.CalendarTaskItem> items = tasks.stream().map(t -> {
             CalendarViewResponse.UserSummary assignee = null;
@@ -781,8 +832,18 @@ public class TaskServiceImpl implements TaskService {
 
             boolean isOverdue = t.getDueDate() != null
                     && t.getDueDate().isBefore(today)
-                    && t.getTaskStatus() != TaskStatus.DONE
-                    && t.getTaskStatus() != TaskStatus.CANCELLED;
+                    && t.getTaskStatus() != TaskStatus.DONE;
+
+            CalendarViewResponse.SprintSummary sprint = null;
+            if (t.getSprint() != null) {
+                sprint = CalendarViewResponse.SprintSummary.builder()
+                        .id(t.getSprint().getId())
+                        .name(t.getSprint().getName())
+                        .status(t.getSprint().getStatus())
+                        .startDate(t.getSprint().getStartDate())
+                        .endDate(t.getSprint().getEndDate())
+                        .build();
+            }
 
             return CalendarViewResponse.CalendarTaskItem.builder()
                     .id(t.getId())
@@ -791,10 +852,9 @@ public class TaskServiceImpl implements TaskService {
                     .priority(t.getPriority())
                     .taskStatus(t.getTaskStatus())
                     .dueDate(t.getDueDate())
-                    .columnName(t.getStatusColumn() != null ? t.getStatusColumn().getName() : null)
-                    .columnColor(t.getStatusColumn() != null ? t.getStatusColumn().getColorHex() : null)
                     .isOverdue(isOverdue)
                     .assignee(assignee)
+                    .sprint(sprint)
                     .build();
         }).toList();
 
@@ -804,6 +864,51 @@ public class TaskServiceImpl implements TaskService {
                 .totalTasks(items.size())
                 .tasks(items)
                 .build();
+    }
+
+    private Specification<Task> buildCalendarSpecification(CalendarFilterParams params) {
+        return (root, query, cb) -> {
+            root.fetch("assignee", jakarta.persistence.criteria.JoinType.LEFT);
+            root.fetch("sprint", jakarta.persistence.criteria.JoinType.LEFT);
+            query.distinct(true);
+
+            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("project").get("id"), params.getProjectId()));
+            predicates.add(cb.isNull(root.get("deletedAt")));
+            predicates.add(cb.isNotNull(root.get("dueDate")));
+            predicates.add(cb.equal(cb.function("YEAR", Integer.class, root.get("dueDate")), params.getYear()));
+            predicates.add(cb.equal(cb.function("MONTH", Integer.class, root.get("dueDate")), params.getMonth()));
+
+            if (params.getQ() != null && !params.getQ().isBlank()) {
+                String pattern = "%" + params.getQ().trim().toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("title")), pattern),
+                        cb.like(cb.lower(root.get("taskCode")), pattern)
+                ));
+            }
+            if (params.getStatus() != null) {
+                predicates.add(cb.equal(root.get("taskStatus"), params.getStatus()));
+            }
+            if (params.getAssigneeId() != null && !params.getAssigneeId().isBlank()) {
+                try {
+                    predicates.add(cb.equal(root.get("assignee").get("id"), UUID.fromString(params.getAssigneeId())));
+                } catch (IllegalArgumentException ex) {
+                    throw new BadRequestException("assigneeId khong hop le");
+                }
+            }
+            if (params.getSprintId() != null) {
+                predicates.add(cb.equal(root.get("sprint").get("id"), params.getSprintId()));
+            }
+            if (params.getPriority() != null) {
+                predicates.add(cb.equal(root.get("priority"), params.getPriority()));
+            }
+
+            query.orderBy(
+                    cb.asc(root.get("dueDate")),
+                    cb.asc(root.get("taskPosition"))
+            );
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
     }
 
     // ════════════════════════════════════════

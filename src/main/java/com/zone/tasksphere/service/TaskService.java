@@ -56,5 +56,11 @@ public interface TaskService {
                                      UUID currentUserId, UUID projectId);
 
     // ── P3-BE-10: Calendar View ──────────────────────────────────────
-    CalendarViewResponse getCalendarView(UUID projectId, int year, int month, UUID currentUserId);
+    CalendarViewResponse getCalendarView(UUID projectId, int year, int month,
+                                         String q, TaskStatus status, String assigneeId,
+                                         UUID sprintId, TaskPriority priority, UUID currentUserId);
+
+    // ── Calendar: Update due date ─────────────────────────────────────
+    TaskDetailResponse updateDueDate(UUID projectId, UUID taskId,
+                                     UpdateTaskDueDateRequest request, UUID currentUserId);
 }

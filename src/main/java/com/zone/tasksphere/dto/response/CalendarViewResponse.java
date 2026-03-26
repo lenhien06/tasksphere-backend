@@ -2,6 +2,7 @@ package com.zone.tasksphere.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import com.zone.tasksphere.entity.enums.SprintStatus;
 import com.zone.tasksphere.entity.enums.TaskPriority;
 import com.zone.tasksphere.entity.enums.TaskStatus;
 import lombok.Builder;
@@ -27,8 +28,8 @@ public class CalendarViewResponse {
 
     @Data
     @Builder
-@Schema(description = "Calendar Task Item")
-public static class CalendarTaskItem {
+    @Schema(description = "Calendar Task Item")
+    public static class CalendarTaskItem {
         @Schema(description = "Id", example = "550e8400-e29b-41d4-a716-446655440000")
         private UUID id;
         @Schema(description = "Task code", example = "CODE-123")
@@ -37,24 +38,33 @@ public static class CalendarTaskItem {
         private String title;
         @Schema(description = "Priority", example = "HIGH")
         private TaskPriority priority;
-        @Schema(description = "Task status", example = "ACTIVE")
+        @Schema(description = "Task status", example = "TODO")
         private TaskStatus taskStatus;
-        @Schema(description = "Due date", example = "2023-12-31T23:59:59Z")
+        @Schema(description = "Due date", example = "2023-12-31")
         private LocalDate dueDate;
-        @Schema(description = "Column name", example = "John Doe")
-        private String columnName;
-        @Schema(description = "Column color", example = "string")
-        private String columnColor;
+        @Schema(description = "Sprint")
+        private SprintSummary sprint;
         @Schema(description = "Is overdue", example = "true")
         private boolean isOverdue;
-        @Schema(description = "Assignee", example = "example")
+        @Schema(description = "Assignee")
         private UserSummary assignee;
     }
 
     @Data
     @Builder
-@Schema(description = "User Summary")
-public static class UserSummary {
+    @Schema(description = "Sprint summary")
+    public static class SprintSummary {
+        private UUID id;
+        private String name;
+        private SprintStatus status;
+        private LocalDate startDate;
+        private LocalDate endDate;
+    }
+
+    @Data
+    @Builder
+    @Schema(description = "User Summary")
+    public static class UserSummary {
         @Schema(description = "Id", example = "550e8400-e29b-41d4-a716-446655440000")
         private UUID id;
         @Schema(description = "Full name", example = "John Doe")

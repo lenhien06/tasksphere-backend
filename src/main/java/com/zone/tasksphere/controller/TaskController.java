@@ -99,8 +99,24 @@ public class TaskController {
     public ResponseEntity<ApiResponse<CalendarViewResponse>> getCalendar(
             @PathVariable UUID projectId,
             @RequestParam int year,
-            @RequestParam int month) {
-        CalendarViewResponse response = taskService.getCalendarView(projectId, year, month, getCurrentUserId());
+            @RequestParam int month,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) TaskStatus status,
+            @RequestParam(required = false) String assigneeId,
+            @RequestParam(required = false) UUID sprintId,
+            @RequestParam(required = false) TaskPriority priority) {
+        CalendarViewResponse response = taskService.getCalendarView(
+            projectId, year, month, q, status, assigneeId, sprintId, priority, getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Cập nhật due_date của task (Calendar drag/drop)")
+    @PatchMapping("/{taskId}/due-date")
+    public ResponseEntity<ApiResponse<TaskDetailResponse>> updateDueDate(
+            @PathVariable UUID projectId,
+            @PathVariable UUID taskId,
+            @Valid @RequestBody UpdateTaskDueDateRequest request) {
+        TaskDetailResponse response = taskService.updateDueDate(projectId, taskId, request, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
