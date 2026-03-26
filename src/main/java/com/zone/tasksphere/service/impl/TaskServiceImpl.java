@@ -166,12 +166,7 @@ public class TaskServiceImpl implements TaskService {
 
         // Gửi notification nếu có assignee khác reporter
         if (assignee != null && !assignee.getId().equals(currentUserId)) {
-            notificationService.createNotification(
-                assignee, NotificationType.TASK_ASSIGNED,
-                "Task mới được giao",
-                String.format("Bạn được giao task [%s] %s", taskCode, task.getTitle()),
-                EntityType.TASK.name(), task.getId()
-            );
+            notificationService.sendTaskAssigned(task, assignee, currentUser);
         }
 
         log.info("Task created: {} in project {}", taskCode, projectId);
@@ -289,12 +284,7 @@ public class TaskServiceImpl implements TaskService {
             User newAssignee = getUser(request.getAssigneeId());
             // Notify new assignee if different from current
             if (task.getAssignee() == null || !task.getAssignee().getId().equals(request.getAssigneeId())) {
-                notificationService.createNotification(
-                    newAssignee, NotificationType.TASK_ASSIGNED,
-                    "Task được giao cho bạn",
-                    String.format("Bạn được giao task [%s] %s", task.getTaskCode(), task.getTitle()),
-                    EntityType.TASK.name(), task.getId()
-                );
+                notificationService.sendTaskAssigned(task, newAssignee, currentUser);
             }
             task.setAssignee(newAssignee);
         }
@@ -751,7 +741,8 @@ public class TaskServiceImpl implements TaskService {
                 if (notifiedUsers.add(pm.getId())) {
                     notificationService.createNotification(
                         pm, NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
-                        EntityType.TASK.name(), reloaded.getId());
+                        EntityType.TASK.name(), reloaded.getId(),
+                        resolvedProjectId, reloaded.getTaskCode(), currentUser);
                 }
             });
 
@@ -760,7 +751,8 @@ public class TaskServiceImpl implements TaskService {
             if (notifiedUsers.add(assignee.getId())) {
                 notificationService.createNotification(
                     assignee, NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
-                    EntityType.TASK.name(), reloaded.getId());
+                    EntityType.TASK.name(), reloaded.getId(),
+                    resolvedProjectId, reloaded.getTaskCode(), currentUser);
             }
         }
 

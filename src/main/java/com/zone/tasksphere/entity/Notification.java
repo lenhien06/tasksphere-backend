@@ -55,6 +55,24 @@ public class Notification extends BaseEntity {
     @Column(name = "entity_id", columnDefinition = "CHAR(36)")
     private UUID entityId;
 
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "project_id", columnDefinition = "CHAR(36)")
+    private UUID projectId;
+
+    @Column(name = "task_code", length = 50)
+    private String taskCode;
+
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "actor_id", columnDefinition = "CHAR(36)")
+    private UUID actorId;
+
+    @Column(name = "actor_name",
+            columnDefinition = "VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+    private String actorName;
+
+    @Column(name = "actor_avatar_url", length = 1000)
+    private String actorAvatarUrl;
+
     @Column(name = "is_read", nullable = false)
     @Builder.Default
     private boolean isRead = false;

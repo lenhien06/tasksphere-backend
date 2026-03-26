@@ -1,5 +1,6 @@
 package com.zone.tasksphere.config;
 
+import com.zone.tasksphere.component.AuthenticatedWebSocketHandshakeInterceptor;
 import com.zone.tasksphere.component.WebSocketAuthChannelInterceptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
@@ -15,10 +16,14 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final WebSocketAuthChannelInterceptor webSocketAuthChannelInterceptor;
+    private final AuthenticatedWebSocketHandshakeInterceptor authenticatedWebSocketHandshakeInterceptor;
+    private final UserIdHandshakeHandler userIdHandshakeHandler;
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
+            .addInterceptors(authenticatedWebSocketHandshakeInterceptor)
+            .setHandshakeHandler(userIdHandshakeHandler)
             .setAllowedOriginPatterns("*")
             .withSockJS();
     }

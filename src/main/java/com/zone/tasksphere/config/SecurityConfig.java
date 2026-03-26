@@ -52,7 +52,6 @@ public class SecurityConfig {
             "/actuator/health",
             "/actuator/health/**",
             "/actuator/info",
-            "/ws/**",           // WebSocket SockJS endpoint
     };
 
     @Bean

@@ -40,14 +40,18 @@ public class WebSocketService {
      */
     public void sendToUser(UUID userId, String destination, Object payload) {
         try {
-            messagingTemplate.convertAndSendToUser(
-                userId.toString(),
-                destination,
-                payload
-            );
+            sendToUserOrThrow(userId, destination, payload);
             log.debug("[WS] sendToUser: {} → {}", userId, destination);
         } catch (Exception e) {
             log.warn("[WS] Failed to send to user {}: {}", userId, e.getMessage());
         }
+    }
+
+    public void sendToUserOrThrow(UUID userId, String destination, Object payload) {
+        messagingTemplate.convertAndSendToUser(
+            userId.toString(),
+            destination,
+            payload
+        );
     }
 }
