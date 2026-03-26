@@ -56,12 +56,11 @@ spring:
           max-wait: 2000ms
 
   # ─── Mail ──────────────────────────────────────────────────────────────────
-  # Using AWS SES or corporate mail server
   mail:
-    host: mail.tasksphere.io.vn
+    host: smtp.sendgrid.net
     port: 587
-    username: noreply@tasksphere.io.vn
-    password: "MailServer@2026#SecurePass"
+    username: apikey
+    password: "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"
     properties:
       mail:
         smtp:
@@ -73,7 +72,7 @@ spring:
           timeout: 10000
           writetimeout: 10000
     from: noreply@tasksphere.io.vn
-    from-name: TaskSphere Enterprise
+    from-name: TaskSphere
 
   main:
     allow-bean-definition-overriding: true

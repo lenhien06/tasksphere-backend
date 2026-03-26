@@ -2,13 +2,15 @@ package com.zone.tasksphere.service;
 
 import com.zone.tasksphere.dto.response.DigestContent;
 import com.zone.tasksphere.entity.User;
+import com.zone.tasksphere.exception.EmailSendException;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.*;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.thymeleaf.TemplateEngine;
@@ -19,10 +21,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.UUID;
 
-/**
- * Email service for transactional emails (OTP, welcome, password reset).
- * All methods are @Async — fire and forget, never block the request thread.
- */
+/** Email service for transactional emails (OTP, welcome, password reset). */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -35,41 +34,34 @@ public class EmailService {
     @Value("${app.frontend-url}")
     private String frontendUrl;
 
-    @Value("${spring.mail.username}")
+    @Value("${spring.mail.from:noreply@tasksphere.io.vn}")
     private String fromEmail;
 
-    @Async
     public void sendOtpEmail(String toEmail, String otp) {
-        String subject = "Mã xác thực tài khoản TaskSphere của bạn";
-        
-        Context context = new Context();
-        context.setVariable("otp", otp);
-        
-        String htmlContent = templateEngine.process("emails/otp-email", context);
-        sendHtmlEmail(toEmail, subject, htmlContent);
+        sendWithRetry(toEmail, "Mã xác thực tài khoản TaskSphere của bạn", buildOtpHtml(otp));
     }
 
     @Async
     public void sendWelcomeEmail(String toEmail, String fullName) {
         String subject = "Chào mừng bạn gia nhập TaskSphere! 🎉";
-        
+
         Context context = new Context();
         context.setVariable("fullName", fullName);
-        
+
         String htmlContent = templateEngine.process("emails/welcome-email", context);
-        sendHtmlEmail(toEmail, subject, htmlContent);
+        sendWithRetryAsync(toEmail, subject, htmlContent);
     }
 
     @Async
     public void sendPasswordResetEmail(String toEmail, String otp) {
         String subject = "[CẢNH BÁO] Yêu cầu đặt lại mật khẩu TaskSphere";
-        
+
         Context context = new Context();
         context.setVariable("otp", otp);
-        
+
         // Bạn có thể tạo file password-reset-email.html tương tự
         String htmlContent = templateEngine.process("emails/password-reset-email", context);
-        sendHtmlEmail(toEmail, subject, htmlContent);
+        sendWithRetryAsync(toEmail, subject, htmlContent);
     }
 
     /**
@@ -101,7 +93,7 @@ public class EmailService {
 
         try {
             String htmlContent = templateEngine.process("emails/project-invite-email", context);
-            sendHtmlEmail(toEmail, subject, htmlContent);
+            sendWithRetryAsync(toEmail, subject, htmlContent);
         } catch (Exception e) {
             log.error("Lỗi khi xử lý template email mời dự án: {}", e.getMessage());
             String simpleMessage = hasInviteToken
@@ -122,7 +114,7 @@ public class EmailService {
         // Cần file project-archived-email.html trong templates/emails/
         try {
             String htmlContent = templateEngine.process("emails/project-archived-email", context);
-            sendHtmlEmail(toEmail, subject, htmlContent);
+            sendWithRetryAsync(toEmail, subject, htmlContent);
         } catch (Exception e) {
             log.error("Lỗi khi xử lý template email lưu trữ dự án: {}", e.getMessage());
             // Fallback to simple text if template fails
@@ -141,7 +133,7 @@ public class EmailService {
         // Cần file project-deleted-email.html trong templates/emails/
         try {
             String htmlContent = templateEngine.process("emails/project-deleted-email", context);
-            sendHtmlEmail(toEmail, subject, htmlContent);
+            sendWithRetryAsync(toEmail, subject, htmlContent);
         } catch (Exception e) {
             log.error("Lỗi khi xử lý template email xóa dự án: {}", e.getMessage());
             // Fallback to simple text if template fails
@@ -163,14 +155,7 @@ public class EmailService {
 
         try {
             String html = templateEngine.process("emails/daily-digest", ctx);
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            helper.setTo(user.getEmail());
-            helper.setSubject(subject);
-            helper.setText(html, true);
-            helper.setFrom(fromEmail, "TaskSphere");
-            mailSender.send(message);
-            log.info("[DailyDigest] Đã gửi email tới {}", user.getEmail());
+            sendWithRetryAsync(user.getEmail(), subject, html);
         } catch (Exception e) {
             log.error("[DailyDigest] Lỗi gửi email tới {}: {}", user.getEmail(), e.getMessage());
         }
@@ -197,10 +182,37 @@ public class EmailService {
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(htmlBody, true);
+            helper.setFrom(fromEmail, "TaskSphere");
             mailSender.send(message);
-            log.info("Đã gửi email thành công tới: {}", to);
-        } catch (MessagingException e) {
-            log.error("Lỗi khi gửi email tới {}: {}", to, e.getMessage());
+        } catch (Exception e) {
+            throw new EmailSendException("Gửi email thất bại tới " + to, e);
         }
+    }
+
+    private void sendWithRetry(String to, String subject, String htmlBody) {
+        EmailSendException lastError = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                log.info("[Email][Attempt {}] Sending to {}", attempt, to);
+                sendHtmlEmail(to, subject, htmlBody);
+                log.info("[Email] Success to {}", to);
+                return;
+            } catch (EmailSendException e) {
+                lastError = e;
+                log.error("[Email][Attempt {}] Failed to {}: {}", attempt, to, e.getMessage());
+            }
+        }
+        throw lastError != null ? lastError : new EmailSendException("Không thể gửi email tới " + to, null);
+    }
+
+    @Async
+    protected void sendWithRetryAsync(String to, String subject, String htmlBody) {
+        sendWithRetry(to, subject, htmlBody);
+    }
+
+    private String buildOtpHtml(String otp) {
+        Context context = new Context();
+        context.setVariable("otp", otp);
+        return templateEngine.process("emails/otp-email", context);
     }
 }

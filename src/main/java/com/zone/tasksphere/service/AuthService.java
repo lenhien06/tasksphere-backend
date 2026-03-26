@@ -63,7 +63,12 @@ public class AuthService {
         redisTemplate.opsForValue().set(OTP_PREFIX + email, otp, OTP_EXPIRY_MINUTES, TimeUnit.MINUTES);
 
         log.info("Đang gửi mã OTP cho {}: {}", email, otp);
-        emailService.sendOtpEmail(email, otp);
+        try {
+            emailService.sendOtpEmail(email, otp);
+        } catch (EmailSendException e) {
+            log.error("[OTP] Gửi OTP thất bại tới {}: {}", email, e.getMessage());
+            throw new BusinessRuleException("EMAIL_SEND_FAILED: Không gửi được mã OTP, vui lòng thử lại sau.");
+        }
     }
 
     @Transactional
@@ -76,7 +81,12 @@ public class AuthService {
         redisTemplate.opsForValue().set(OTP_PREFIX + "forgot:" + email, otp, OTP_EXPIRY_MINUTES, TimeUnit.MINUTES);
 
         log.info("Đang gửi mã OTP khôi phục mật khẩu cho {}: {}", email, otp);
-        emailService.sendPasswordResetEmail(email, otp);
+        try {
+            emailService.sendPasswordResetEmail(email, otp);
+        } catch (EmailSendException e) {
+            log.error("[OTP] Gửi OTP khôi phục thất bại tới {}: {}", email, e.getMessage());
+            throw new BusinessRuleException("EMAIL_SEND_FAILED: Không gửi được mã OTP, vui lòng thử lại sau.");
+        }
     }
 
     @Transactional
