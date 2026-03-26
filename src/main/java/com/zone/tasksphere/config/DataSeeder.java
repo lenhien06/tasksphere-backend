@@ -722,20 +722,23 @@ public class DataSeeder implements CommandLineRunner {
 
     private ProjectVersion ensureVersion(Project project, String name, VersionStatus status,
                                          LocalDate releaseDate, String description) {
-        if (projectVersionRepository.existsByProject_IdAndNameAndDeletedAtIsNull(project.getId(), name)) {
-            return projectVersionRepository.findByProject_IdAndDeletedAtIsNullOrderByCreatedAtDesc(project.getId())
-                    .stream()
-                    .filter(v -> name.equals(v.getName()))
-                    .findFirst()
-                    .orElseThrow();
-        }
-        return projectVersionRepository.save(ProjectVersion.builder()
-                .project(project)
-                .name(name)
-                .status(status)
-                .releaseDate(releaseDate)
-                .description(description)
-                .build());
+        return projectVersionRepository.findByProject_IdAndName(project.getId(), name)
+                .map(existing -> {
+                    if (existing.getDeletedAt() != null) {
+                        existing.setDeletedAt(null);
+                    }
+                    existing.setStatus(status);
+                    existing.setReleaseDate(releaseDate);
+                    existing.setDescription(description);
+                    return projectVersionRepository.save(existing);
+                })
+                .orElseGet(() -> projectVersionRepository.save(ProjectVersion.builder()
+                        .project(project)
+                        .name(name)
+                        .status(status)
+                        .releaseDate(releaseDate)
+                        .description(description)
+                        .build()));
     }
 
     private void assignVersionIfMissing(String taskCode, ProjectVersion version) {

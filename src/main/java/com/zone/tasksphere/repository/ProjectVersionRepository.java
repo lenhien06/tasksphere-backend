@@ -21,6 +21,9 @@ public interface ProjectVersionRepository extends JpaRepository<ProjectVersion, 
     /** Kiểm tra tên version unique trong project */
     boolean existsByProject_IdAndNameAndDeletedAtIsNull(UUID projectId, String name);
 
+    /** Tìm version theo project + name (kể cả deleted) */
+    Optional<ProjectVersion> findByProject_IdAndName(UUID projectId, String name);
+
     /** Kiểm tra tên unique khi update (exclude chính nó) */
     boolean existsByProject_IdAndNameAndIdNotAndDeletedAtIsNull(UUID projectId, String name, UUID excludeId);
 
