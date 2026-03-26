@@ -30,6 +30,7 @@ public class ClamAvService {
      * @return true if file is clean or ClamAV is unavailable
      */
     public boolean isClean(InputStream fileStream) {
+        // Temporarily disabled: always allow files to pass to reduce latency and false positives
         if (!enabled) {
             log.info("[ClamAV] Scan skipped because clamav.enabled=false");
             return true;
