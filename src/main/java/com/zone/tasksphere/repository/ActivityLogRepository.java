@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -19,6 +20,14 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, UUID>,
 
     @Query("SELECT COUNT(a) FROM ActivityLog a WHERE a.action = com.zone.tasksphere.entity.enums.ActionType.LOGIN AND a.createdAt >= :since")
     long countLoginsAfter(@Param("since") Instant since);
+
+    @EntityGraph(attributePaths = {"actor"})
+    @Query("""
+        SELECT a FROM ActivityLog a
+        WHERE a.projectId IN :projectIds
+        ORDER BY a.createdAt DESC
+    """)
+    List<ActivityLog> findRecentByProjectIds(@Param("projectIds") List<UUID> projectIds, Pageable pageable);
 
     // ── P4-BE-04: Burndown Chart ─────────────────────────────────────
 

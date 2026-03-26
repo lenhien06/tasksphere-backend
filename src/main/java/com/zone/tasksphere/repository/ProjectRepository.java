@@ -1,6 +1,7 @@
 package com.zone.tasksphere.repository;
 
 import com.zone.tasksphere.entity.Project;
+import com.zone.tasksphere.entity.enums.ProjectStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
@@ -33,6 +34,26 @@ public interface ProjectRepository extends JpaRepository<Project, UUID>, JpaSpec
 
     @Query("SELECT p FROM Project p WHERE p.projectKey = :key")
     Optional<Project> findByKeyWithDeleted(@Param("key") String key);
+
+    @Query("""
+        SELECT DISTINCT p FROM Project p
+        LEFT JOIN p.members pm
+        WHERE p.deletedAt IS NULL
+          AND (p.owner.id = :userId OR pm.user.id = :userId)
+        ORDER BY p.updatedAt DESC
+    """)
+    List<Project> findOwnedOrMemberProjects(@Param("userId") UUID userId);
+
+    @Query("""
+        SELECT DISTINCT p FROM Project p
+        LEFT JOIN p.members pm
+        WHERE p.deletedAt IS NULL
+          AND p.status = :status
+          AND (p.owner.id = :userId OR pm.user.id = :userId)
+        ORDER BY p.updatedAt DESC
+    """)
+    List<Project> findOwnedOrMemberProjectsByStatus(@Param("userId") UUID userId,
+                                                    @Param("status") ProjectStatus status);
 
     /**
      * Pessimistic write lock — dùng cho atomic task code generation.

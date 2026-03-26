@@ -2,14 +2,17 @@ package com.zone.tasksphere.repository;
 
 import com.zone.tasksphere.entity.Task;
 import com.zone.tasksphere.entity.enums.TaskStatus;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,6 +31,111 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
 
     /** Tìm task theo id và projectId (SQLRestriction tự lọc soft-deleted) */
     Optional<Task> findByIdAndProjectId(UUID id, UUID projectId);
+
+    @Query("""
+        SELECT COUNT(t) FROM Task t
+        WHERE t.assignee.id = :userId
+          AND t.deletedAt IS NULL
+          AND t.project.deletedAt IS NULL
+          AND t.taskStatus NOT IN (
+              com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+              com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+          )
+    """)
+    long countAssignedOpenTasks(@Param("userId") UUID userId);
+
+    @Query("""
+        SELECT COUNT(t) FROM Task t
+        WHERE t.assignee.id = :userId
+          AND t.deletedAt IS NULL
+          AND t.project.deletedAt IS NULL
+          AND t.dueDate < :today
+          AND t.taskStatus NOT IN (
+              com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+              com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+          )
+    """)
+    long countOverdueAssignedTasks(@Param("userId") UUID userId,
+                                   @Param("today") LocalDate today);
+
+    @Query("""
+        SELECT COUNT(t) FROM Task t
+        WHERE t.assignee.id = :userId
+          AND t.deletedAt IS NULL
+          AND t.project.deletedAt IS NULL
+          AND t.dueDate = :today
+          AND t.taskStatus NOT IN (
+              com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+              com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+          )
+    """)
+    long countDueTodayAssignedTasks(@Param("userId") UUID userId,
+                                    @Param("today") LocalDate today);
+
+    @Query("""
+        SELECT COUNT(t) FROM Task t
+        WHERE t.assignee.id = :userId
+          AND t.deletedAt IS NULL
+          AND t.project.deletedAt IS NULL
+          AND t.completedAt IS NOT NULL
+          AND t.completedAt >= :from
+          AND t.completedAt < :to
+    """)
+    long countCompletedAssignedTasksBetween(@Param("userId") UUID userId,
+                                            @Param("from") Instant from,
+                                            @Param("to") Instant to);
+
+    @EntityGraph(attributePaths = {"project", "assignee"})
+    @Query("""
+        SELECT t FROM Task t
+        WHERE t.assignee.id = :userId
+          AND t.deletedAt IS NULL
+          AND t.project.deletedAt IS NULL
+          AND t.taskStatus NOT IN (
+              com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+              com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+          )
+        ORDER BY
+          CASE WHEN t.dueDate IS NULL THEN 1 ELSE 0 END,
+          t.dueDate ASC,
+          t.updatedAt DESC
+    """)
+    List<Task> findAssignedOpenTasksForDashboard(@Param("userId") UUID userId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"project", "assignee"})
+    @Query("""
+        SELECT t FROM Task t
+        WHERE t.assignee.id = :userId
+          AND t.deletedAt IS NULL
+          AND t.project.deletedAt IS NULL
+          AND t.dueDate IS NOT NULL
+          AND t.dueDate >= :today
+          AND t.dueDate <= :toDate
+          AND t.taskStatus NOT IN (
+              com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+              com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+          )
+        ORDER BY t.dueDate ASC, t.updatedAt DESC
+    """)
+    List<Task> findUpcomingAssignedTasksForDashboard(@Param("userId") UUID userId,
+                                                     @Param("today") LocalDate today,
+                                                     @Param("toDate") LocalDate toDate,
+                                                     Pageable pageable);
+
+    @Query("""
+        SELECT CASE WHEN COUNT(t) > 0 THEN true ELSE false END FROM Task t
+        WHERE t.deletedAt IS NULL
+          AND t.project.deletedAt IS NULL
+          AND (
+            t.project.owner.id = :userId
+            OR EXISTS (
+                SELECT 1 FROM ProjectMember pm
+                WHERE pm.project = t.project
+                  AND pm.user.id = :userId
+            )
+          )
+    """)
+    boolean existsWorkspaceTasks(@Param("userId") UUID userId);
 
     @Query("""
         SELECT DISTINCT t FROM Task t
@@ -141,7 +249,7 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
     @Query("SELECT t.project.id AS projectId, " +
            "COUNT(t.id) AS total, " +
            "SUM(CASE WHEN t.taskStatus = com.zone.tasksphere.entity.enums.TaskStatus.DONE THEN 1 ELSE 0 END) AS done, " +
-           "SUM(CASE WHEN t.taskStatus != com.zone.tasksphere.entity.enums.TaskStatus.DONE AND (t.dueDate IS NOT NULL AND t.dueDate < CURRENT_DATE) THEN 1 ELSE 0 END) AS overdue " +
+           "SUM(CASE WHEN t.taskStatus NOT IN (com.zone.tasksphere.entity.enums.TaskStatus.DONE, com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED) AND (t.dueDate IS NOT NULL AND t.dueDate < CURRENT_DATE) THEN 1 ELSE 0 END) AS overdue " +
            "FROM Task t " +
            "WHERE t.project.id IN :projectIds " +
            "GROUP BY t.project.id")

@@ -139,6 +139,7 @@ public class TaskServiceImpl implements TaskService {
             .type(request.getType() != null ? request.getType() : TaskType.TASK)
             .priority(request.getPriority() != null ? request.getPriority() : TaskPriority.MEDIUM)
             .taskStatus(statusColumn.getMappedStatus() != null ? statusColumn.getMappedStatus() : TaskStatus.TODO)
+            .completedAt(statusColumn.getMappedStatus() == TaskStatus.DONE ? Instant.now() : null)
             .storyPoints(request.getStoryPoints())
             .estimatedHours(request.getEstimatedHours())
             .startDate(request.getStartDate())
@@ -295,9 +296,11 @@ public class TaskServiceImpl implements TaskService {
                     || !task.getStatusColumn().getId().equals(request.getStatusColumnId()))) {
             ProjectStatusColumn newCol = columnRepository.findById(request.getStatusColumnId())
                 .orElseThrow(() -> new NotFoundException("Column not found"));
+            TaskStatus oldStatusForColumnChange = task.getTaskStatus();
             task.setStatusColumn(newCol);
             if (newCol.getMappedStatus() != null) {
                 task.setTaskStatus(newCol.getMappedStatus());
+                syncCompletedAt(task, oldStatusForColumnChange, newCol.getMappedStatus());
             }
             task.setTaskPosition((int) taskRepository.countByStatusColumnId(newCol.getId()));
         }
@@ -403,6 +406,7 @@ public class TaskServiceImpl implements TaskService {
         }
 
         task.setTaskStatus(newStatus);
+        syncCompletedAt(task, oldStatus, newStatus);
         task = taskRepository.save(task);
 
         logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
@@ -452,8 +456,10 @@ public class TaskServiceImpl implements TaskService {
         task.setStatusColumn(newColumn);
         task.setTaskPosition(request.getNewPosition());
         if (newColumn.getMappedStatus() != null) {
+            TaskStatus oldStatus = task.getTaskStatus();
             TaskStatus mapped = newColumn.getMappedStatus();
             task.setTaskStatus(mapped);
+            syncCompletedAt(task, oldStatus, mapped);
         }
         taskRepository.save(task);
 
@@ -1205,6 +1211,16 @@ public class TaskServiceImpl implements TaskService {
         ids.add(taskId);
         for (Task child : taskRepository.findByParentTaskId(taskId)) {
             collectTaskTreeIds(child.getId(), ids);
+        }
+    }
+
+    private void syncCompletedAt(Task task, TaskStatus oldStatus, TaskStatus newStatus) {
+        if (newStatus == TaskStatus.DONE && oldStatus != TaskStatus.DONE) {
+            task.setCompletedAt(Instant.now());
+            return;
+        }
+        if (newStatus != TaskStatus.DONE) {
+            task.setCompletedAt(null);
         }
     }
 }

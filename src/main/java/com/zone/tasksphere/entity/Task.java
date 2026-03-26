@@ -100,6 +100,9 @@ public class Task extends BaseEntity {
     @Column(name = "start_date")
     private LocalDate startDate;
 
+    @Column(name = "completed_at")
+    private java.time.Instant completedAt;
+
     @Column(name = "estimated_hours", precision = 5, scale = 2)
     private BigDecimal estimatedHours;
 

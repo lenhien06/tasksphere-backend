@@ -156,6 +156,7 @@ class TaskServiceImplTest {
         assertThat(response.getId()).isEqualTo(blocked.getId());
         assertThat(response.getOldStatus()).isEqualTo(TaskStatus.TODO);
         assertThat(response.getNewStatus()).isEqualTo(TaskStatus.DONE);
+        assertThat(blocked.getCompletedAt()).isNotNull();
         verify(taskRepository).save(blocked);
         verify(webSocketService).sendToProject(eq(project.getId().toString()), eq("task.status_changed"), any(TaskStatusChangedResponse.class));
     }
