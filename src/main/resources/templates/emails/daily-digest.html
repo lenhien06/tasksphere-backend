@@ -4,87 +4,101 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TaskSphere — Tóm tắt công việc</title>
-    <style>
-        body { font-family: Arial, sans-serif; color: #1a1a2e; margin: 0; padding: 0; background: #f5f5f5; }
-        .container { max-width: 640px; margin: 24px auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        .header { background: #0F172A; color: white; padding: 24px 28px; }
-        .header h2 { margin: 0 0 6px; font-size: 20px; }
-        .header p { margin: 0; font-size: 14px; color: #94a3b8; }
-        .body { padding: 24px 28px; }
-        .section { margin-bottom: 24px; }
-        .section-title { font-size: 15px; font-weight: bold; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #f1f5f9; }
-        .section-overdue .section-title { color: #dc2626; }
-        .section-today .section-title { color: #ca8a04; }
-        .section-new .section-title { color: #2563eb; }
-        .task-row { padding: 8px 4px; border-bottom: 1px solid #f1f5f9; font-size: 13px; display: flex; align-items: center; gap: 8px; }
-        .task-row:last-child { border-bottom: none; }
-        .task-link { color: #1d4ed8; text-decoration: none; font-weight: 500; }
-        .task-link:hover { text-decoration: underline; }
-        .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
-        .badge-critical { background: #fee2e2; color: #dc2626; }
-        .badge-high { background: #ffedd5; color: #ea580c; }
-        .badge-medium { background: #fef9c3; color: #ca8a04; }
-        .badge-low { background: #dcfce7; color: #16a34a; }
-        .due-date { color: #6b7280; font-size: 12px; }
-        .footer { padding: 16px 28px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8; }
-        .footer a { color: #6b7280; }
-    </style>
 </head>
-<body>
-<div class="container">
-    <div class="header">
-        <h2>📋 TaskSphere — Tóm tắt công việc hôm nay</h2>
-        <p th:text="'Xin chào ' + ${user.fullName} + '! Đây là danh sách công việc cần chú ý.'"></p>
-    </div>
+<body style="margin:0; padding:0; background-color:#f3f4f6; font-family:'Segoe UI', Arial, Helvetica, sans-serif; color:#111827;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6; margin:0; padding:32px 16px;">
+    <tr>
+        <td align="center">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:680px; background-color:#ffffff; border:1px solid #e5e7eb; border-radius:18px; overflow:hidden;">
+                <tr>
+                    <td align="center" style="padding:32px 40px 24px;">
+                        <img th:src="${logoUrl}" alt="TaskSphere" width="44" height="44" style="display:block; width:44px; height:44px; margin:0 auto 14px;" />
+                        <div style="font-size:30px; font-weight:700; color:#111827; letter-spacing:0.4px;" th:text="${appName}">TaskSphere</div>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:0 40px;">
+                        <div style="height:1px; background-color:#e5e7eb;"></div>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:36px 40px 40px;">
+                        <div style="text-align:center; margin-bottom:28px;">
+                            <div style="display:inline-block; padding:8px 14px; border-radius:999px; background-color:#f3f4f6; color:#111827; font-size:12px; font-weight:600;">
+                                Tóm tắt công việc trong ngày
+                            </div>
+                        </div>
+                        <h1 style="margin:0 0 12px; text-align:center; font-size:30px; line-height:1.3; color:#111827; font-weight:700;">
+                            Danh sách công việc cần chú ý
+                        </h1>
+                        <p style="margin:0 0 28px; text-align:center; font-size:16px; line-height:1.7; color:#374151;">
+                            Xin chào <strong th:text="${user.fullName}">Bạn</strong>, đây là tóm tắt công việc ngày <strong th:text="${digestDate}">27/03/2026</strong>.
+                        </p>
 
-    <div class="body">
+                        <div th:if="${(content.overdueTasks == null or #lists.isEmpty(content.overdueTasks)) and (content.dueTodayTasks == null or #lists.isEmpty(content.dueTodayTasks)) and (content.newlyAssignedTasks == null or #lists.isEmpty(content.newlyAssignedTasks))}"
+                             style="padding:22px 20px; border:1px solid #e5e7eb; border-radius:14px; background-color:#f9fafb; text-align:center; font-size:15px; line-height:1.7; color:#374151;">
+                            Hôm nay bạn chưa có mục công việc nào cần lưu ý.
+                        </div>
 
-        <!-- Quá hạn -->
-        <div class="section section-overdue" th:if="${content.overdueTasks != null and not #lists.isEmpty(content.overdueTasks)}">
-            <div class="section-title">
-                🚨 Task quá hạn (<span th:text="${#lists.size(content.overdueTasks)}"></span>)
-            </div>
-            <div class="task-row" th:each="task : ${content.overdueTasks}">
-                <a class="task-link" th:href="${task.taskUrl}" th:text="${task.taskCode + ' — ' + task.title}">TASK-001 — Task title</a>
-                <span th:class="'badge badge-' + ${#strings.toLowerCase(task.priority)}"
-                      th:text="${task.priority}">HIGH</span>
-                <span class="due-date" th:if="${task.dueDate != null}" th:text="'Hạn: ' + ${task.dueDate}"></span>
-                <span class="due-date" th:if="${task.projectName != null}" th:text="'[' + ${task.projectName} + ']'"></span>
-            </div>
-        </div>
+                        <div th:if="${content.overdueTasks != null and not #lists.isEmpty(content.overdueTasks)}" style="margin-bottom:24px;">
+                            <div style="margin-bottom:12px; font-size:16px; font-weight:700; color:#dc2626;">Quá hạn</div>
+                            <div th:each="task : ${content.overdueTasks}" style="padding:14px 16px; border:1px solid #fee2e2; border-radius:12px; background-color:#fff7f7; margin-bottom:10px;">
+                                <div style="font-size:15px; font-weight:600; line-height:1.6; color:#111827;">
+                                    <a th:href="${task.taskUrl}" th:text="${task.taskCode + ' - ' + task.title}" style="color:#111827; text-decoration:none;">TASK-001 - Task title</a>
+                                </div>
+                                <div style="margin-top:6px; font-size:13px; line-height:1.7; color:#6b7280;">
+                                    <span th:text="${task.projectName}">Tên dự án</span>
+                                    <span th:if="${task.dueDate != null}" th:text="${' • Hạn: ' + task.dueDate}"> • Hạn: 2026-03-27</span>
+                                    <span th:if="${task.priority != null}" th:text="${' • Ưu tiên: ' + task.priority}"> • Ưu tiên: HIGH</span>
+                                </div>
+                            </div>
+                        </div>
 
-        <!-- Đến hạn hôm nay -->
-        <div class="section section-today" th:if="${content.dueTodayTasks != null and not #lists.isEmpty(content.dueTodayTasks)}">
-            <div class="section-title">
-                ⏰ Đến hạn hôm nay (<span th:text="${#lists.size(content.dueTodayTasks)}"></span>)
-            </div>
-            <div class="task-row" th:each="task : ${content.dueTodayTasks}">
-                <a class="task-link" th:href="${task.taskUrl}" th:text="${task.taskCode + ' — ' + task.title}">TASK-002 — Task title</a>
-                <span th:class="'badge badge-' + ${#strings.toLowerCase(task.priority)}"
-                      th:text="${task.priority}">MEDIUM</span>
-                <span class="due-date" th:if="${task.projectName != null}" th:text="'[' + ${task.projectName} + ']'"></span>
-            </div>
-        </div>
+                        <div th:if="${content.dueTodayTasks != null and not #lists.isEmpty(content.dueTodayTasks)}" style="margin-bottom:24px;">
+                            <div style="margin-bottom:12px; font-size:16px; font-weight:700; color:#b45309;">Đến hạn hôm nay</div>
+                            <div th:each="task : ${content.dueTodayTasks}" style="padding:14px 16px; border:1px solid #fde68a; border-radius:12px; background-color:#fffdf3; margin-bottom:10px;">
+                                <div style="font-size:15px; font-weight:600; line-height:1.6; color:#111827;">
+                                    <a th:href="${task.taskUrl}" th:text="${task.taskCode + ' - ' + task.title}" style="color:#111827; text-decoration:none;">TASK-002 - Task title</a>
+                                </div>
+                                <div style="margin-top:6px; font-size:13px; line-height:1.7; color:#6b7280;">
+                                    <span th:text="${task.projectName}">Tên dự án</span>
+                                    <span th:if="${task.priority != null}" th:text="${' • Ưu tiên: ' + task.priority}"> • Ưu tiên: MEDIUM</span>
+                                </div>
+                            </div>
+                        </div>
 
-        <!-- Mới được giao -->
-        <div class="section section-new" th:if="${content.newlyAssignedTasks != null and not #lists.isEmpty(content.newlyAssignedTasks)}">
-            <div class="section-title">
-                📌 Mới được giao (<span th:text="${#lists.size(content.newlyAssignedTasks)}"></span>)
-            </div>
-            <div class="task-row" th:each="task : ${content.newlyAssignedTasks}">
-                <a class="task-link" th:href="${task.taskUrl}" th:text="${task.taskCode + ' — ' + task.title}">TASK-003 — Task title</a>
-                <span th:class="'badge badge-' + ${#strings.toLowerCase(task.priority)}"
-                      th:text="${task.priority}">LOW</span>
-                <span class="due-date" th:if="${task.projectName != null}" th:text="'[' + ${task.projectName} + ']'"></span>
-            </div>
-        </div>
-
-    </div>
-
-    <div class="footer">
-        <p>Bạn nhận email này vì đã bật thông báo tóm tắt hàng ngày trên TaskSphere.</p>
-        <a th:href="${unsubscribeUrl}">Hủy nhận email tổng hợp</a>
-    </div>
-</div>
+                        <div th:if="${content.newlyAssignedTasks != null and not #lists.isEmpty(content.newlyAssignedTasks)}">
+                            <div style="margin-bottom:12px; font-size:16px; font-weight:700; color:#1d4ed8;">Mới được giao</div>
+                            <div th:each="task : ${content.newlyAssignedTasks}" style="padding:14px 16px; border:1px solid #dbeafe; border-radius:12px; background-color:#f8fbff; margin-bottom:10px;">
+                                <div style="font-size:15px; font-weight:600; line-height:1.6; color:#111827;">
+                                    <a th:href="${task.taskUrl}" th:text="${task.taskCode + ' - ' + task.title}" style="color:#111827; text-decoration:none;">TASK-003 - Task title</a>
+                                </div>
+                                <div style="margin-top:6px; font-size:13px; line-height:1.7; color:#6b7280;">
+                                    <span th:text="${task.projectName}">Tên dự án</span>
+                                    <span th:if="${task.priority != null}" th:text="${' • Ưu tiên: ' + task.priority}"> • Ưu tiên: LOW</span>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:0 40px 24px;">
+                        <div style="height:1px; background-color:#e5e7eb;"></div>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center" style="padding:0 40px 10px; font-size:13px; line-height:1.7; color:#6b7280;">
+                        Bạn nhận email này vì đã bật thông báo tổng hợp hằng ngày trên <span th:text="${appName}">TaskSphere</span>.
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center" style="padding:0 40px 32px;">
+                        <a th:href="${unsubscribeUrl}" style="font-size:13px; color:#6b7280; text-decoration:underline;">Hủy nhận email tổng hợp</a>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
 </body>
 </html>

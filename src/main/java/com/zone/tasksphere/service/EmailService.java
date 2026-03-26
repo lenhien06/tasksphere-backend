@@ -45,7 +45,7 @@ public class EmailService {
     public void sendWelcomeEmail(String toEmail, String fullName) {
         String subject = "Chào mừng bạn gia nhập TaskSphere! 🎉";
 
-        Context context = new Context();
+        Context context = createEmailContext();
         context.setVariable("fullName", fullName);
 
         String htmlContent = templateEngine.process("emails/welcome-email", context);
@@ -56,10 +56,9 @@ public class EmailService {
     public void sendPasswordResetEmail(String toEmail, String otp) {
         String subject = "[CẢNH BÁO] Yêu cầu đặt lại mật khẩu TaskSphere";
 
-        Context context = new Context();
+        Context context = createEmailContext();
         context.setVariable("otp", otp);
 
-        // Bạn có thể tạo file password-reset-email.html tương tự
         String htmlContent = templateEngine.process("emails/password-reset-email", context);
         sendWithRetryAsync(toEmail, subject, htmlContent);
     }
@@ -84,7 +83,7 @@ public class EmailService {
                 ? frontendUrl + "/invite?token=" + token
                 : frontendUrl + "/projects/" + projectId;
 
-        Context context = new Context();
+        Context context = createEmailContext();
         context.setVariable("projectName", projectName);
         context.setVariable("inviterName", inviterName);
         context.setVariable("projectRole", projectRole);
@@ -107,17 +106,15 @@ public class EmailService {
     public void sendProjectArchivedEmail(String toEmail, String projectName, String archiverName) {
         String subject = "[THÔNG BÁO] Dự án " + projectName + " đã được lưu trữ";
 
-        Context context = new Context();
+        Context context = createEmailContext();
         context.setVariable("projectName", projectName);
         context.setVariable("archiverName", archiverName);
-        
-        // Cần file project-archived-email.html trong templates/emails/
+
         try {
             String htmlContent = templateEngine.process("emails/project-archived-email", context);
             sendWithRetryAsync(toEmail, subject, htmlContent);
         } catch (Exception e) {
             log.error("Lỗi khi xử lý template email lưu trữ dự án: {}", e.getMessage());
-            // Fallback to simple text if template fails
             sendSimpleEmail(toEmail, subject, "Dự án " + projectName + " đã được lưu trữ bởi " + archiverName);
         }
     }
@@ -126,17 +123,15 @@ public class EmailService {
     public void sendProjectDeletedEmail(String toEmail, String projectName, String deleterName) {
         String subject = "[CẢNH BÁO] Dự án " + projectName + " đã bị xóa";
 
-        Context context = new Context();
+        Context context = createEmailContext();
         context.setVariable("projectName", projectName);
         context.setVariable("deleterName", deleterName);
 
-        // Cần file project-deleted-email.html trong templates/emails/
         try {
             String htmlContent = templateEngine.process("emails/project-deleted-email", context);
             sendWithRetryAsync(toEmail, subject, htmlContent);
         } catch (Exception e) {
             log.error("Lỗi khi xử lý template email xóa dự án: {}", e.getMessage());
-            // Fallback to simple text if template fails
             sendSimpleEmail(toEmail, subject, "Dự án " + projectName + " đã bị xóa bởi " + deleterName);
         }
     }
@@ -148,10 +143,11 @@ public class EmailService {
         String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
         String subject = "📋 TaskSphere — Tóm tắt công việc " + dateStr;
 
-        Context ctx = new Context(new Locale("vi"));
+        Context ctx = createEmailContext();
         ctx.setVariable("user", user);
         ctx.setVariable("content", content);
         ctx.setVariable("unsubscribeUrl", frontendUrl + "/settings/notifications?action=unsubscribe");
+        ctx.setVariable("digestDate", dateStr);
 
         try {
             String html = templateEngine.process("emails/daily-digest", ctx);
@@ -167,6 +163,7 @@ public class EmailService {
             message.setTo(to);
             message.setSubject(subject);
             message.setText(text);
+            message.setFrom(fromEmail);
             mailSender.send(message);
         } catch (Exception e) {
             log.error("Lỗi khi gửi email đơn giản tới {}: {}", to, e.getMessage());
@@ -211,8 +208,18 @@ public class EmailService {
     }
 
     private String buildOtpHtml(String otp) {
-        Context context = new Context();
+        Context context = createEmailContext();
         context.setVariable("otp", otp);
         return templateEngine.process("emails/otp-email", context);
+    }
+
+    private Context createEmailContext() {
+        Context context = new Context(new Locale("vi"));
+        context.setVariable("appName", "TaskSphere");
+        context.setVariable("frontendUrl", frontendUrl);
+        context.setVariable("logoUrl", frontendUrl + "/images/logo.png");
+        context.setVariable("dashboardUrl", frontendUrl + "/dashboard");
+        context.setVariable("signInUrl", frontendUrl + "/signin");
+        return context;
     }
 }
