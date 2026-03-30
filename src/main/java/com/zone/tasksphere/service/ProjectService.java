@@ -442,6 +442,9 @@ public class ProjectService {
                 WHERE sprint_id IN (
                     SELECT s.id FROM sprints s WHERE s.project_id = :projectId
                 )
+                   OR task_id IN (
+                    SELECT t.id FROM tasks t WHERE t.project_id = :projectId
+                )
                 """, project.getId());
         executeDelete("""
                 DELETE FROM recurring_task_configs
@@ -491,12 +494,7 @@ public class ProjectService {
                     SELECT t.id FROM tasks t WHERE t.project_id = :projectId
                 )
                 """, project.getId());
-        executeDelete("""
-                DELETE FROM comments
-                WHERE task_id IN (
-                    SELECT t.id FROM tasks t WHERE t.project_id = :projectId
-                )
-                """, project.getId());
+        deleteProjectComments(project.getId());
 
         // Delete project-scoped tables
         executeDelete("DELETE FROM notifications WHERE project_id = :projectId", project.getId());
@@ -506,15 +504,17 @@ public class ProjectService {
         executeDelete("DELETE FROM project_invites WHERE project_id = :projectId", project.getId());
         executeDelete("DELETE FROM project_views WHERE project_id = :projectId", project.getId());
         executeDelete("DELETE FROM project_members WHERE project_id = :projectId", project.getId());
-        executeDelete("DELETE FROM tasks WHERE project_id = :projectId", project.getId());
+        deleteProjectTasks(project.getId());
         executeDelete("DELETE FROM sprints WHERE project_id = :projectId", project.getId());
         executeDelete("DELETE FROM project_versions WHERE project_id = :projectId", project.getId());
         executeDelete("DELETE FROM custom_fields WHERE project_id = :projectId", project.getId());
         executeDelete("DELETE FROM project_status_columns WHERE project_id = :projectId", project.getId());
         executeDelete("DELETE FROM webhooks WHERE project_id = :projectId", project.getId());
 
-        projectRepository.delete(project);
-        projectRepository.flush();
+        int deletedProjects = executeDelete("DELETE FROM projects WHERE id = :projectId", project.getId());
+        if (deletedProjects == 0) {
+            throw new NotFoundException("Project not found: " + project.getId());
+        }
 
         scheduleStorageCleanup(storageKeysToDelete);
     }
@@ -582,10 +582,81 @@ public class ProjectService {
                 .toList();
     }
 
-    private void executeDelete(String sql, UUID projectId) {
-        entityManager.createNativeQuery(sql)
+    private int executeDelete(String sql, UUID projectId) {
+        return entityManager.createNativeQuery(sql)
                 .setParameter("projectId", projectId)
                 .executeUpdate();
+    }
+
+    private void deleteProjectComments(UUID projectId) {
+        Integer maxDepth = findMaxCommentDepth(projectId);
+        if (maxDepth == null) {
+            return;
+        }
+
+        for (int depth = maxDepth; depth >= 0; depth--) {
+            entityManager.createNativeQuery("""
+                    DELETE FROM comments
+                    WHERE depth = :depth
+                      AND task_id IN (
+                        SELECT t.id FROM tasks t WHERE t.project_id = :projectId
+                    )
+                    """)
+                    .setParameter("depth", depth)
+                    .setParameter("projectId", projectId)
+                    .executeUpdate();
+        }
+    }
+
+    private void deleteProjectTasks(UUID projectId) {
+        Integer maxDepth = findMaxTaskDepth(projectId);
+        if (maxDepth == null) {
+            return;
+        }
+
+        for (int depth = maxDepth; depth >= 0; depth--) {
+            entityManager.createNativeQuery("""
+                    DELETE FROM tasks
+                    WHERE project_id = :projectId
+                      AND depth = :depth
+                    """)
+                    .setParameter("projectId", projectId)
+                    .setParameter("depth", depth)
+                    .executeUpdate();
+        }
+    }
+
+    private Integer findMaxCommentDepth(UUID projectId) {
+        Object result = entityManager.createNativeQuery("""
+                SELECT MAX(c.depth)
+                FROM comments c
+                JOIN tasks t ON t.id = c.task_id
+                WHERE t.project_id = :projectId
+                """)
+                .setParameter("projectId", projectId)
+                .getSingleResult();
+        return toInteger(result);
+    }
+
+    private Integer findMaxTaskDepth(UUID projectId) {
+        Object result = entityManager.createNativeQuery("""
+                SELECT MAX(t.depth)
+                FROM tasks t
+                WHERE t.project_id = :projectId
+                """)
+                .setParameter("projectId", projectId)
+                .getSingleResult();
+        return toInteger(result);
+    }
+
+    private Integer toInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return Integer.valueOf(value.toString());
     }
 
     private void scheduleStorageCleanup(List<String> storageKeys) {

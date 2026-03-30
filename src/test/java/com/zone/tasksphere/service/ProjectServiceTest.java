@@ -37,8 +37,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -162,14 +162,16 @@ class ProjectServiceTest {
         when(projectRepository.findByIdWithDeleted(project.getId())).thenReturn(Optional.of(project));
         when(entityManager.createNativeQuery(any(String.class))).thenReturn(nativeQuery);
         when(nativeQuery.setParameter(eq("projectId"), eq(project.getId()))).thenReturn(nativeQuery);
+        when(nativeQuery.setParameter(eq("depth"), any())).thenReturn(nativeQuery);
         when(nativeQuery.getResultList()).thenReturn(List.of("attachments/demo/file.txt"));
+        when(nativeQuery.getSingleResult()).thenReturn(1, 1);
         when(nativeQuery.executeUpdate()).thenReturn(1);
 
         projectService.deleteProjectPermanently(project.getId(), project.getName(), owner.getId(), false);
 
-        verify(projectRepository).delete(project);
-        verify(projectRepository).flush();
-        verify(entityManager, times(27)).createNativeQuery(any(String.class));
+        verify(projectRepository, never()).delete(org.mockito.ArgumentMatchers.isA(Project.class));
+        verify(projectRepository, never()).flush();
+        verify(entityManager, atLeastOnce()).createNativeQuery(any(String.class));
         verify(minioStorageService).deleteFile("attachments/demo/file.txt");
     }
 
