@@ -2,6 +2,7 @@ package com.zone.tasksphere.specification;
 
 import com.zone.tasksphere.entity.Project;
 import com.zone.tasksphere.entity.ProjectMember;
+import com.zone.tasksphere.entity.ProjectView;
 import com.zone.tasksphere.entity.enums.ProjectStatus;
 import com.zone.tasksphere.entity.enums.ProjectVisibility;
 import jakarta.persistence.criteria.Join;
@@ -53,19 +54,23 @@ public class ProjectSpecification {
 
             // 4. Phân quyền hiển thị
             // - Admin: thấy tất cả theo filter
-            // - Guest: chỉ thấy PUBLIC
-            // - Logged user: chỉ thấy project PUBLIC hoặc project mình sở hữu/tham gia
+            // - Guest: không thấy public project trong danh sách chung
+            // - Logged user: chỉ thấy project mình sở hữu/tham gia
+            //   hoặc public project mà họ đã truy cập bằng shared link trước đó
             if (!isAdmin) {
                 if (userId == null) {
-                    predicates.add(cb.equal(root.get("visibility"), ProjectVisibility.PUBLIC));
+                    predicates.add(cb.disjunction());
                 } else {
-                    Predicate isPublic = cb.equal(root.get("visibility"), ProjectVisibility.PUBLIC);
-
                     Predicate isOwner = cb.equal(root.get("owner").get("id"), userId);
                     Join<Project, ProjectMember> membersJoin = root.join("members", JoinType.LEFT);
                     Predicate isMember = cb.equal(membersJoin.get("user").get("id"), userId);
+                    Join<Project, ProjectView> viewsJoin = root.join("views", JoinType.LEFT);
+                    Predicate isVisitedPublic = cb.and(
+                            cb.equal(root.get("visibility"), ProjectVisibility.PUBLIC),
+                            cb.equal(viewsJoin.get("user").get("id"), userId)
+                    );
 
-                    predicates.add(cb.or(isPublic, isOwner, isMember));
+                    predicates.add(cb.or(isOwner, isMember, isVisitedPublic));
                     query.distinct(true);
                 }
             }

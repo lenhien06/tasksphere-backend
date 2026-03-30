@@ -47,14 +47,18 @@ public class ProjectController {
     @Operation(
         summary = "Danh sách dự án",
         description = """
-            **FR-11:** Lấy danh sách dự án mà user là thành viên.
+            **FR-11:** Lấy danh sách dự án trong workspace cá nhân của user.
             ADMIN thấy tất cả dự án.
-            
-            **BR-31 — Visibility:**
-            - private: chỉ member thấy
-            - internal: mọi user đã login thấy (read-only nếu không phải member)
-            - public: Guest cũng thấy được
-            
+
+            **BR-31 — Visibility trong danh sách:**
+            - private/internal: chỉ owner/member thấy
+            - public: không hiện đại trà; chỉ hiện với owner/member
+              hoặc user đã từng mở dự án qua shared link trước đó
+
+            **Link access:**
+            - public project vẫn có thể mở trực tiếp bằng shared link
+            - sau khi user đã mở link, dự án sẽ được lưu vào danh sách của họ
+
             **Filter:** status (active/completed/archived), search theo tên.
             """,
         parameters = {

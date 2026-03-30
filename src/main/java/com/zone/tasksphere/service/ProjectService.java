@@ -9,6 +9,7 @@ import com.zone.tasksphere.dto.response.ProjectResponse;
 import com.zone.tasksphere.entity.Project;
 import com.zone.tasksphere.entity.ProjectMember;
 import com.zone.tasksphere.entity.ProjectStatusColumn;
+import com.zone.tasksphere.entity.ProjectView;
 import com.zone.tasksphere.entity.User;
 import com.zone.tasksphere.entity.enums.*;
 import com.zone.tasksphere.event.ActivityLogEvent;
@@ -17,6 +18,7 @@ import com.zone.tasksphere.exception.NotFoundException;
 import com.zone.tasksphere.repository.ProjectMemberRepository;
 import com.zone.tasksphere.repository.ProjectRepository;
 import com.zone.tasksphere.repository.ProjectStatusColumnRepository;
+import com.zone.tasksphere.repository.ProjectViewRepository;
 import com.zone.tasksphere.repository.TaskRepository;
 import com.zone.tasksphere.repository.UserRepository;
 import com.zone.tasksphere.specification.ProjectSpecification;
@@ -46,6 +48,7 @@ public class ProjectService {
     private final UserRepository userRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectStatusColumnRepository columnRepository;
+    private final ProjectViewRepository projectViewRepository;
     private final TaskRepository taskRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final EmailService emailService;
@@ -252,6 +255,7 @@ public class ProjectService {
             throw new NotFoundException("Project not found: " + id);
         }
         checkVisibility(project, userId, isAdmin);
+        recordProjectView(project, userId, isAdmin);
         return toResponse(project, userId, isAdmin);
     }
 
@@ -264,7 +268,36 @@ public class ProjectService {
             throw new NotFoundException("Project not found with key: " + key);
         }
         checkVisibility(project, userId, isAdmin);
+        recordProjectView(project, userId, isAdmin);
         return toResponse(project, userId, isAdmin);
+    }
+
+    @Transactional
+    protected void recordProjectView(Project project, UUID userId, boolean isAdmin) {
+        if (userId == null || isAdmin || project.getDeletedAt() != null) {
+            return;
+        }
+
+        if (project.getVisibility() != ProjectVisibility.PUBLIC) {
+            return;
+        }
+
+        boolean isOwner = project.getOwner() != null && project.getOwner().getId().equals(userId);
+        boolean isMember = projectMemberRepository.existsByProjectIdAndUserId(project.getId(), userId);
+        if (isOwner || isMember) {
+            return;
+        }
+
+        Instant now = Instant.now();
+        ProjectView projectView = projectViewRepository.findByProjectIdAndUserId(project.getId(), userId)
+                .orElseGet(() -> ProjectView.builder()
+                        .project(project)
+                        .user(userRepository.getReferenceById(userId))
+                        .lastViewedAt(now)
+                        .build());
+
+        projectView.setLastViewedAt(now);
+        projectViewRepository.save(projectView);
     }
 
     private void checkVisibility(Project project, UUID userId, boolean isAdmin) {

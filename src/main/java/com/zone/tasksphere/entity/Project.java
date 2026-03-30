@@ -88,6 +88,9 @@ public class Project extends BaseEntity {
     @OneToMany(mappedBy = "project", fetch = FetchType.LAZY)
     private List<Webhook> webhooks;
 
+    @OneToMany(mappedBy = "project", fetch = FetchType.LAZY)
+    private List<ProjectView> views;
+
     @Version
     @Column(nullable = false)
     private Long version;
