@@ -17,6 +17,8 @@ import com.zone.tasksphere.repository.ProjectStatusColumnRepository;
 import com.zone.tasksphere.repository.ProjectViewRepository;
 import com.zone.tasksphere.repository.TaskRepository;
 import com.zone.tasksphere.repository.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -36,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -54,6 +57,12 @@ class ProjectServiceTest {
     private ProjectViewRepository projectViewRepository;
     @Mock
     private TaskRepository taskRepository;
+    @Mock
+    private com.zone.tasksphere.service.impl.MinioStorageService minioStorageService;
+    @Mock
+    private EntityManager entityManager;
+    @Mock
+    private Query nativeQuery;
     @Mock
     private ApplicationEventPublisher eventPublisher;
     @Mock
@@ -143,6 +152,25 @@ class ProjectServiceTest {
             assertThat(item.getMyRole()).isEqualTo("VIEWER");
             assertThat(item.getVisibility()).isEqualTo(ProjectVisibility.PUBLIC);
         });
+    }
+
+    @Test
+    void deleteProjectPermanently_removesProjectAndCleansStorageKeys() {
+        User owner = user("owner@tasksphere.local");
+        Project project = publicProject(owner);
+
+        when(projectRepository.findByIdWithDeleted(project.getId())).thenReturn(Optional.of(project));
+        when(entityManager.createNativeQuery(any(String.class))).thenReturn(nativeQuery);
+        when(nativeQuery.setParameter(eq("projectId"), eq(project.getId()))).thenReturn(nativeQuery);
+        when(nativeQuery.getResultList()).thenReturn(List.of("attachments/demo/file.txt"));
+        when(nativeQuery.executeUpdate()).thenReturn(1);
+
+        projectService.deleteProjectPermanently(project.getId(), project.getName(), owner.getId(), false);
+
+        verify(projectRepository).delete(project);
+        verify(projectRepository).flush();
+        verify(entityManager, times(27)).createNativeQuery(any(String.class));
+        verify(minioStorageService).deleteFile("attachments/demo/file.txt");
     }
 
     private User user(String email) {

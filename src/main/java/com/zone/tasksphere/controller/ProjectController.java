@@ -202,8 +202,34 @@ public class ProjectController {
         UUID actorId = currentUser.getId();
         boolean isAdmin = SystemRole.ADMIN.equals(currentUser.getSystemRole());
 
-        projectService.deleteProject(id, request.getConfirmName(), actorId, isAdmin);
-        return ResponseEntity.ok(ApiResponse.success(null, "Dự án đã được xóa thành công"));
+        projectService.archiveProject(id, request.getConfirmName(), actorId, isAdmin);
+        return ResponseEntity.ok(ApiResponse.success(null, "Dự án đã được lưu trữ thành công"));
+    }
+
+    @Operation(
+        summary = "Xóa vĩnh viễn dự án",
+        description = """
+            Xóa sạch dự án và toàn bộ dữ liệu liên quan:
+            task, sprint, comment, attachment, member, filter, webhook, log, notification...
+
+            **Lưu ý:** Đây là hard delete và không thể khôi phục.
+            """
+    )
+    @DeleteMapping("/{id}/permanent")
+    public ResponseEntity<ApiResponse<Void>> permanentlyDeleteProject(
+            @Parameter(description = "UUID của dự án cần xóa vĩnh viễn") @PathVariable UUID id,
+            @Valid @RequestBody ProjectDeleteRequest request) {
+
+        UserDetail currentUser = AuthUtils.getUserDetail();
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        UUID actorId = currentUser.getId();
+        boolean isAdmin = SystemRole.ADMIN.equals(currentUser.getSystemRole());
+
+        projectService.deleteProjectPermanently(id, request.getConfirmName(), actorId, isAdmin);
+        return ResponseEntity.ok(ApiResponse.success(null, "Dự án đã được xóa vĩnh viễn"));
     }
 
     @Operation(

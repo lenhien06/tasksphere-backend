@@ -23,6 +23,7 @@ import com.zone.tasksphere.repository.TaskRepository;
 import com.zone.tasksphere.repository.UserRepository;
 import com.zone.tasksphere.specification.ProjectSpecification;
 import com.zone.tasksphere.utils.AuthUtils;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -31,11 +32,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -54,6 +58,8 @@ public class ProjectService {
     private final EmailService emailService;
     private final NotificationService notificationService;
     private final DefaultColumnSeeder defaultColumnSeeder;
+    private final com.zone.tasksphere.service.impl.MinioStorageService minioStorageService;
+    private final EntityManager entityManager;
 
     public Page<ProjectResponse> getProjects(String search, ProjectStatus status,
                                              ProjectVisibility visibility, UUID userId,
@@ -341,7 +347,7 @@ public class ProjectService {
     }
 
     @Transactional
-    public void deleteProject(UUID id, String confirmName, UUID actorId, boolean isAdmin) {
+    public void archiveProject(UUID id, String confirmName, UUID actorId, boolean isAdmin) {
         Project project = projectRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Project not found: " + id));
 
@@ -405,6 +411,200 @@ public class ProjectService {
                 );
             }
         });
+    }
+
+    @Transactional
+    public void deleteProjectPermanently(UUID id, String confirmName, UUID actorId, boolean isAdmin) {
+        Project project = projectRepository.findByIdWithDeleted(id)
+                .orElseThrow(() -> new NotFoundException("Project not found: " + id));
+
+        validatePermanentDeletePermission(project, confirmName, actorId, isAdmin);
+
+        List<String> storageKeysToDelete = collectProjectStorageKeys(project.getId());
+
+        // Delete task-dependent tables first
+        executeDelete("""
+                DELETE FROM comment_mentions
+                WHERE comment_id IN (
+                    SELECT c.id FROM comments c
+                    JOIN tasks t ON t.id = c.task_id
+                    WHERE t.project_id = :projectId
+                )
+                """, project.getId());
+        executeDelete("""
+                DELETE FROM webhook_delivery_logs
+                WHERE webhook_id IN (
+                    SELECT w.id FROM webhooks w WHERE w.project_id = :projectId
+                )
+                """, project.getId());
+        executeDelete("""
+                DELETE FROM sprint_task_snapshots
+                WHERE sprint_id IN (
+                    SELECT s.id FROM sprints s WHERE s.project_id = :projectId
+                )
+                """, project.getId());
+        executeDelete("""
+                DELETE FROM recurring_task_configs
+                WHERE task_id IN (
+                    SELECT t.id FROM tasks t WHERE t.project_id = :projectId
+                )
+                """, project.getId());
+        executeDelete("""
+                DELETE FROM task_dependencies
+                WHERE blocking_task_id IN (
+                    SELECT t.id FROM tasks t WHERE t.project_id = :projectId
+                )
+                   OR blocked_task_id IN (
+                    SELECT t.id FROM tasks t WHERE t.project_id = :projectId
+                )
+                """, project.getId());
+        executeDelete("""
+                DELETE FROM worklogs
+                WHERE task_id IN (
+                    SELECT t.id FROM tasks t WHERE t.project_id = :projectId
+                )
+                """, project.getId());
+        executeDelete("""
+                DELETE FROM custom_field_values
+                WHERE task_id IN (
+                    SELECT t.id FROM tasks t WHERE t.project_id = :projectId
+                )
+                   OR custom_field_id IN (
+                    SELECT cf.id FROM custom_fields cf WHERE cf.project_id = :projectId
+                )
+                """, project.getId());
+        executeDelete("""
+                DELETE FROM checklist_items
+                WHERE task_id IN (
+                    SELECT t.id FROM tasks t WHERE t.project_id = :projectId
+                )
+                """, project.getId());
+        executeDelete("""
+                DELETE FROM attachments
+                WHERE task_id IN (
+                    SELECT t.id FROM tasks t WHERE t.project_id = :projectId
+                )
+                """, project.getId());
+        executeDelete("""
+                DELETE FROM upload_jobs
+                WHERE task_id IN (
+                    SELECT t.id FROM tasks t WHERE t.project_id = :projectId
+                )
+                """, project.getId());
+        executeDelete("""
+                DELETE FROM comments
+                WHERE task_id IN (
+                    SELECT t.id FROM tasks t WHERE t.project_id = :projectId
+                )
+                """, project.getId());
+
+        // Delete project-scoped tables
+        executeDelete("DELETE FROM notifications WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM activity_logs WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM export_jobs WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM saved_filters WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM project_invites WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM project_views WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM project_members WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM tasks WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM sprints WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM project_versions WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM custom_fields WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM project_status_columns WHERE project_id = :projectId", project.getId());
+        executeDelete("DELETE FROM webhooks WHERE project_id = :projectId", project.getId());
+
+        projectRepository.delete(project);
+        projectRepository.flush();
+
+        scheduleStorageCleanup(storageKeysToDelete);
+    }
+
+    private void validatePermanentDeletePermission(Project project, String confirmName, UUID actorId, boolean isAdmin) {
+        boolean isOwner = project.getOwner() != null && project.getOwner().getId().equals(actorId);
+        if (!isOwner && !isAdmin) {
+            throw new com.zone.tasksphere.exception.Forbidden("Chỉ Owner hoặc Admin mới được xóa vĩnh viễn dự án");
+        }
+
+        if (confirmName == null || confirmName.trim().isEmpty()) {
+            throw new com.zone.tasksphere.exception.BadRequestException("Tên xác nhận không được để trống");
+        }
+
+        String trimmedConfirmName = confirmName.trim();
+        boolean matchesName = project.getName().equalsIgnoreCase(trimmedConfirmName);
+        boolean matchesKey = project.getProjectKey().equalsIgnoreCase(trimmedConfirmName);
+        if (!matchesName && !matchesKey) {
+            throw new com.zone.tasksphere.exception.BadRequestException(
+                    "Tên hoặc project key xác nhận không khớp với dự án"
+            );
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> collectProjectStorageKeys(UUID projectId) {
+        List<String> attachmentKeys = entityManager.createNativeQuery("""
+                SELECT a.s3_key
+                FROM attachments a
+                JOIN tasks t ON t.id = a.task_id
+                WHERE t.project_id = :projectId
+                  AND a.s3_key IS NOT NULL
+                """)
+                .setParameter("projectId", projectId)
+                .getResultList();
+
+        List<String> uploadJobKeys = entityManager.createNativeQuery("""
+                SELECT uj.temp_storage_key
+                FROM upload_jobs uj
+                JOIN tasks t ON t.id = uj.task_id
+                WHERE t.project_id = :projectId
+                  AND uj.temp_storage_key IS NOT NULL
+                """)
+                .setParameter("projectId", projectId)
+                .getResultList();
+
+        List<String> exportKeys = entityManager.createNativeQuery("""
+                SELECT ej.storage_key
+                FROM export_jobs ej
+                WHERE ej.project_id = :projectId
+                  AND ej.storage_key IS NOT NULL
+                """)
+                .setParameter("projectId", projectId)
+                .getResultList();
+
+        List<String> allKeys = new ArrayList<>();
+        allKeys.addAll(attachmentKeys);
+        allKeys.addAll(uploadJobKeys);
+        allKeys.addAll(exportKeys);
+        return allKeys.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .distinct()
+                .toList();
+    }
+
+    private void executeDelete(String sql, UUID projectId) {
+        entityManager.createNativeQuery(sql)
+                .setParameter("projectId", projectId)
+                .executeUpdate();
+    }
+
+    private void scheduleStorageCleanup(List<String> storageKeys) {
+        if (storageKeys.isEmpty()) {
+            return;
+        }
+
+        Runnable cleanup = () -> storageKeys.forEach(minioStorageService::deleteFile);
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    cleanup.run();
+                }
+            });
+            return;
+        }
+
+        cleanup.run();
     }
 
     @Transactional
