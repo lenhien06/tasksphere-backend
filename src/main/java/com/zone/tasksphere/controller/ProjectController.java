@@ -192,7 +192,8 @@ public class ProjectController {
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> archiveProject(
             @Parameter(description = "UUID của dự án cần xóa") @PathVariable UUID id,
-            @Valid @RequestBody ProjectDeleteRequest request) {
+            @RequestBody(required = false) ProjectDeleteRequest request,
+            @RequestParam(required = false) String confirmName) {
 
         UserDetail currentUser = AuthUtils.getUserDetail();
         if (currentUser == null) {
@@ -202,7 +203,7 @@ public class ProjectController {
         UUID actorId = currentUser.getId();
         boolean isAdmin = SystemRole.ADMIN.equals(currentUser.getSystemRole());
 
-        projectService.archiveProject(id, request.getConfirmName(), actorId, isAdmin);
+        projectService.archiveProject(id, resolveConfirmName(request, confirmName), actorId, isAdmin);
         return ResponseEntity.ok(ApiResponse.success(null, "Dự án đã được lưu trữ thành công"));
     }
 
@@ -218,7 +219,8 @@ public class ProjectController {
     @DeleteMapping("/{id}/permanent")
     public ResponseEntity<ApiResponse<Void>> permanentlyDeleteProject(
             @Parameter(description = "UUID của dự án cần xóa vĩnh viễn") @PathVariable UUID id,
-            @Valid @RequestBody ProjectDeleteRequest request) {
+            @RequestBody(required = false) ProjectDeleteRequest request,
+            @RequestParam(required = false) String confirmName) {
 
         UserDetail currentUser = AuthUtils.getUserDetail();
         if (currentUser == null) {
@@ -228,8 +230,15 @@ public class ProjectController {
         UUID actorId = currentUser.getId();
         boolean isAdmin = SystemRole.ADMIN.equals(currentUser.getSystemRole());
 
-        projectService.deleteProjectPermanently(id, request.getConfirmName(), actorId, isAdmin);
+        projectService.deleteProjectPermanently(id, resolveConfirmName(request, confirmName), actorId, isAdmin);
         return ResponseEntity.ok(ApiResponse.success(null, "Dự án đã được xóa vĩnh viễn"));
+    }
+
+    private String resolveConfirmName(ProjectDeleteRequest request, String confirmNameParam) {
+        if (request != null && request.getConfirmName() != null && !request.getConfirmName().isBlank()) {
+            return request.getConfirmName();
+        }
+        return confirmNameParam;
     }
 
     @Operation(
