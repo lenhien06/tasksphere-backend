@@ -1,10 +1,7 @@
 package com.zone.tasksphere.component;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
-import org.springframework.messaging.MessagingException;
-import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
@@ -17,11 +14,9 @@ public class AuthenticatedWebSocketHandshakeInterceptor implements HandshakeInte
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
                                    WebSocketHandler wsHandler, Map<String, Object> attributes) {
-        if (request.getPrincipal() instanceof Authentication authentication && authentication.isAuthenticated()) {
-            return true;
-        }
-        response.setStatusCode(HttpStatus.UNAUTHORIZED);
-        throw new MessagingException("Unauthorized WebSocket handshake");
+        // SockJS transport probes do not reliably carry the JWT header. We allow the HTTP
+        // handshake and enforce authentication later on the STOMP CONNECT frame.
+        return true;
     }
 
     @Override
