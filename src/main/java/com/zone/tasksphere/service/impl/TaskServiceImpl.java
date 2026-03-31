@@ -20,6 +20,7 @@ import com.zone.tasksphere.service.ReportService;
 import com.zone.tasksphere.service.TaskService;
 import com.zone.tasksphere.specification.TaskSpecification;
 import com.zone.tasksphere.utils.TaskCodeGenerator;
+import com.zone.tasksphere.utils.TaskFilterSupport;
 import com.zone.tasksphere.repository.TaskDependencyRepository;
 import com.zone.tasksphere.repository.ChecklistItemRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -183,14 +184,9 @@ public class TaskServiceImpl implements TaskService {
     public PageResponse<TaskResponse> getTasks(UUID projectId, TaskFilterParams params,
                                                Pageable pageable, UUID currentUserId) {
         validateMembership(projectId, currentUserId);
-
-        // Resolve "me" → currentUserId
-        if ("me".equals(params.getAssigneeId())) {
-            params.setAssigneeId(currentUserId.toString());
-        }
-
-        params.setProjectId(projectId);
-        Specification<Task> spec = TaskSpecification.buildFilter(params);
+        TaskFilterParams normalizedParams = TaskFilterSupport.resolveForQuery(params, currentUserId);
+        normalizedParams.setProjectId(projectId);
+        Specification<Task> spec = TaskSpecification.buildFilter(normalizedParams);
         Page<Task> page = taskRepository.findAll(spec, pageable);
 
         return PageResponse.fromPage(page.map(taskMapper::toResponse));
@@ -374,13 +370,12 @@ public class TaskServiceImpl implements TaskService {
             throw new Forbidden("VIEWER không được đổi trạng thái task");
         }
 
-        // Quyền: Assignee hoặc PM/ADMIN
-        boolean isAssignee = task.getAssignee() != null
-            && task.getAssignee().getId().equals(currentUserId);
+        // Quyền: Member, PM hoặc Admin (Viewer đã bị chặn ở trên)
+        boolean isMember = actorMember != null && actorMember.getProjectRole() == ProjectRole.MEMBER;
         boolean isPM = actorMember != null && actorMember.getProjectRole() == ProjectRole.PROJECT_MANAGER;
 
-        if (!isAssignee && !isPM && !isAdmin) {
-            throw new Forbidden("Chỉ Assignee hoặc PM mới được đổi trạng thái");
+        if (!isMember && !isPM && !isAdmin) {
+            throw new Forbidden("Chỉ Member, PM hoặc Admin mới được đổi trạng thái");
         }
 
         TaskStatus oldStatus = task.getTaskStatus();
@@ -407,6 +402,11 @@ public class TaskServiceImpl implements TaskService {
 
         task.setTaskStatus(newStatus);
         syncCompletedAt(task, oldStatus, newStatus);
+
+        // Sync statusColumn to the default column for the new status so Kanban grouping stays correct
+        columnRepository.findFirstByProjectIdAndMappedStatusAndIsDefaultTrue(projectId, newStatus)
+            .ifPresent(task::setStatusColumn);
+
         task = taskRepository.save(task);
 
         logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
@@ -426,6 +426,7 @@ public class TaskServiceImpl implements TaskService {
             .oldStatus(oldStatus)
             .newStatus(newStatus)
             .updatedAt(task.getUpdatedAt())
+            .columnId(task.getStatusColumn() != null ? task.getStatusColumn().getId() : null)
             .build();
         webSocketService.sendToProject(task.getProject().getId().toString(), "task.status_changed", wsPayload);
 
@@ -680,12 +681,12 @@ public class TaskServiceImpl implements TaskService {
             throw new BadRequestException("Task này không phải sub-task");
         }
 
-        boolean isAssignee = subTask.getAssignee() != null
-            && subTask.getAssignee().getId().equals(currentUserId);
+        boolean isMember = actorMember != null
+            && actorMember.getProjectRole() == ProjectRole.MEMBER;
         boolean isPM = actorMember != null
             && actorMember.getProjectRole() == ProjectRole.PROJECT_MANAGER;
-        if (!isAssignee && !isPM && !isAdmin) {
-            throw new Forbidden("Chỉ PM hoặc Assignee của sub-task mới được promote");
+        if (!isMember && !isPM && !isAdmin) {
+            throw new Forbidden("Chỉ Admin, PM hoặc Member mới được promote sub-task");
         }
 
         Task oldParent = subTask.getParentTask();
@@ -787,11 +788,26 @@ public class TaskServiceImpl implements TaskService {
     // ════════════════════════════════════════
     @Override
     @Transactional(readOnly = true)
-    public TimelineViewResponse getTimelineView(UUID projectId, UUID currentUserId) {
+    public TimelineViewResponse getTimelineView(UUID projectId, TaskFilterParams params, UUID currentUserId) {
         validateMembership(projectId, currentUserId);
+        TaskFilterParams normalizedParams = TaskFilterSupport.resolveForQuery(params, currentUserId);
+        normalizedParams.setProjectId(projectId);
 
-        List<Task> tasks = taskRepository.findTimelineTasksByProjectId(projectId);
+        List<Task> tasks = taskRepository.findAll(TaskSpecification.buildFilter(normalizedParams, false));
+        tasks = tasks.stream()
+                .sorted(java.util.Comparator
+                        .comparing(Task::getStartDate, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                        .thenComparing(Task::getDueDate, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                        .thenComparingInt(Task::getTaskPosition)
+                        .thenComparing(Task::getCreatedAt, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .toList();
+
+        Set<UUID> visibleTaskIds = tasks.stream().map(Task::getId).collect(java.util.stream.Collectors.toSet());
         List<TaskDependency> blockerEdges = dependencyRepository.findBlockingEdgesByProjectId(projectId);
+        blockerEdges = blockerEdges.stream()
+                .filter(edge -> visibleTaskIds.contains(edge.getBlockingTask().getId())
+                        && visibleTaskIds.contains(edge.getBlockedTask().getId()))
+                .toList();
 
         Map<UUID, List<TimelineViewResponse.DependencyRef>> blockedByMap = new HashMap<>();
         Map<UUID, List<TimelineViewResponse.DependencyRef>> blockingMap = new HashMap<>();
@@ -862,8 +878,7 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional(readOnly = true)
     public CalendarViewResponse getCalendarView(UUID projectId, int year, int month,
-                                                String q, TaskStatus status, String assigneeId,
-                                                UUID sprintId, TaskPriority priority, UUID currentUserId) {
+                                                TaskFilterParams params, UUID currentUserId) {
         validateMembership(projectId, currentUserId);
 
         if (year < 2020 || year > 2030) {
@@ -874,18 +889,9 @@ public class TaskServiceImpl implements TaskService {
         }
 
         LocalDate today = LocalDate.now();
-        // Build filter spec: project + due_date in month + provided filters + has due_date
-        CalendarFilterParams params = new CalendarFilterParams();
-        params.setProjectId(projectId);
-        params.setYear(year);
-        params.setMonth(month);
-        params.setQ(q);
-        params.setStatus(status);
-        params.setAssigneeId("me".equalsIgnoreCase(assigneeId) ? currentUserId.toString() : assigneeId);
-        params.setSprintId(sprintId);
-        params.setPriority(priority);
-
-        List<Task> tasks = taskRepository.findAll(buildCalendarSpecification(params));
+        TaskFilterParams normalizedParams = TaskFilterSupport.resolveForQuery(params, currentUserId);
+        normalizedParams.setProjectId(projectId);
+        List<Task> tasks = taskRepository.findAll(buildCalendarSpecification(projectId, year, month, normalizedParams));
 
         List<CalendarViewResponse.CalendarTaskItem> items = tasks.stream().map(t -> {
             CalendarViewResponse.UserSummary assignee = null;
@@ -899,7 +905,7 @@ public class TaskServiceImpl implements TaskService {
 
             boolean isOverdue = t.getDueDate() != null
                     && t.getDueDate().isBefore(today)
-                    && t.getTaskStatus() != TaskStatus.DONE;
+                    && !t.getTaskStatus().isTerminal();
 
             CalendarViewResponse.SprintSummary sprint = null;
             if (t.getSprint() != null) {
@@ -933,41 +939,20 @@ public class TaskServiceImpl implements TaskService {
                 .build();
     }
 
-    private Specification<Task> buildCalendarSpecification(CalendarFilterParams params) {
+    private Specification<Task> buildCalendarSpecification(UUID projectId, int year, int month, TaskFilterParams params) {
         return (root, query, cb) -> {
-            root.fetch("assignee", jakarta.persistence.criteria.JoinType.LEFT);
-            root.fetch("sprint", jakarta.persistence.criteria.JoinType.LEFT);
             query.distinct(true);
 
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
-            predicates.add(cb.equal(root.get("project").get("id"), params.getProjectId()));
+            predicates.add(cb.equal(root.get("project").get("id"), projectId));
             predicates.add(cb.isNull(root.get("deletedAt")));
             predicates.add(cb.isNotNull(root.get("dueDate")));
-            predicates.add(cb.equal(cb.function("YEAR", Integer.class, root.get("dueDate")), params.getYear()));
-            predicates.add(cb.equal(cb.function("MONTH", Integer.class, root.get("dueDate")), params.getMonth()));
-
-            if (params.getQ() != null && !params.getQ().isBlank()) {
-                String pattern = "%" + params.getQ().trim().toLowerCase() + "%";
-                predicates.add(cb.or(
-                        cb.like(cb.lower(root.get("title")), pattern),
-                        cb.like(cb.lower(root.get("taskCode")), pattern)
-                ));
-            }
-            if (params.getStatus() != null) {
-                predicates.add(cb.equal(root.get("taskStatus"), params.getStatus()));
-            }
-            if (params.getAssigneeId() != null && !params.getAssigneeId().isBlank()) {
-                try {
-                    predicates.add(cb.equal(root.get("assignee").get("id"), UUID.fromString(params.getAssigneeId())));
-                } catch (IllegalArgumentException ex) {
-                    throw new BadRequestException("assigneeId khong hop le");
-                }
-            }
-            if (params.getSprintId() != null) {
-                predicates.add(cb.equal(root.get("sprint").get("id"), params.getSprintId()));
-            }
-            if (params.getPriority() != null) {
-                predicates.add(cb.equal(root.get("priority"), params.getPriority()));
+            predicates.add(cb.equal(cb.function("YEAR", Integer.class, root.get("dueDate")), year));
+            predicates.add(cb.equal(cb.function("MONTH", Integer.class, root.get("dueDate")), month));
+            jakarta.persistence.criteria.Predicate commonPredicate = TaskSpecification.buildFilter(params, false)
+                    .toPredicate(root, query, cb);
+            if (commonPredicate != null) {
+                predicates.add(commonPredicate);
             }
 
             query.orderBy(

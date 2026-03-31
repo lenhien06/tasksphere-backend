@@ -23,4 +23,6 @@ public class TaskStatusChangedResponse {
     private TaskStatus newStatus;
     @Schema(description = "Updated at", example = "2023-12-31T23:59:59Z")
     private Instant updatedAt;
+    @Schema(description = "New column id after status sync")
+    private UUID columnId;
 }
