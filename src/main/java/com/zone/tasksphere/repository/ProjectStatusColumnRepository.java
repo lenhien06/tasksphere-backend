@@ -48,6 +48,10 @@ public interface ProjectStatusColumnRepository extends JpaRepository<ProjectStat
     Optional<ProjectStatusColumn> findFirstByProjectIdAndMappedStatusAndIsDefaultTrue(
             UUID projectId, TaskStatus mappedStatus);
 
+    /** Tìm cột đầu tiên theo mappedStatus để sync taskStatus -> Kanban column */
+    Optional<ProjectStatusColumn> findFirstByProjectIdAndMappedStatusOrderBySortOrderAsc(
+            UUID projectId, TaskStatus mappedStatus);
+
     /** FIX: BR-29 - Đếm số cột có cùng mappedStatus trong project (để bảo vệ cột START/DONE cuối cùng) */
     long countByProjectIdAndMappedStatus(UUID projectId, TaskStatus mappedStatus);
 }

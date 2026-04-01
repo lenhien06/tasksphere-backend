@@ -27,6 +27,10 @@ public class TaskSpecification {
      * Build Specification từ TaskFilterParams (dùng trong phân trang)
      */
     public static Specification<Task> buildFilter(TaskFilterParams params) {
+        return buildFilter(params, true);
+    }
+
+    public static Specification<Task> buildFilter(TaskFilterParams params, boolean rootTasksOnly) {
         return (root, query, cb) -> {
             // LEFT JOIN FETCH sprint để tránh N+1 khi map sprintId/sprintName
             if (query.getResultType() != Long.class && query.getResultType() != long.class) {
@@ -39,8 +43,10 @@ public class TaskSpecification {
                 predicates.add(cb.equal(root.get("project").get("id"), params.getProjectId()));
             }
 
-            // Chỉ task gốc: sub-task không hiển thị ở board/danh sách; sau promote parent_task_id = null
-            predicates.add(cb.isNull(root.get("parentTask")));
+            // Chỉ task gốc cho board/list mặc định; timeline/calendar có thể cần cả sub-task.
+            if (rootTasksOnly) {
+                predicates.add(cb.isNull(root.get("parentTask")));
+            }
 
             // Tìm kiếm theo title hoặc taskCode
             if (params.getQ() != null && !params.getQ().isBlank()) {

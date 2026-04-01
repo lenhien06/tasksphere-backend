@@ -403,8 +403,9 @@ public class TaskServiceImpl implements TaskService {
         task.setTaskStatus(newStatus);
         syncCompletedAt(task, oldStatus, newStatus);
 
-        // Sync statusColumn to the default column for the new status so Kanban grouping stays correct
-        columnRepository.findFirstByProjectIdAndMappedStatusAndIsDefaultTrue(projectId, newStatus)
+        // Sync statusColumn to the first column mapped to the new status so Kanban grouping stays correct.
+        // Older projects often have only To Do marked as default.
+        columnRepository.findFirstByProjectIdAndMappedStatusOrderBySortOrderAsc(projectId, newStatus)
             .ifPresent(task::setStatusColumn);
 
         task = taskRepository.save(task);
@@ -788,6 +789,11 @@ public class TaskServiceImpl implements TaskService {
     // ════════════════════════════════════════
     @Override
     @Transactional(readOnly = true)
+    public TimelineViewResponse getTimelineView(UUID projectId, UUID currentUserId) {
+        return getTimelineView(projectId, new TaskFilterParams(), currentUserId);
+    }
+
+    @Transactional(readOnly = true)
     public TimelineViewResponse getTimelineView(UUID projectId, TaskFilterParams params, UUID currentUserId) {
         validateMembership(projectId, currentUserId);
         TaskFilterParams normalizedParams = TaskFilterSupport.resolveForQuery(params, currentUserId);
@@ -876,6 +882,19 @@ public class TaskServiceImpl implements TaskService {
     // P3-BE-10: CALENDAR VIEW
     // ════════════════════════════════════════
     @Override
+    @Transactional(readOnly = true)
+    public CalendarViewResponse getCalendarView(UUID projectId, int year, int month,
+                                                String q, TaskStatus status, String assigneeId,
+                                                UUID sprintId, TaskPriority priority, UUID currentUserId) {
+        TaskFilterParams params = new TaskFilterParams();
+        params.setQ(q);
+        params.setStatus(status);
+        params.setAssigneeId(assigneeId);
+        params.setSprintId(sprintId);
+        params.setPriority(priority);
+        return getCalendarView(projectId, year, month, params, currentUserId);
+    }
+
     @Transactional(readOnly = true)
     public CalendarViewResponse getCalendarView(UUID projectId, int year, int month,
                                                 TaskFilterParams params, UUID currentUserId) {
