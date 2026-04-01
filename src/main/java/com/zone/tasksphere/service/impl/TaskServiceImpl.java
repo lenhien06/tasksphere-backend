@@ -605,7 +605,14 @@ public class TaskServiceImpl implements TaskService {
             }
         }
 
-        ProjectStatusColumn statusColumn = getOrCreateDefaultColumn(parentTask.getProject());
+        ProjectStatusColumn statusColumn;
+        if (request.getStatusColumnId() != null) {
+            statusColumn = columnRepository.findById(request.getStatusColumnId())
+                .filter(column -> column.getProject() != null && projectId.equals(column.getProject().getId()))
+                .orElseThrow(() -> new NotFoundException("Column not found"));
+        } else {
+            statusColumn = getOrCreateDefaultColumn(parentTask.getProject());
+        }
         String taskCode = taskCodeGenerator.generateTaskCode(parentTask.getProject());
         int position = (int) taskRepository.countByStatusColumnId(statusColumn.getId());
 
@@ -616,6 +623,7 @@ public class TaskServiceImpl implements TaskService {
             .type(request.getType() != null ? request.getType() : TaskType.TASK)
             .priority(request.getPriority() != null ? request.getPriority() : TaskPriority.MEDIUM)
             .taskStatus(statusColumn.getMappedStatus() != null ? statusColumn.getMappedStatus() : TaskStatus.TODO)
+            .completedAt(statusColumn.getMappedStatus() == TaskStatus.DONE ? Instant.now() : null)
             .storyPoints(request.getStoryPoints())
             .estimatedHours(request.getEstimatedHours())
             .startDate(request.getStartDate())
