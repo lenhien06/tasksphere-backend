@@ -1,5 +1,6 @@
 package com.zone.tasksphere.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import com.zone.tasksphere.entity.enums.SprintStatus;
@@ -44,6 +45,7 @@ public class CalendarViewResponse {
         private LocalDate dueDate;
         @Schema(description = "Sprint")
         private SprintSummary sprint;
+        @JsonProperty("isOverdue")
         @Schema(description = "Is overdue", example = "true")
         private boolean isOverdue;
         @Schema(description = "Assignee")

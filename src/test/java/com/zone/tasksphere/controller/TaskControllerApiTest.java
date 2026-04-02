@@ -1,6 +1,7 @@
 package com.zone.tasksphere.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zone.tasksphere.dto.response.CalendarViewResponse;
 import com.zone.tasksphere.dto.response.RoleDto;
 import com.zone.tasksphere.dto.response.TimelineViewResponse;
 import com.zone.tasksphere.dto.response.UserDetail;
@@ -34,6 +35,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -170,6 +172,61 @@ class TaskControllerApiTest {
 
         assertThat(json).contains("\"projectId\":\"b364d07b-523b-4a33-a546-9c9b60125694\"");
         System.out.println("TIMELINE_RESPONSE=" + json);
+    }
+
+    @Test
+    void getCalendar_serializesIsOverdueFlag() throws Exception {
+        UUID projectId = UUID.fromString("b364d07b-523b-4a33-a546-9c9b60125694");
+        UUID taskId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        UUID assigneeId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+
+        CalendarViewResponse response = CalendarViewResponse.builder()
+                .year(2026)
+                .month(4)
+                .totalTasks(1)
+                .tasks(List.of(
+                        CalendarViewResponse.CalendarTaskItem.builder()
+                                .id(taskId)
+                                .taskCode("TS-12")
+                                .title("Fix overdue badge")
+                                .priority(TaskPriority.HIGH)
+                                .taskStatus(TaskStatus.IN_PROGRESS)
+                                .dueDate(LocalDate.of(2026, 4, 2))
+                                .isOverdue(true)
+                                .assignee(CalendarViewResponse.UserSummary.builder()
+                                        .id(assigneeId)
+                                        .fullName("QA User")
+                                        .avatarUrl("https://example.com/avatar.png")
+                                        .build())
+                                .build()
+                ))
+                .build();
+
+        when(taskService.getCalendarView(
+                eq(projectId),
+                eq(2026),
+                eq(4),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                eq(currentUserId)
+        )).thenReturn(response);
+
+        String json = mockMvc.perform(get("/api/v1/projects/{projectId}/tasks/calendar", projectId)
+                        .param("year", "2026")
+                        .param("month", "4")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalTasks").value(1))
+                .andExpect(jsonPath("$.data.tasks[0].taskCode").value("TS-12"))
+                .andExpect(jsonPath("$.data.tasks[0].isOverdue").value(true))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertThat(json).contains("\"isOverdue\":true");
     }
 
     @Test
