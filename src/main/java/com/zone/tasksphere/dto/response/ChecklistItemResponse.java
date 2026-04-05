@@ -1,5 +1,7 @@
 package com.zone.tasksphere.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import lombok.Builder;
@@ -17,6 +19,8 @@ public class ChecklistItemResponse {
     private UUID id;
     @Schema(description = "Title", example = "Item Title")
     private String title;
+    @JsonProperty("isDone")
+    @JsonAlias("done")
     @Schema(description = "Is done", example = "true")
     private boolean isDone;
     @Schema(description = "Sort order", example = "1")

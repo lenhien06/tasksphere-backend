@@ -1,5 +1,7 @@
 package com.zone.tasksphere.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import jakarta.validation.constraints.Size;
@@ -13,6 +15,8 @@ public class UpdateChecklistItemRequest {
     @Schema(description = "Title", example = "Item Title")
     private String title;
 
+    @JsonProperty("isDone")
+    @JsonAlias("done")
     @Schema(description = "Is done", example = "true")
     private Boolean isDone;
 }
