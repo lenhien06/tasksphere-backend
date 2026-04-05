@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Thin wrapper around the Google Gemini generateContent API.
- * Model: gemini-1.5-flash
+ * Model: gemini-1.5-flash-latest
  * Retries: 3 total attempts; on 429 the retryDelay from the response body is honoured,
  * otherwise falls back to 20 s → 40 s exponential back-off.
  *
@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class LlmClient {
 
-    private static final String GEMINI_URL        = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+    private static final String GEMINI_URL        = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent";
     private static final float  TEMPERATURE       = 0.7f;
     private static final int    MAX_OUTPUT_TOKENS = 4096;
     private static final MediaType JSON           = MediaType.get("application/json; charset=utf-8");
