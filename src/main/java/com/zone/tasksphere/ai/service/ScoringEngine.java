@@ -65,8 +65,8 @@ public class ScoringEngine {
     /** Jaccard similarity, case-insensitive, trimmed. */
     private BigDecimal computeSkill(List<String> taskSkills, List<String> memberSkills) {
         if (taskSkills == null || taskSkills.isEmpty()) {
-            // No skill constraints → anyone qualifies
-            return bd(1.0);
+            // No skill constraint data → neutral score (0.5) per BR-AI-03
+            return new BigDecimal("0.500");
         }
         if (memberSkills == null || memberSkills.isEmpty()) {
             return bd(0.0);

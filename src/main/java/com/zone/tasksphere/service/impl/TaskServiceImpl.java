@@ -410,6 +410,17 @@ public class TaskServiceImpl implements TaskService {
 
         task = taskRepository.save(task);
 
+        // BR-AI-06: Decrement active_task_count when assignee's task reaches terminal state
+        boolean enteringTerminal = (newStatus == TaskStatus.DONE || newStatus == TaskStatus.CANCELLED)
+                && oldStatus != TaskStatus.DONE && oldStatus != TaskStatus.CANCELLED;
+        if (enteringTerminal && task.getAssignee() != null) {
+            projectMemberRepository.findByProjectIdAndUserId(projectId, task.getAssignee().getId())
+                    .ifPresent(pm -> {
+                        pm.setActiveTaskCount(Math.max(0, pm.getActiveTaskCount() - 1));
+                        projectMemberRepository.save(pm);
+                    });
+        }
+
         logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
             ActionType.STATUS_CHANGED,
             toJson(Map.of("status", oldStatus.name())),
@@ -462,6 +473,16 @@ public class TaskServiceImpl implements TaskService {
             TaskStatus mapped = newColumn.getMappedStatus();
             task.setTaskStatus(mapped);
             syncCompletedAt(task, oldStatus, mapped);
+            // BR-AI-06: Decrement active_task_count when task dragged to terminal column
+            boolean enteringTerminal = (mapped == TaskStatus.DONE || mapped == TaskStatus.CANCELLED)
+                    && oldStatus != TaskStatus.DONE && oldStatus != TaskStatus.CANCELLED;
+            if (enteringTerminal && task.getAssignee() != null) {
+                projectMemberRepository.findByProjectIdAndUserId(projectId, task.getAssignee().getId())
+                        .ifPresent(pm -> {
+                            pm.setActiveTaskCount(Math.max(0, pm.getActiveTaskCount() - 1));
+                            projectMemberRepository.save(pm);
+                        });
+            }
         }
         taskRepository.save(task);
 

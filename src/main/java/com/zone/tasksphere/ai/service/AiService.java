@@ -9,13 +9,18 @@ import com.zone.tasksphere.ai.repository.AiTaskAssignmentRepository;
 import com.zone.tasksphere.entity.*;
 import com.zone.tasksphere.entity.enums.*;
 import com.zone.tasksphere.repository.*;
+import com.zone.tasksphere.service.ActivityLogService;
+import com.zone.tasksphere.service.NotificationService;
 import com.zone.tasksphere.utils.TaskCodeGenerator;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -55,6 +60,8 @@ public class AiService {
     private final AiTaskAssignmentRepository aiAssignmentRepository;
     private final TaskCodeGenerator taskCodeGenerator;
     private final ObjectMapper objectMapper;
+    private final NotificationService notificationService;
+    private final ActivityLogService activityLogService;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // FEATURE 1 — AI Task Generation
@@ -122,7 +129,10 @@ public class AiService {
                 } catch (Exception ignored) { /* sprint optional */ }
             }
 
-            createdIds.add(taskRepository.save(task).getId().toString());
+            Task saved = taskRepository.save(task);
+            createdIds.add(saved.getId().toString());
+            // BR-23: activity log
+            logAiTaskCreated(project.getId(), reporter.getId(), saved.getId(), saved.getTaskCode());
         }
 
         log.info("[AI] confirm-tasks created={} project={}", createdIds.size(), projectId);
@@ -251,19 +261,28 @@ public class AiService {
 
         requireProject(projectId);
 
+        // ── BR-16: pre-validate entire batch before writing anything ────────────
+        List<String> br16Violations = new ArrayList<>();
+        for (ConfirmAssignmentsRequest.AssignmentItem item : req.getAssignments()) {
+            UUID assigneeId = UUID.fromString(item.getAssigneeId());
+            if (!projectMemberRepository.existsByProject_IdAndUser_Id(projectId, assigneeId)) {
+                log.warn("[BR-16] user={} not a member of project={}", assigneeId, projectId);
+                br16Violations.add(item.getAssigneeId());
+            }
+        }
+        if (!br16Violations.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "BR-16: Các user sau không phải member của project: " + String.join(", ", br16Violations));
+        }
+
+        User confirmerUser = userRepository.findById(confirmerId).orElse(null);
+
         List<String> failed = new ArrayList<>();
         int aiConfirmed = 0, pmOverridden = 0;
 
         for (ConfirmAssignmentsRequest.AssignmentItem item : req.getAssignments()) {
             UUID taskId    = UUID.fromString(item.getTaskId());
             UUID assigneeId = UUID.fromString(item.getAssigneeId());
-
-            // ── BR-16 ───────────────────────────────────────────────────────────
-            if (!projectMemberRepository.existsByProject_IdAndUser_Id(projectId, assigneeId)) {
-                log.warn("[BR-16] user={} not a member of project={}", assigneeId, projectId);
-                failed.add(item.getTaskId());
-                continue;
-            }
 
             Task task = taskRepository.findByIdAndProject_Id(taskId, projectId).orElse(null);
             if (task == null) { failed.add(item.getTaskId()); continue; }
@@ -273,6 +292,11 @@ public class AiService {
 
             task.setAssignee(assignee);
             taskRepository.save(task);
+
+            // FR-14: notify assignee
+            if (confirmerUser != null) {
+                notificationService.sendTaskAssigned(task, assignee, confirmerUser);
+            }
 
             // ── Determine CONFIRMED vs OVERRIDDEN ───────────────────────────────
             boolean isAiPick = false;
@@ -393,5 +417,17 @@ public class AiService {
         StringJoiner sj = new StringJoiner(",", "[", "]");
         items.forEach(i -> sj.add("\"" + esc(i) + "\""));
         return sj.toString();
+    }
+
+    /** BR-23: log task creation from AI confirm. Uses RequestContextHolder to grab current HTTP request. */
+    private void logAiTaskCreated(UUID projectId, UUID actorId, UUID taskId, String taskCode) {
+        try {
+            HttpServletRequest httpRequest = ((ServletRequestAttributes)
+                    RequestContextHolder.currentRequestAttributes()).getRequest();
+            activityLogService.logActivity(projectId, actorId, EntityType.TASK, taskId,
+                    ActionType.TASK_CREATED, null, taskCode, httpRequest);
+        } catch (Exception e) {
+            log.warn("[AI] Failed to log task-created activity for task={}: {}", taskId, e.getMessage());
+        }
     }
 }
