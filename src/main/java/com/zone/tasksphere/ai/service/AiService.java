@@ -16,6 +16,8 @@ import com.zone.tasksphere.utils.TaskCodeGenerator;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,6 +64,10 @@ public class AiService {
     private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
     private final ActivityLogService activityLogService;
+
+    /** Self-reference so internal calls to @Transactional methods go through the Spring proxy. */
+    @Lazy @Autowired
+    private AiService self;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // FEATURE 1 — AI Task Generation
@@ -144,13 +150,18 @@ public class AiService {
     // ═══════════════════════════════════════════════════════════════════════════
 
     /**
-     * Scores (task × member), calls Claude once for all reasons,
+     * Scores (task × member), calls LLM once for all reasons,
      * persists PENDING suggestions, returns the full review payload.
+     *
+     * NOT @Transactional at the top level — the LLM call can take 60+ seconds
+     * and must NOT hold a DB connection/transaction. DB reads use per-operation
+     * transactions (Spring Data default); the final batch-save uses its own
+     * short @Transactional (see persistSuggestions).
      */
-    @Transactional
     public SuggestAssignmentsResponse suggestAssignments(UUID projectId) {
         requireProject(projectId);
 
+        // ── Step 1: load data (short per-operation transactions) ──────────────
         List<Task> tasks = taskRepository.findUnassignedActiveByProjectId(projectId);
         if (tasks.isEmpty()) {
             return SuggestAssignmentsResponse.builder()
@@ -163,7 +174,7 @@ public class AiService {
                     "Project không có member để gợi ý phân công.");
         }
 
-        // ── Score every (task, member) pair, keep top-K per task ──────────────
+        // ── Step 2: score (pure Java, no DB) ──────────────────────────────────
         List<Slot> allSlots = new ArrayList<>();
         for (Task task : tasks) {
             List<Slot> ranked = members.stream()
@@ -184,10 +195,17 @@ public class AiService {
             allSlots.addAll(ranked);
         }
 
-        // ── One batch LLM call for all reason texts ────────────────────────────
+        // ── Step 3: LLM call — outside any transaction ────────────────────────
         Map<String, String> reasons = fetchReasonsBatch(allSlots);
 
-        // ── Persist + build response ───────────────────────────────────────────
+        // ── Step 4: persist in a dedicated short transaction ──────────────────
+        return self.persistSuggestions(projectId, tasks, allSlots, reasons);
+    }
+
+    @Transactional
+    public SuggestAssignmentsResponse persistSuggestions(
+            UUID projectId, List<Task> tasks, List<Slot> allSlots, Map<String, String> reasons) {
+
         Map<UUID, List<Slot>> byTask = allSlots.stream()
                 .collect(Collectors.groupingBy(s -> s.task().getId(),
                         LinkedHashMap::new, Collectors.toList()));
