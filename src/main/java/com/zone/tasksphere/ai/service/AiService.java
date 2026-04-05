@@ -164,8 +164,6 @@ public class AiService {
         }
 
         // ── Score every (task, member) pair, keep top-K per task ──────────────
-        record Slot(Task task, ProjectMember member, ScoringEngine.ScoreResult score) {}
-
         List<Slot> allSlots = new ArrayList<>();
         for (Task task : tasks) {
             List<Slot> ranked = members.stream()
