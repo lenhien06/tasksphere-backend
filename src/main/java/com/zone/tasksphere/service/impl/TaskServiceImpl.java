@@ -914,13 +914,13 @@ public class TaskServiceImpl implements TaskService {
     @Transactional(readOnly = true)
     public CalendarViewResponse getCalendarView(UUID projectId, int year, int month,
                                                 String q, TaskStatus status, String assigneeId,
-                                                UUID sprintId, TaskPriority priority, UUID currentUserId) {
+                                                UUID sprintId, List<TaskPriority> priorities, UUID currentUserId) {
         TaskFilterParams params = new TaskFilterParams();
         params.setQ(q);
         params.setStatus(status);
         params.setAssigneeId(assigneeId);
         params.setSprintId(sprintId);
-        params.setPriority(priority);
+        params.setPriorities(priorities);
         return getCalendarView(projectId, year, month, params, currentUserId);
     }
 

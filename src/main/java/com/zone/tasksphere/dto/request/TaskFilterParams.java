@@ -7,6 +7,7 @@ import com.zone.tasksphere.entity.enums.TaskStatus;
 import com.zone.tasksphere.entity.enums.TaskType;
 import lombok.Data;
 
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -29,6 +30,9 @@ public class TaskFilterParams {
 
     @Schema(description = "Priority", example = "HIGH")
     private TaskPriority priority;
+
+    @Schema(description = "Priorities", example = "[\"HIGH\",\"MEDIUM\"]")
+    private List<TaskPriority> priorities;
 
     @Schema(description = "Type", example = "TASK")
     private TaskType type;

@@ -58,7 +58,7 @@ public interface TaskService {
     // ── P3-BE-10: Calendar View ──────────────────────────────────────
     CalendarViewResponse getCalendarView(UUID projectId, int year, int month,
                                          String q, TaskStatus status, String assigneeId,
-                                         UUID sprintId, TaskPriority priority, UUID currentUserId);
+                                         UUID sprintId, List<TaskPriority> priorities, UUID currentUserId);
 
     TimelineViewResponse getTimelineView(UUID projectId, UUID currentUserId);
 

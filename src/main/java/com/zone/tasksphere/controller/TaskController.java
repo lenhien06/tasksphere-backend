@@ -104,9 +104,9 @@ public class TaskController {
             @RequestParam(required = false) TaskStatus status,
             @RequestParam(required = false) String assigneeId,
             @RequestParam(required = false) UUID sprintId,
-            @RequestParam(required = false) TaskPriority priority) {
+            @RequestParam(required = false, name = "priority") List<TaskPriority> priorities) {
         CalendarViewResponse response = taskService.getCalendarView(
-            projectId, year, month, q, status, assigneeId, sprintId, priority, getCurrentUserId());
+            projectId, year, month, q, status, assigneeId, sprintId, priorities, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -153,7 +153,7 @@ public class TaskController {
             @Parameter(name = "status",       description = "TODO | IN_PROGRESS | IN_REVIEW | DONE | CANCELLED"),
             @Parameter(name = "assigneeId",   description = "UUID user, hoặc 'me' để lọc task của mình"),
             @Parameter(name = "sprintId",     description = "UUID sprint, hoặc 'backlog' để lọc task chưa gán sprint"),
-            @Parameter(name = "priority",     description = "CRITICAL | HIGH | MEDIUM | LOW"),
+            @Parameter(name = "priority",     description = "CRITICAL | HIGH | MEDIUM | LOW. Hỗ trợ nhiều giá trị dạng HIGH,MEDIUM"),
             @Parameter(name = "type",         description = "TASK | BUG | FEATURE | STORY | EPIC | SUB_TASK"),
             @Parameter(name = "overdue",      description = "true: chỉ task quá hạn (dueDate < NOW AND status != DONE)"),
             @Parameter(name = "dueSoon",      description = "FR-27: true = dueDate trong 7 ngày tới, status != DONE/CANCELLED"),
@@ -171,7 +171,7 @@ public class TaskController {
             @RequestParam(required = false) TaskStatus status,
             @RequestParam(required = false) String assigneeId,
             @RequestParam(required = false) UUID sprintId,
-            @RequestParam(required = false) TaskPriority priority,
+            @RequestParam(required = false, name = "priority") List<TaskPriority> priorities,
             @RequestParam(required = false) TaskType type,
             @RequestParam(required = false) Boolean overdue,
             @RequestParam(required = false) Boolean dueSoon,
@@ -186,7 +186,7 @@ public class TaskController {
         params.setStatus(status);
         params.setAssigneeId(assigneeId);
         params.setSprintId(sprintId);
-        params.setPriority(priority);
+        params.setPriorities(priorities);
         params.setType(type);
         params.setOverdue(overdue);
         params.setDueSoon(dueSoon);

@@ -129,7 +129,7 @@ public class SprintController {
     public ResponseEntity<ApiResponse<PageResponse<TaskResponse>>> getBacklog(
             @PathVariable UUID projectId,
             @RequestParam(required = false) String q,
-            @RequestParam(required = false) TaskPriority priority,
+            @RequestParam(required = false, name = "priority") List<TaskPriority> priorities,
             @RequestParam(required = false) String assigneeId,
             @RequestParam(required = false) TaskType type,
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
@@ -137,7 +137,7 @@ public class SprintController {
         TaskFilterParams params = new TaskFilterParams();
         params.setProjectId(projectId);
         params.setQ(q);
-        params.setPriority(priority);
+        params.setPriorities(priorities);
         params.setAssigneeId(assigneeId);
         params.setType(type);
 

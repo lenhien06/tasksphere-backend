@@ -18,6 +18,7 @@ public final class TaskFilterSupport {
         resolved.setStatus(params.getStatus());
         resolved.setSprintId(params.getSprintId());
         resolved.setPriority(params.getPriority());
+        resolved.setPriorities(params.getPriorities());
         resolved.setType(params.getType());
         resolved.setQ(params.getQ());
         resolved.setOverdue(params.getOverdue());
