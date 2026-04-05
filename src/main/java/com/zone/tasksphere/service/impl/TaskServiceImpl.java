@@ -262,6 +262,7 @@ public class TaskServiceImpl implements TaskService {
         String oldPriority = task.getPriority() != null ? task.getPriority().name() : null;
         UUID oldSprintId = task.getSprint() != null ? task.getSprint().getId() : null;
         String oldSprintName = task.getSprint() != null ? task.getSprint().getName() : null;
+        TaskStatus oldStatus = task.getTaskStatus();
         Map<String, Object> oldSnapshot = buildTaskSnapshot(task);
 
         // Quyền: MEMBER chỉ sửa task mình là assignee; PM sửa được tất cả
@@ -348,6 +349,10 @@ public class TaskServiceImpl implements TaskService {
                     toJson(mapOf("sprintId", newSprintId, "sprintName", newSprintName)));
         }
 
+        if (oldStatus != task.getTaskStatus()) {
+            notifyTaskStatusStakeholders(task, currentUser, oldStatus, task.getTaskStatus());
+        }
+
         reportService.invalidateOverviewCache(projectId);
         return taskMapper.toDetailResponse(task);
     }
@@ -426,10 +431,7 @@ public class TaskServiceImpl implements TaskService {
             toJson(Map.of("status", oldStatus.name())),
             toJson(Map.of("status", newStatus.name())));
 
-        // Notify reporter when task becomes DONE
-        if (newStatus == TaskStatus.DONE) {
-            notifyDoneToPmAndReporter(task, currentUser, oldStatus, newStatus);
-        }
+        notifyTaskStatusStakeholders(task, currentUser, oldStatus, newStatus);
 
         // Emit WebSocket event task.status_changed
         TaskStatusChangedResponse wsPayload = TaskStatusChangedResponse.builder()
@@ -456,9 +458,11 @@ public class TaskServiceImpl implements TaskService {
                                UpdateTaskPositionRequest request, UUID currentUserId) {
         validateMembership(projectId, currentUserId);
         Task task = getTaskInProject(taskId, projectId);
+        User currentUser = getUser(currentUserId);
         int oldPosition = task.getTaskPosition();
         UUID oldColumnId = task.getStatusColumn() != null ? task.getStatusColumn().getId() : null;
         String oldColumnName = task.getStatusColumn() != null ? task.getStatusColumn().getName() : null;
+        TaskStatus oldStatus = task.getTaskStatus();
 
         ProjectStatusColumn newColumn = columnRepository.findById(request.getStatusColumnId())
             .orElseThrow(() -> new NotFoundException("Column not found"));
@@ -469,13 +473,13 @@ public class TaskServiceImpl implements TaskService {
         task.setStatusColumn(newColumn);
         task.setTaskPosition(request.getNewPosition());
         if (newColumn.getMappedStatus() != null) {
-            TaskStatus oldStatus = task.getTaskStatus();
+            TaskStatus currentStatusBeforeMove = task.getTaskStatus();
             TaskStatus mapped = newColumn.getMappedStatus();
             task.setTaskStatus(mapped);
-            syncCompletedAt(task, oldStatus, mapped);
+            syncCompletedAt(task, currentStatusBeforeMove, mapped);
             // BR-AI-06: Decrement active_task_count when task dragged to terminal column
             boolean enteringTerminal = (mapped == TaskStatus.DONE || mapped == TaskStatus.CANCELLED)
-                    && oldStatus != TaskStatus.DONE && oldStatus != TaskStatus.CANCELLED;
+                    && currentStatusBeforeMove != TaskStatus.DONE && currentStatusBeforeMove != TaskStatus.CANCELLED;
             if (enteringTerminal && task.getAssignee() != null) {
                 projectMemberRepository.findByProjectIdAndUserId(projectId, task.getAssignee().getId())
                         .ifPresent(pm -> {
@@ -485,6 +489,10 @@ public class TaskServiceImpl implements TaskService {
             }
         }
         taskRepository.save(task);
+
+        if (oldStatus != task.getTaskStatus()) {
+            notifyTaskStatusStakeholders(task, currentUser, oldStatus, task.getTaskStatus());
+        }
 
         logActivity(projectId, currentUserId, EntityType.TASK, taskId,
                 ActionType.POSITION_CHANGED,
@@ -666,6 +674,9 @@ public class TaskServiceImpl implements TaskService {
                 "parentTaskId", parentTask.getId()
         )));
         log.info("Sub-task created: {} under parent {}", taskCode, parentTask.getTaskCode());
+        if (assignee != null && !assignee.getId().equals(currentUserId)) {
+            notificationService.sendTaskAssigned(subTask, assignee, currentUser);
+        }
         return subTask;
     }
 
@@ -1127,21 +1138,35 @@ public class TaskServiceImpl implements TaskService {
         }
     }
 
-    private void notifyDoneToPmAndReporter(Task task, User currentUser, TaskStatus oldStatus, TaskStatus newStatus) {
+    private void notifyTaskStatusStakeholders(Task task, User currentUser, TaskStatus oldStatus, TaskStatus newStatus) {
+        Set<UUID> notifiedUsers = new HashSet<>();
+
+        User assignee = task.getAssignee();
+        if (assignee != null && !assignee.getId().equals(currentUser.getId()) && notifiedUsers.add(assignee.getId())) {
+            notificationService.sendTaskStatusChanged(task, assignee, oldStatus.name(), newStatus.name(), currentUser);
+        }
+
+        User reporter = task.getReporter();
+        if (reporter != null && !reporter.getId().equals(currentUser.getId()) && notifiedUsers.add(reporter.getId())) {
+            notificationService.sendTaskStatusChanged(task, reporter, oldStatus.name(), newStatus.name(), currentUser);
+        }
+
+        if (newStatus == TaskStatus.DONE) {
+            notifyDoneToPm(task, currentUser, notifiedUsers, oldStatus, newStatus);
+        }
+    }
+
+    private void notifyDoneToPm(Task task, User currentUser, Set<UUID> notifiedUsers,
+                                TaskStatus oldStatus, TaskStatus newStatus) {
         User pm = projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(
                 task.getProject().getId(), ProjectRole.PROJECT_MANAGER)
                 .map(ProjectMember::getUser)
                 .orElse(null);
 
         if (pm != null && !pm.getId().equals(currentUser.getId())) {
-            notificationService.createNotification(
-                    pm,
-                    NotificationType.TASK_STATUS_CHANGED,
-                    "Task hoàn thành",
-                    currentUser.getFullName() + " đã hoàn thành \"" + task.getTitle() + "\"",
-                    EntityType.TASK.name(),
-                    task.getId()
-            );
+            if (notifiedUsers.add(pm.getId())) {
+                notificationService.sendTaskStatusChanged(task, pm, oldStatus.name(), newStatus.name(), currentUser);
+            }
             webSocketService.sendToUser(pm.getId(), "/queue/task_done", Map.of(
                     "taskId", task.getId(),
                     "taskCode", task.getTaskCode(),
@@ -1150,13 +1175,6 @@ public class TaskServiceImpl implements TaskService {
                     "completedBy", currentUser.getFullName(),
                     "completedAt", Instant.now().toString()
             ));
-        }
-
-        User reporter = task.getReporter();
-        if (reporter != null
-                && !reporter.getId().equals(currentUser.getId())
-                && (pm == null || !reporter.getId().equals(pm.getId()))) {
-            notificationService.sendTaskStatusChanged(task, reporter, oldStatus.name(), newStatus.name());
         }
     }
 

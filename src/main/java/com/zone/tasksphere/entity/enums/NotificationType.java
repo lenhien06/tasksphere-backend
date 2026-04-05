@@ -7,7 +7,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum NotificationType {
     TASK_ASSIGNED("Task Assigned", true),
-    TASK_STATUS_CHANGED("Task Status Changed", false),
+    TASK_STATUS_CHANGED("Task Status Changed", true),
     TASK_COMMENTED("Task Commented", true),
     TASK_MENTIONED("Task Mentioned", true),
     TASK_DUE_SOON("Task Due Soon", true),

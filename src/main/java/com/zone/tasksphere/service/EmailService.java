@@ -1,9 +1,9 @@
 package com.zone.tasksphere.service;
 
 import com.zone.tasksphere.dto.response.DigestContent;
+import com.zone.tasksphere.entity.Task;
 import com.zone.tasksphere.entity.User;
 import com.zone.tasksphere.exception.EmailSendException;
-import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -136,6 +136,64 @@ public class EmailService {
         }
     }
 
+    @Async
+    public void sendTaskAssignedEmail(User recipient, Task task, User assigner) {
+        String subject = String.format("[TaskSphere] Bạn được giao task %s", task.getTaskCode());
+
+        Context context = createEmailContext();
+        context.setVariable("recipientName", displayName(recipient));
+        context.setVariable("assignerName", displayName(assigner));
+        context.setVariable("projectName", task.getProject().getName());
+        context.setVariable("taskCode", task.getTaskCode());
+        context.setVariable("taskTitle", task.getTitle());
+        context.setVariable("taskStatus", task.getTaskStatus() != null ? task.getTaskStatus().name() : "TODO");
+        context.setVariable("taskPriority", task.getPriority() != null ? task.getPriority().name() : "MEDIUM");
+        context.setVariable("taskUrl", buildTaskUrl(task));
+        context.setVariable("dueDate", formatDate(task.getDueDate()));
+
+        try {
+            String htmlContent = templateEngine.process("emails/task-assigned-email", context);
+            sendWithRetryAsync(recipient.getEmail(), subject, htmlContent);
+        } catch (Exception e) {
+            log.error("Lỗi khi xử lý template email giao task: {}", e.getMessage());
+            sendSimpleEmail(
+                recipient.getEmail(),
+                subject,
+                String.format("%s đã giao cho bạn task %s - %s. Mở task tại: %s",
+                    displayName(assigner), task.getTaskCode(), task.getTitle(), buildTaskUrl(task))
+            );
+        }
+    }
+
+    @Async
+    public void sendTaskStatusChangedEmail(User recipient, Task task, String oldStatus, String newStatus, User actor) {
+        String subject = String.format("[TaskSphere] Task %s đã chuyển sang %s", task.getTaskCode(), newStatus);
+
+        Context context = createEmailContext();
+        context.setVariable("recipientName", displayName(recipient));
+        context.setVariable("actorName", displayName(actor));
+        context.setVariable("projectName", task.getProject().getName());
+        context.setVariable("taskCode", task.getTaskCode());
+        context.setVariable("taskTitle", task.getTitle());
+        context.setVariable("oldStatus", oldStatus);
+        context.setVariable("newStatus", newStatus);
+        context.setVariable("taskUrl", buildTaskUrl(task));
+        context.setVariable("dueDate", formatDate(task.getDueDate()));
+
+        try {
+            String htmlContent = templateEngine.process("emails/task-status-changed-email", context);
+            sendWithRetryAsync(recipient.getEmail(), subject, htmlContent);
+        } catch (Exception e) {
+            log.error("Lỗi khi xử lý template email đổi trạng thái task: {}", e.getMessage());
+            sendSimpleEmail(
+                recipient.getEmail(),
+                subject,
+                String.format("%s đã chuyển task %s - %s từ %s sang %s. Mở task tại: %s",
+                    displayName(actor), task.getTaskCode(), task.getTitle(), oldStatus, newStatus, buildTaskUrl(task))
+            );
+        }
+    }
+
     // ── P6-BE-04: Daily Digest ────────────────────────────────────────────────
 
     @Async
@@ -211,6 +269,27 @@ public class EmailService {
         Context context = createEmailContext();
         context.setVariable("otp", otp);
         return templateEngine.process("emails/otp-email", context);
+    }
+
+    private String buildTaskUrl(Task task) {
+        return frontendUrl + "/projects/" + task.getProject().getId() + "/tasks/" + task.getId();
+    }
+
+    private String displayName(User user) {
+        if (user == null) {
+            return "TaskSphere";
+        }
+        if (user.getFullName() != null && !user.getFullName().isBlank()) {
+            return user.getFullName();
+        }
+        return user.getEmail();
+    }
+
+    private String formatDate(LocalDate date) {
+        if (date == null) {
+            return null;
+        }
+        return date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
     }
 
     private Context createEmailContext() {

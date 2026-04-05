@@ -30,6 +30,7 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final NotificationRealtimePublisher notificationRealtimePublisher;
+    private final EmailService emailService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final TaskRepository taskRepository;
 
@@ -125,30 +126,38 @@ public class NotificationService {
 
     @Transactional
     public void sendTaskAssigned(Task task, User assignee, User assigner) {
+        String assignerName = assigner.getFullName() != null && !assigner.getFullName().isBlank()
+            ? assigner.getFullName()
+            : assigner.getEmail();
         createAndQueue(
             assignee,
             NotificationType.TASK_ASSIGNED,
             "Bạn được giao task mới",
-            String.format("Task %s đã được giao cho bạn bởi %s", task.getTaskCode(), assigner.getFullName()),
+            String.format("Task %s đã được giao cho bạn bởi %s", task.getTaskCode(), assignerName),
             "TASK", task.getId(),
             task.getProject().getId(),
             task.getTaskCode(),
             assigner
         );
+        afterCommit(() -> emailService.sendTaskAssignedEmail(assignee, task, assigner));
     }
 
     @Transactional
-    public void sendTaskStatusChanged(Task task, User watcher, String oldStatus, String newStatus) {
+    public void sendTaskStatusChanged(Task task, User watcher, String oldStatus, String newStatus, User actor) {
+        String actorName = actor != null
+            ? (actor.getFullName() != null && !actor.getFullName().isBlank() ? actor.getFullName() : actor.getEmail())
+            : "Một thành viên";
         createAndQueue(
             watcher,
             NotificationType.TASK_STATUS_CHANGED,
             "Trạng thái task đã thay đổi",
-            String.format("Task %s đã chuyển từ %s sang %s", task.getTaskCode(), oldStatus, newStatus),
+            String.format("%s đã chuyển task %s từ %s sang %s", actorName, task.getTaskCode(), oldStatus, newStatus),
             "TASK", task.getId(),
             task.getProject().getId(),
             task.getTaskCode(),
-            null
+            actor
         );
+        afterCommit(() -> emailService.sendTaskStatusChangedEmail(watcher, task, oldStatus, newStatus, actor));
     }
 
     @Transactional
