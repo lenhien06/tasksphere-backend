@@ -3,10 +3,12 @@ package com.zone.tasksphere.service.impl;
 import com.zone.tasksphere.dto.request.CreateUserRequest;
 import com.zone.tasksphere.dto.request.NotifPrefsRequest;
 import com.zone.tasksphere.dto.request.UpdateProfileRequest;
+import com.zone.tasksphere.dto.response.NotificationPreferencesResponse;
 import com.zone.tasksphere.dto.response.PageResponse;
 import com.zone.tasksphere.dto.response.UserDetail;
 import com.zone.tasksphere.entity.Role;
 import com.zone.tasksphere.entity.User;
+import com.zone.tasksphere.entity.enums.NotificationType;
 import com.zone.tasksphere.entity.enums.SystemRole;
 import com.zone.tasksphere.entity.enums.UserStatus;
 import com.zone.tasksphere.exception.BadRequestException;
@@ -22,6 +24,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.ZoneId;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -82,7 +87,10 @@ public class UserServiceImpl implements UserService {
 
         if (request.getFullName() != null) user.setFullName(request.getFullName());
         if (request.getAvatarUrl() != null) user.setAvatarUrl(request.getAvatarUrl());
-        // Additional settings
+        if (request.getTimezone() != null && !request.getTimezone().isBlank()) {
+            user.setTimezone(validateTimezone(request.getTimezone()));
+        }
+        user.setWeekdaysOnly(request.isWeekdaysOnly());
         user.setEmailDailyDigest(request.isEmailDailyDigest());
 
         return mapToUserDetail(userRepository.save(user));
@@ -108,12 +116,30 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    public void updateNotificationPreferences(UUID userId, NotifPrefsRequest request) {
+    public NotificationPreferencesResponse getNotificationPreferences(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("User not found"));
-        user.setEmailDailyDigest(request.isEmailDailyDigest());
-        // Save other preferences if needed
+        return toNotificationPreferencesResponse(user);
+    }
+
+    @Override
+    @Transactional
+    public NotificationPreferencesResponse updateNotificationPreferences(UUID userId, NotifPrefsRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+
+        if (request.getEmailDailyDigest() != null) {
+            user.setEmailDailyDigest(request.getEmailDailyDigest());
+        }
+        if (request.getWeekdaysOnly() != null) {
+            user.setWeekdaysOnly(request.getWeekdaysOnly());
+        }
+        if (request.getTimezone() != null && !request.getTimezone().isBlank()) {
+            user.setTimezone(validateTimezone(request.getTimezone()));
+        }
+
         userRepository.save(user);
+        return toNotificationPreferencesResponse(user);
     }
 
     private UserDetail mapToUserDetail(User user) {
@@ -128,5 +154,30 @@ public class UserServiceImpl implements UserService {
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
                 .build();
+    }
+
+    private NotificationPreferencesResponse toNotificationPreferencesResponse(User user) {
+        return NotificationPreferencesResponse.builder()
+                .emailDailyDigest(user.isEmailDailyDigest())
+                .weekdaysOnly(user.isWeekdaysOnly())
+                .timezone(user.getTimezone() != null && !user.getTimezone().isBlank() ? user.getTimezone() : "UTC")
+                .typePreferences(defaultTypePreferences())
+                .build();
+    }
+
+    private Map<String, Boolean> defaultTypePreferences() {
+        Map<String, Boolean> defaults = new LinkedHashMap<>();
+        for (NotificationType type : NotificationType.values()) {
+            defaults.put(type.name(), type.isSendEmail());
+        }
+        return defaults;
+    }
+
+    private String validateTimezone(String timezone) {
+        try {
+            return ZoneId.of(timezone).getId();
+        } catch (Exception ex) {
+            throw new BadRequestException("Timezone không hợp lệ");
+        }
     }
 }

@@ -4,6 +4,7 @@ import com.zone.tasksphere.dto.request.CreateUserRequest;
 import com.zone.tasksphere.dto.request.NotifPrefsRequest;
 import com.zone.tasksphere.dto.request.UpdateProfileRequest;
 import com.zone.tasksphere.dto.response.ApiResponse;
+import com.zone.tasksphere.dto.response.NotificationPreferencesResponse;
 import com.zone.tasksphere.dto.response.PageResponse;
 import com.zone.tasksphere.dto.response.UserDetail;
 import com.zone.tasksphere.entity.enums.UserStatus;
@@ -102,6 +103,18 @@ public class UserController {
     }
 
     @Operation(
+        summary = "Lấy cài đặt thông báo",
+        description = "Trả về emailDailyDigest, weekdaysOnly, timezone và cấu hình typePreferences hiện tại.",
+        security = @SecurityRequirement(name = "bearerAuth")
+    )
+    @GetMapping("/me/notification-preferences")
+    public ResponseEntity<ApiResponse<NotificationPreferencesResponse>> getNotificationPreferences() {
+        UUID userId = AuthUtils.getUserDetail().getId();
+        NotificationPreferencesResponse response = userService.getNotificationPreferences(userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(
         summary = "[Admin] Khóa tài khoản",
         description = """
             **FR-08:** Admin khóa tài khoản → user không thể đăng nhập.
@@ -138,9 +151,10 @@ public class UserController {
         security = @SecurityRequirement(name = "bearerAuth")
     )
     @PutMapping("/me/notification-preferences")
-    public ResponseEntity<ApiResponse<Void>> updateNotificationPreferences(@Valid @RequestBody NotifPrefsRequest request) {
+    public ResponseEntity<ApiResponse<NotificationPreferencesResponse>> updateNotificationPreferences(
+            @Valid @RequestBody NotifPrefsRequest request) {
         UUID userId = AuthUtils.getUserDetail().getId();
-        userService.updateNotificationPreferences(userId, request);
-        return ResponseEntity.ok(ApiResponse.success(null, "Cập nhật cài đặt thông báo thành công"));
+        NotificationPreferencesResponse response = userService.updateNotificationPreferences(userId, request);
+        return ResponseEntity.ok(ApiResponse.success(response, "Cập nhật cài đặt thông báo thành công"));
     }
 }

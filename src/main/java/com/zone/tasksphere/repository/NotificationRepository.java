@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Repository
@@ -38,4 +39,18 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
         WHERE n.recipient.id = :userId AND n.isRead = false AND n.deletedAt IS NULL
     """)
     int markAllAsRead(@Param("userId") UUID userId, @Param("readAt") Instant readAt);
+
+    @Query("""
+        SELECT n FROM Notification n
+        WHERE n.recipient.id = :userId
+          AND n.type = com.zone.tasksphere.entity.enums.NotificationType.TASK_ASSIGNED
+          AND n.entityType = 'TASK'
+          AND n.entityId IS NOT NULL
+          AND n.deletedAt IS NULL
+          AND n.createdAt >= :since
+        ORDER BY n.createdAt DESC
+    """)
+    List<Notification> findRecentTaskAssignedNotifications(
+        @Param("userId") UUID userId,
+        @Param("since") Instant since);
 }

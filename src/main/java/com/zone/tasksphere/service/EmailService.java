@@ -17,6 +17,7 @@ import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.UUID;
@@ -198,8 +199,9 @@ public class EmailService {
 
     @Async
     public void sendDailyDigest(User user, DigestContent content) {
-        String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
-        String subject = "📋 TaskSphere — Tóm tắt công việc " + dateStr;
+        String dateStr = LocalDate.now(resolveZone(user.getTimezone()))
+            .format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        String subject = "TaskSphere — Danh sách việc cần làm hôm nay (" + dateStr + ")";
 
         Context ctx = createEmailContext();
         ctx.setVariable("user", user);
@@ -290,6 +292,17 @@ public class EmailService {
             return null;
         }
         return date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+    }
+
+    private ZoneId resolveZone(String timezone) {
+        if (timezone == null || timezone.isBlank()) {
+            return ZoneId.of("UTC");
+        }
+        try {
+            return ZoneId.of(timezone);
+        } catch (Exception ex) {
+            return ZoneId.of("UTC");
+        }
     }
 
     private Context createEmailContext() {

@@ -3,6 +3,7 @@ package com.zone.tasksphere.service;
 import com.zone.tasksphere.dto.request.CreateUserRequest;
 import com.zone.tasksphere.dto.request.NotifPrefsRequest;
 import com.zone.tasksphere.dto.request.UpdateProfileRequest;
+import com.zone.tasksphere.dto.response.NotificationPreferencesResponse;
 import com.zone.tasksphere.dto.response.PageResponse;
 import com.zone.tasksphere.dto.response.UserDetail;
 import com.zone.tasksphere.entity.enums.UserStatus;
@@ -16,5 +17,6 @@ public interface UserService {
     UserDetail updateMyProfile(UUID userId, UpdateProfileRequest request);
     void lockUser(UUID userId);
     void unlockUser(UUID userId);
-    void updateNotificationPreferences(UUID userId, NotifPrefsRequest request);
+    NotificationPreferencesResponse getNotificationPreferences(UUID userId);
+    NotificationPreferencesResponse updateNotificationPreferences(UUID userId, NotifPrefsRequest request);
 }
