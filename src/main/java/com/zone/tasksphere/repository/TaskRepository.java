@@ -539,4 +539,25 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
     List<Task> findRecentlyAssigned(
             @Param("userId") UUID userId,
             @Param("since") Instant since);
+
+    // ── AI Module queries ─────────────────────────────────────────────────────
+
+    /**
+     * Feature 2: tasks in a project that have no assignee and are not terminal.
+     * @SQLRestriction on Task already filters deleted_at IS NULL.
+     */
+    @Query("""
+            SELECT t FROM Task t
+            WHERE t.project.id = :projectId
+              AND t.assignee IS NULL
+              AND t.taskStatus NOT IN (
+                  com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+                  com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+              )
+            ORDER BY t.createdAt ASC
+            """)
+    List<Task> findUnassignedActiveByProjectId(@Param("projectId") UUID projectId);
+
+    /** Feature 2: safe lookup by id + project (prevents cross-project access). */
+    Optional<Task> findByIdAndProject_Id(UUID id, UUID projectId);
 }

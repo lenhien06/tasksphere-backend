@@ -110,4 +110,11 @@ public class User extends BaseEntity {
     @OneToMany(mappedBy = "assignee", fetch = FetchType.LAZY)
     @JsonIgnore
     private List<Task> assignedTasks;
+
+    // ── AI Module (Feature 2) ─────────────────────────────────────────────────
+
+    /** User's skill profile (["React","Java",...]). Managed via PATCH /api/v1/users/me/skill-tags. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "skill_tags", columnDefinition = "json")
+    private List<String> skillTags;
 }

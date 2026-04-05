@@ -50,4 +50,15 @@ public class ProjectMember extends BaseEntity {
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "invited_by", columnDefinition = "CHAR(36)")
     private UUID invitedBy;
+
+    // ── AI Module (Feature 2) ─────────────────────────────────────────────────
+
+    /** Tasks currently active (non-terminal) assigned to this member in this project. */
+    @Column(name = "active_task_count", nullable = false)
+    @Builder.Default
+    private int activeTaskCount = 0;
+
+    /** Historical avg story_points completed by this member in this project. NULL = no history. */
+    @Column(name = "avg_story_points", precision = 4, scale = 1)
+    private java.math.BigDecimal avgStoryPoints;
 }

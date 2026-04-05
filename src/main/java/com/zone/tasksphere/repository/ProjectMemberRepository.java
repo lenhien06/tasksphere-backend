@@ -45,4 +45,27 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, UU
         UUID getProjectId();
         Long getMemberCount();
     }
+
+    // ── AI Module queries ─────────────────────────────────────────────────────
+
+    /** Feature 2: PM + MEMBER pool for scoring (excludes VIEWERs). JOIN FETCH user avoids N+1. */
+    @Query("""
+            SELECT pm FROM ProjectMember pm
+            JOIN FETCH pm.user
+            WHERE pm.project.id = :projectId
+              AND pm.projectRole IN (
+                  com.zone.tasksphere.entity.enums.ProjectRole.PROJECT_MANAGER,
+                  com.zone.tasksphere.entity.enums.ProjectRole.MEMBER
+              )
+            """)
+    List<ProjectMember> findByProjectIdWithUser(@Param("projectId") UUID projectId);
+
+    /** BR-16: check assignee is a member of this project. */
+    boolean existsByProject_IdAndUser_Id(UUID projectId, UUID userId);
+
+    /** ProjectPermissions: check specific role. */
+    boolean existsByProject_IdAndUser_IdAndProjectRole(UUID projectId, UUID userId, ProjectRole projectRole);
+
+    /** Needed by confirmAssignments to update active_task_count. */
+    Optional<ProjectMember> findByProject_IdAndUser_Id(UUID projectId, UUID userId);
 }

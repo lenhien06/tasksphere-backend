@@ -179,3 +179,9 @@ management:
       prometheus:
         enabled: true
 
+
+
+# ── AI Module ──────────────────────────────────────────────────────────────
+ai:
+  anthropic:
+    api-key: ${ANTHROPIC_API_KEY}

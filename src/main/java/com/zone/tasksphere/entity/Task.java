@@ -162,4 +162,16 @@ public class Task extends BaseEntity {
 
     @OneToOne(mappedBy = "task", fetch = FetchType.LAZY)
     private RecurringTaskConfig recurringConfig;
+
+    // ── AI Module (Feature 1) ─────────────────────────────────────────────────
+
+    /** Required skills for this task. Populated by AI Task Generator, used by ScoringEngine. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "skill_tags_required", columnDefinition = "json")
+    private java.util.List<String> skillTagsRequired;
+
+    /** true = task was created by the AI Task Generator. */
+    @Column(name = "ai_generated", nullable = false)
+    @Builder.Default
+    private boolean aiGenerated = false;
 }

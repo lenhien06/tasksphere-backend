@@ -104,3 +104,8 @@ app:
   frontend-url: "http://localhost:3000"
   api-url: "http://localhost:8080"
 
+
+# ── AI Module ──────────────────────────────────────────────────────────────
+ai:
+  anthropic:
+    api-key: ${ANTHROPIC_API_KEY}
