@@ -183,5 +183,5 @@ management:
 
 # ── AI Module ──────────────────────────────────────────────────────────────
 ai:
-  anthropic:
-    api-key: ${ANTHROPIC_API_KEY}
+  gemini:
+    api-key: ${GEMINI_API_KEY}

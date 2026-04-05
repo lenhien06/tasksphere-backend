@@ -13,29 +13,28 @@ import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Thin wrapper around the Anthropic Messages API.
- * Model: claude-sonnet-4-20250514
+ * Thin wrapper around the Google Gemini generateContent API.
+ * Model: gemini-2.0-flash
  * Retries: 3 total attempts with 2 s → 4 s back-off.
  *
- * Required config:  ai.anthropic.api-key=${ANTHROPIC_API_KEY}
+ * Required config:  ai.gemini.api-key=${GEMINI_API_KEY}
  */
 @Slf4j
 @Component
 public class LlmClient {
 
-    private static final String ANTHROPIC_URL     = "https://api.anthropic.com/v1/messages";
-    private static final String MODEL             = "claude-sonnet-4-20250514";
-    private static final String ANTHROPIC_VERSION = "2023-06-01";
-    private static final int    MAX_TOKENS        = 4096;
-    private static final MediaType JSON           = MediaType.get("application/json; charset=utf-8");
-    private static final long[]  RETRY_DELAYS_MS  = {2_000L, 4_000L};
+    private static final String GEMINI_URL      = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+    private static final float  TEMPERATURE     = 0.7f;
+    private static final int    MAX_OUTPUT_TOKENS = 4096;
+    private static final MediaType JSON          = MediaType.get("application/json; charset=utf-8");
+    private static final long[]  RETRY_DELAYS_MS = {2_000L, 4_000L};
 
     private final OkHttpClient http;
     private final ObjectMapper objectMapper;
     private final String apiKey;
 
     public LlmClient(
-            @Value("${ai.anthropic.api-key}") String apiKey,
+            @Value("${ai.gemini.api-key}") String apiKey,
             ObjectMapper objectMapper) {
         this.apiKey = apiKey;
         this.objectMapper = objectMapper;
@@ -67,10 +66,12 @@ public class LlmClient {
     }
 
     private String execute(String body) throws IOException {
+        HttpUrl url = HttpUrl.parse(GEMINI_URL).newBuilder()
+                .addQueryParameter("key", apiKey)
+                .build();
+
         Request req = new Request.Builder()
-                .url(ANTHROPIC_URL)
-                .header("x-api-key", apiKey)
-                .header("anthropic-version", ANTHROPIC_VERSION)
+                .url(url)
                 .header("content-type", "application/json")
                 .post(RequestBody.create(body, JSON))
                 .build();
@@ -78,30 +79,50 @@ public class LlmClient {
         try (Response res = http.newCall(req).execute()) {
             String raw = res.body() != null ? res.body().string() : "";
             if (!res.isSuccessful()) {
-                throw new IOException("Anthropic API HTTP " + res.code() + ": " + raw);
+                throw new IOException("Gemini API HTTP " + res.code() + ": " + raw);
             }
-            JsonNode root    = objectMapper.readTree(raw);
-            JsonNode content = root.path("content");
-            if (content.isArray() && !content.isEmpty()) {
-                String text = content.get(0).path("text").asText();
-                if (!text.isBlank()) return text;
+            JsonNode root = objectMapper.readTree(raw);
+            JsonNode text = root.path("candidates").path(0)
+                                .path("content").path("parts").path(0)
+                                .path("text");
+            if (!text.isMissingNode() && !text.asText().isBlank()) {
+                return text.asText();
             }
-            throw new IOException("Unexpected Anthropic response: " + raw);
+            throw new IOException("Unexpected Gemini response: " + raw);
         }
     }
 
     private String buildBody(String system, String user) {
         try {
             ObjectNode root = objectMapper.createObjectNode();
-            root.put("model", MODEL);
-            root.put("max_tokens", MAX_TOKENS);
-            root.put("system", system);
-            ArrayNode msgs = objectMapper.createArrayNode();
-            ObjectNode msg = objectMapper.createObjectNode();
-            msg.put("role", "user");
-            msg.put("content", user);
-            msgs.add(msg);
-            root.set("messages", msgs);
+
+            // systemInstruction
+            ObjectNode sysInstruction = objectMapper.createObjectNode();
+            ArrayNode  sysParts       = objectMapper.createArrayNode();
+            ObjectNode sysPart        = objectMapper.createObjectNode();
+            sysPart.put("text", system);
+            sysParts.add(sysPart);
+            sysInstruction.set("parts", sysParts);
+            root.set("systemInstruction", sysInstruction);
+
+            // contents
+            ArrayNode  contents  = objectMapper.createArrayNode();
+            ObjectNode content   = objectMapper.createObjectNode();
+            content.put("role", "user");
+            ArrayNode  parts     = objectMapper.createArrayNode();
+            ObjectNode part      = objectMapper.createObjectNode();
+            part.put("text", user);
+            parts.add(part);
+            content.set("parts", parts);
+            contents.add(content);
+            root.set("contents", contents);
+
+            // generationConfig
+            ObjectNode genConfig = objectMapper.createObjectNode();
+            genConfig.put("temperature", TEMPERATURE);
+            genConfig.put("maxOutputTokens", MAX_OUTPUT_TOKENS);
+            root.set("generationConfig", genConfig);
+
             return objectMapper.writeValueAsString(root);
         } catch (Exception e) {
             throw new LlmException("Failed to serialize LLM request", e);
