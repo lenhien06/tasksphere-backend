@@ -45,6 +45,14 @@ public class AiService {
             {"title":"string","description":"string","type":"task|story|bug",\
             "priority":"critical|high|medium|low","story_points":1|2|3|5|8|13,\
             "skill_tags_required":["string"],"acceptance_criteria":"string"}
+
+            HƯỚNG DẪN phân loại type:
+            - story: tính năng mô tả từ góc nhìn user \
+            (dùng khi requirement dùng từ như: cho phép, hiển thị, \
+            người dùng có thể...)
+            - task: công việc kỹ thuật thuần túy \
+            (implement, build, tích hợp, deploy, validate...)
+            - bug: sửa lỗi đang tồn tại
             """;
 
     private static final String SYS_REASON = """
