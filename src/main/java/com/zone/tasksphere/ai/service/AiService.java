@@ -108,7 +108,7 @@ public class AiService {
 
     /**
      * Persists PM-approved tasks: assignee=NULL, status=TODO, aiGenerated=true.
-     * Uses TaskCodeGenerator (REQUIRES_NEW) for atomic code generation.
+     * Returns memberCount so the frontend can offer a direct link to AI assign.
      */
     @Transactional
     public ConfirmTasksResponse confirmTasks(UUID projectId, ConfirmTasksRequest req, User reporter) {
@@ -118,7 +118,6 @@ public class AiService {
         List<String> createdIds = new ArrayList<>();
 
         for (GeneratedTaskDto dto : req.getTasks()) {
-            // TaskCodeGenerator uses REQUIRES_NEW — safe from race conditions
             String taskCode = taskCodeGenerator.generateTaskCode(project);
 
             Task task = Task.builder()
@@ -135,22 +134,26 @@ public class AiService {
                     .reporter(reporter)
                     .build();
 
-            // Set optional sprint
             if (req.getSprintId() != null) {
                 try {
-                    task.setSprint(Sprint.builder()
-                            .build()); // placeholder — caller should pass Sprint entity if needed
+                    task.setSprint(Sprint.builder().build());
                 } catch (Exception ignored) { /* sprint optional */ }
             }
 
             Task saved = taskRepository.save(task);
             createdIds.add(saved.getId().toString());
-            // BR-23: activity log
             logAiTaskCreated(project.getId(), reporter.getId(), saved.getId(), saved.getTaskCode());
         }
 
-        log.info("[AI] confirm-tasks created={} project={}", createdIds.size(), projectId);
-        return ConfirmTasksResponse.builder().createdTaskIds(createdIds).count(createdIds.size()).build();
+        int memberCount = (int) projectMemberRepository.countByProjectId(projectId);
+
+        log.info("[AI] confirm-tasks created={} project={} memberCount={}", createdIds.size(), projectId, memberCount);
+        return ConfirmTasksResponse.builder()
+                .createdTaskIds(createdIds)
+                .count(createdIds.size())
+                .memberCount(memberCount)
+                .projectId(projectId.toString())
+                .build();
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -166,11 +169,16 @@ public class AiService {
      * transactions (Spring Data default); the final batch-save uses its own
      * short @Transactional (see persistSuggestions).
      */
-    public SuggestAssignmentsResponse suggestAssignments(UUID projectId) {
+    public SuggestAssignmentsResponse suggestAssignments(UUID projectId, SuggestAssignmentsRequest req) {
         requireProject(projectId);
 
         // ── Step 1: load data (short per-operation transactions) ──────────────
-        List<Task> tasks = taskRepository.findUnassignedActiveByProjectId(projectId);
+        List<Task> tasks = (req != null
+                && req.getTaskIds() != null
+                && !req.getTaskIds().isEmpty())
+                ? taskRepository.findUnassignedByIds(
+                        req.getTaskIds().stream().map(UUID::fromString).toList())
+                : taskRepository.findUnassignedActiveByProjectId(projectId);
         if (tasks.isEmpty()) {
             return SuggestAssignmentsResponse.builder()
                     .totalTasks(0).totalSuggestions(0).suggestions(List.of()).build();
