@@ -91,6 +91,20 @@ public class Project extends BaseEntity {
     @OneToMany(mappedBy = "project", fetch = FetchType.LAZY)
     private List<ProjectView> views;
 
+    /**
+     * NULL = standalone project (backward-compatible).
+     * Non-null = project belongs to a Workspace.
+     */
+    /**
+     * NULL = standalone project (backward-compatible).
+     * Non-null = project belongs to a Workspace.
+     * mappedBy counterpart in Workspace.projects.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "workspace_id",
+                foreignKey = @ForeignKey(name = "fk_proj_workspace"))
+    private Workspace workspace;
+
     @Version
     @Column(nullable = false)
     private Long version;

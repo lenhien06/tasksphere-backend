@@ -1,15 +1,16 @@
 package com.zone.tasksphere.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.util.List;
 
 @Data
+@Schema(description = "Cập nhật skill tags của thành viên workspace")
 public class UpdateMemberSkillsRequest {
 
     @NotNull(message = "skillTags không được null")
-    @Size(max = 20, message = "Tối đa 20 skill tags")
-    private List<@Size(max = 50, message = "Mỗi skill tối đa 50 ký tự") String> skillTags;
+    @Schema(description = "Danh sách kỹ năng", example = "[\"React\",\"TypeScript\",\"Java\"]")
+    private List<String> skillTags;
 }

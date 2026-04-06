@@ -73,4 +73,13 @@ public interface ProjectRepository extends JpaRepository<Project, UUID>, JpaSpec
         )
     """)
     List<Project> findProjectsWithoutColumns();
+
+    /** Lấy tất cả project thuộc workspace (còn active). */
+    @Query("SELECT p FROM Project p WHERE p.workspace.id = :workspaceId AND p.deletedAt IS NULL")
+    List<Project> findActiveByWorkspaceId(@Param("workspaceId") UUID workspaceId);
+
+    /** Bulk detach: set workspace_id = NULL cho toàn bộ project trong workspace. */
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE Project p SET p.workspace = NULL WHERE p.workspace.id = :workspaceId")
+    void detachFromWorkspace(@Param("workspaceId") UUID workspaceId);
 }
