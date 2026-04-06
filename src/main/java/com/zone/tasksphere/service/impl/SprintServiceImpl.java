@@ -39,7 +39,6 @@ public class SprintServiceImpl implements SprintService {
     private final ProjectMemberRepository projectMemberRepository;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
-    private final ActivityLogRepository activityLogRepository;
     private final ActivityLogService activityLogService;
     private final NotificationService notificationService;
     private final TaskMapper taskMapper;
@@ -531,12 +530,12 @@ public class SprintServiceImpl implements SprintService {
                     .build());
         }
 
-        // Tính Actual Line từ activity_logs
+        // Tính Actual Line từ completedAt của task DONE để lấy dữ liệu thật
         Instant startInstant = start.atStartOfDay().toInstant(ZoneOffset.UTC);
         Instant endInstant = end.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
 
-        List<Object[]> doneByDateRaw = activityLogRepository.findDonePointsByDate(
-                sprintId, startInstant, endInstant);
+        List<Object[]> doneByDateRaw = taskRepository.findDonePointsByCompletedAt(
+            sprintId, startInstant, endInstant);
 
         // Map date → points done on that day
         Map<LocalDate, Long> donePointsByDate = new LinkedHashMap<>();

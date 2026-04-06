@@ -153,6 +153,31 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
     /** Số task trong cột (dùng để tính position mới) */
     long countByStatusColumnId(UUID columnId);
 
+        // ── P4-BE-04: Burndown Chart ─────────────────────────────────────
+
+        /**
+         * Lấy tổng storyPoints task DONE theo từng ngày dựa trên completedAt.
+         * Đây là nguồn dữ liệu thật cho actual line của burndown chart.
+         * Kết quả: Object[0] = LocalDate, Object[1] = Long (totalPoints)
+         */
+        @Query(value = """
+                SELECT DATE(t.completed_at) as done_date,
+                             SUM(t.story_points) as points
+                FROM tasks t
+                WHERE t.sprint_id = :sprintId
+                    AND t.task_status = 'DONE'
+                    AND t.completed_at IS NOT NULL
+                    AND t.story_points IS NOT NULL
+                    AND t.deleted_at IS NULL
+                    AND t.completed_at BETWEEN :startDate AND :endDate
+                GROUP BY DATE(t.completed_at)
+                ORDER BY DATE(t.completed_at)
+        """, nativeQuery = true)
+        List<Object[]> findDonePointsByCompletedAt(
+                        @Param("sprintId") UUID sprintId,
+                        @Param("startDate") Instant startDate,
+                        @Param("endDate") Instant endDate);
+
     @Query("SELECT COALESCE(MAX(t.taskPosition), 0) FROM Task t WHERE t.statusColumn.id = :columnId")
     int findMaxPositionByColumnId(@Param("columnId") UUID columnId);
 
