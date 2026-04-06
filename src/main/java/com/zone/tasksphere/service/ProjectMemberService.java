@@ -116,10 +116,21 @@ public class ProjectMemberService {
                 ActionType.CREATED, null, request.getRole().name(), httpServletRequest);
 
         // Thông báo cho user
-        notificationService.createNotification(user, NotificationType.PROJECT_INVITED, 
-                "Bạn đã được thêm vào dự án", 
+        notificationService.createNotification(user, NotificationType.PROJECT_INVITED,
+                "Bạn đã được thêm vào dự án",
                 "Bạn đã được thêm trực tiếp vào dự án " + project.getName() + " với vai trò " + request.getRole().getDisplayName(),
                 EntityType.PROJECT.name(), projectId);
+
+        // Gửi email thông báo (token=null → email "đã được thêm", không cần accept)
+        User actor = userRepository.findById(actorId).orElse(null);
+        String inviterName = actor != null ? actor.getFullName() : "Quản lý dự án";
+        emailService.sendProjectInviteEmail(
+                user.getEmail(),
+                project.getName(),
+                inviterName,
+                request.getRole().name(),
+                null,
+                projectId);
 
         return ProjectMemberResponse.builder()
                 .id(newMember.getId())
@@ -431,6 +442,36 @@ public class ProjectMemberService {
 
         logActivity(invite.getProject().getId(), currentUserId, EntityType.PROJECT, invite.getId(),
                 ActionType.INVITE_DECLINED, "PENDING", "DECLINED");
+    }
+
+    // =========================================================================
+    // 2b. CẬP NHẬT SKILL THÀNH VIÊN TRONG PROJECT (dùng cho AI scoring)
+    // =========================================================================
+
+    /**
+     * PM cập nhật skill của một member trong project này.
+     * Chỉ PROJECT_MANAGER của đúng project này mới được phép.
+     * Skill này có priority cao nhất cho AI scoring (trên workspace + profile skill).
+     */
+    @Transactional
+    public void updateMemberSkills(UUID projectId, UUID targetUserId, List<String> skillTags, UUID actorId) {
+        requireProjectManager(projectId, actorId);
+
+        ProjectMember pm = projectMemberRepository.findByProjectIdAndUserId(projectId, targetUserId)
+                .orElseThrow(() -> new BadRequestException("User không phải thành viên của project này"));
+
+        pm.setSkillTags(skillTags);
+        projectMemberRepository.save(pm);
+
+        log.info("[Member] PM={} updated skills of user={} in project={}: {}", actorId, targetUserId, projectId, skillTags);
+    }
+
+    private void requireProjectManager(UUID projectId, UUID actorId) {
+        ProjectMember actor = projectMemberRepository.findByProjectIdAndUserId(projectId, actorId)
+                .orElseThrow(() -> new Forbidden("Bạn không phải thành viên của dự án này"));
+        if (actor.getProjectRole() != ProjectRole.PROJECT_MANAGER) {
+            throw new Forbidden("Chỉ Project Manager mới có quyền cập nhật skill thành viên");
+        }
     }
 
     // =========================================================================

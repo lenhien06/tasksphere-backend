@@ -66,6 +66,7 @@ public class AiService {
     private final TaskRepository taskRepository;
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
+    private final WorkspaceMemberRepository workspaceMemberRepository;
     private final UserRepository userRepository;
     private final AiTaskAssignmentRepository aiAssignmentRepository;
     private final TaskCodeGenerator taskCodeGenerator;
@@ -190,19 +191,28 @@ public class AiService {
                     "Project không có member để gợi ý phân công.");
         }
 
+        // ── Load workspace members once for skill-priority fallback ───────────
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> notFound("Project not found: " + projectId));
+        UUID workspaceId = project.getWorkspace() != null ? project.getWorkspace().getId() : null;
+        Map<UUID, WorkspaceMember> wsMemberMap = workspaceId != null
+                ? workspaceMemberRepository.findByWorkspaceId(workspaceId).stream()
+                        .collect(Collectors.toMap(wm -> wm.getUser().getId(), wm -> wm))
+                : Map.of();
+
         // ── Step 2: score (pure Java, no DB) ──────────────────────────────────
         List<Slot> allSlots = new ArrayList<>();
         for (Task task : tasks) {
             List<Slot> ranked = members.stream()
                     .map(pm -> {
-                        User u = pm.getUser();
+                        List<String> effSkills = getEffectiveSkillTags(pm, wsMemberMap);
                         return new Slot(task, pm, scoringEngine.score(
                                 task.getSkillTagsRequired(),
-                                u.getSkillTags(),
+                                effSkills,
                                 pm.getActiveTaskCount(),
                                 pm.getAvgStoryPoints() != null
                                         ? pm.getAvgStoryPoints().doubleValue() : null,
-                                task.getStoryPoints()));
+                                task.getStoryPoints()), effSkills);
                     })
                     .sorted(Comparator.comparing(s -> s.score().totalScore(),
                             Comparator.reverseOrder()))
@@ -257,7 +267,7 @@ public class AiService {
                         .userId(u.getId().toString())
                         .fullName(u.getFullName())
                         .avatarUrl(u.getAvatarUrl())
-                        .skillTags(u.getSkillTags() != null ? u.getSkillTags() : List.of())
+                        .skillTags(slot.effectiveSkills())
                         .activeTaskCount(slot.member().getActiveTaskCount())
                         .skillScore(slot.score().skillScore())
                         .workloadScore(slot.score().workloadScore())
@@ -365,7 +375,7 @@ public class AiService {
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    private record Slot(Task task, ProjectMember member, ScoringEngine.ScoreResult score) {}
+    private record Slot(Task task, ProjectMember member, ScoringEngine.ScoreResult score, List<String> effectiveSkills) {}
 
     private Map<String, String> fetchReasonsBatch(List<Slot> slots) {
         if (slots.isEmpty()) return Map.of();
@@ -378,7 +388,7 @@ public class AiService {
             sb.append("  {\"key\":\"").append(key)
               .append("\",\"task\":\"").append(esc(s.task().getTitle()))
               .append("\",\"member\":\"").append(esc(u.getFullName()))
-              .append("\",\"skills\":").append(jsonArr(u.getSkillTags()))
+              .append("\",\"skills\":").append(jsonArr(s.effectiveSkills()))
               .append(",\"skill_score\":").append(s.score().skillScore())
               .append(",\"workload_score\":").append(s.score().workloadScore())
               .append(",\"difficulty_score\":").append(s.score().difficultyScore())
@@ -393,6 +403,30 @@ public class AiService {
             log.error("[AI] Failed to parse reason-batch response", e);
             return Map.of();
         }
+    }
+
+    /**
+     * Resolves the effective skill tags for a project member using priority order:
+     * 1. project_members.skill_tags (PM-set per project)
+     * 2. workspace_members.skill_tags (PM-set per workspace)
+     * 3. users.skill_tags (user's own profile)
+     */
+    private List<String> getEffectiveSkillTags(ProjectMember pm, Map<UUID, WorkspaceMember> wsMemberMap) {
+        // Priority 1: project-scoped skill
+        if (pm.getSkillTags() != null && !pm.getSkillTags().isEmpty()) {
+            log.debug("[Skill] user={} project={} → project skill: {}", pm.getUser().getId(), pm.getProject().getId(), pm.getSkillTags());
+            return pm.getSkillTags();
+        }
+        // Priority 2: workspace-scoped skill
+        WorkspaceMember wm = wsMemberMap.get(pm.getUser().getId());
+        if (wm != null && wm.getSkillTags() != null && !wm.getSkillTags().isEmpty()) {
+            log.debug("[Skill] user={} → workspace skill: {}", pm.getUser().getId(), wm.getSkillTags());
+            return wm.getSkillTags();
+        }
+        // Priority 3: user profile skill
+        List<String> profileSkills = pm.getUser().getSkillTags() != null ? pm.getUser().getSkillTags() : List.of();
+        log.debug("[Skill] user={} → profile skill: {}", pm.getUser().getId(), profileSkills);
+        return profileSkills;
     }
 
     private void requireProject(UUID projectId) {

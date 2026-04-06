@@ -156,6 +156,26 @@ public class ProjectMemberController {
         return ResponseEntity.ok(ApiResponse.success(null, "Cập nhật vai trò thành viên thành công."));
     }
 
+    @Operation(
+        summary = "Cập nhật skill thành viên trong project",
+        description = """
+            **AI Scoring:** Cập nhật skill của thành viên trong project này.
+            Skill này có ưu tiên cao nhất cho AI scoring (trên workspace skill và profile skill).
+
+            **Quyền:** Chỉ PROJECT_MANAGER của project này.
+            """)
+    @PatchMapping("/{projectId}/members/{userId}/skills")
+    public ResponseEntity<ApiResponse<Void>> updateMemberSkills(
+            @PathVariable UUID projectId,
+            @PathVariable UUID userId,
+            @RequestBody Map<String, List<String>> body
+    ) {
+        UUID currentUserId = getCurrentUserId();
+        List<String> skillTags = body.getOrDefault("skillTags", List.of());
+        projectMemberService.updateMemberSkills(projectId, userId, skillTags, currentUserId);
+        return ResponseEntity.ok(ApiResponse.success(null, "Cập nhật skill thành viên thành công."));
+    }
+
     @Operation(summary = "Lấy danh sách lời mời", description = "Lấy danh sách lời mời của dự án.")
     @GetMapping("/{projectId}/invites")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getInvites(

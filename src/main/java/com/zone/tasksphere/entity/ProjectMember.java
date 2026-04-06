@@ -51,6 +51,16 @@ public class ProjectMember extends BaseEntity {
     @Column(name = "invited_by", columnDefinition = "CHAR(36)")
     private UUID invitedBy;
 
+    // ── Skill override (AI scoring priority 1) ───────────────────────────────
+
+    /**
+     * PM-specified skills for this member in this project.
+     * Takes priority over workspace_members.skill_tags and users.skill_tags for AI scoring.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "skill_tags", columnDefinition = "json")
+    private java.util.List<String> skillTags;
+
     // ── AI Module (Feature 2) ─────────────────────────────────────────────────
 
     /** Tasks currently active (non-terminal) assigned to this member in this project. */
