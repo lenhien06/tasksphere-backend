@@ -298,6 +298,7 @@ public class WorkspaceAiService {
         LocalDate today = LocalDate.now();
         int taskCount = 0;
         int assignedCount = 0;
+        int nextTaskCounter = saved.getTaskCounter() != null ? saved.getTaskCounter() : 0;
 
         List<GenerateProjectPlanResponse.SprintPlanDto> sprintDtos =
                 plan.getSprints() != null ? plan.getSprints() : List.of();
@@ -320,7 +321,11 @@ public class WorkspaceAiService {
                     sprintDto.getTasks() != null ? sprintDto.getTasks() : List.of();
 
             for (GenerateProjectPlanResponse.TaskPlanDto taskDto : taskDtos) {
-                String taskCode = taskCodeGenerator.generateTaskCode(saved);
+                // Project vừa được tạo trong transaction hiện tại nên chưa visible cho
+                // TaskCodeGenerator(REQUIRES_NEW). Sinh tuần tự ngay trong transaction này
+                // để tránh lỗi "Project not found" khi confirm AI plan.
+                nextTaskCounter++;
+                String taskCode = String.format("%s-%03d", saved.getProjectKey(), nextTaskCounter);
 
                 User assignee = null;
                 if (taskDto.getSuggestedAssigneeId() != null && !taskDto.getSuggestedAssigneeId().isBlank()) {
@@ -375,6 +380,8 @@ public class WorkspaceAiService {
                 }
             }
         }
+
+        saved.setTaskCounter(nextTaskCounter);
 
         log.info("[WS-AI] confirm-project-plan done: project={} sprints={} tasks={} assigned={}",
                 saved.getId(), sprintDtos.size(), taskCount, assignedCount);
