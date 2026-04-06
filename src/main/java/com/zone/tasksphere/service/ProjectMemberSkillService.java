@@ -5,7 +5,6 @@ import com.zone.tasksphere.dto.response.MemberSkillResponse;
 import com.zone.tasksphere.entity.ProjectMember;
 import com.zone.tasksphere.entity.User;
 import com.zone.tasksphere.repository.ProjectMemberRepository;
-import com.zone.tasksphere.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,7 +18,6 @@ import java.util.UUID;
 public class ProjectMemberSkillService {
 
     private final ProjectMemberRepository projectMemberRepository;
-    private final UserRepository userRepository;
 
     @Transactional(readOnly = true)
     public List<MemberSkillResponse> getMemberSkills(UUID projectId) {
@@ -46,21 +44,26 @@ public class ProjectMemberSkillService {
                         .limit(20)
                         .toList();
 
-        User user = pm.getUser();
-        user.setSkillTags(sanitized);
-        userRepository.save(user);
+        // Save to project_members.skill_tags (highest priority for AI scoring)
+        // Does NOT modify users.skill_tags (global profile)
+        pm.setSkillTags(sanitized);
+        projectMemberRepository.save(pm);
 
         return toResponse(pm);
     }
 
     private MemberSkillResponse toResponse(ProjectMember pm) {
         User u = pm.getUser();
+        // Return effective skill: project-scoped first, then user profile
+        List<String> effectiveSkills = (pm.getSkillTags() != null && !pm.getSkillTags().isEmpty())
+                ? pm.getSkillTags()
+                : (u.getSkillTags() != null ? u.getSkillTags() : Collections.emptyList());
         return MemberSkillResponse.builder()
                 .userId(u.getId().toString())
                 .fullName(u.getFullName())
                 .avatarUrl(u.getAvatarUrl())
                 .role(pm.getProjectRole() != null ? pm.getProjectRole().name() : null)
-                .skillTags(u.getSkillTags() != null ? u.getSkillTags() : Collections.emptyList())
+                .skillTags(effectiveSkills)
                 .activeTaskCount(pm.getActiveTaskCount())
                 .avgStoryPoints(pm.getAvgStoryPoints())
                 .workCapacityHours(u.getWorkCapacityHours() != null ? u.getWorkCapacityHours() : 40)

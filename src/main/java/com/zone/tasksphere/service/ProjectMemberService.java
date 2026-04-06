@@ -445,36 +445,6 @@ public class ProjectMemberService {
     }
 
     // =========================================================================
-    // 2b. CẬP NHẬT SKILL THÀNH VIÊN TRONG PROJECT (dùng cho AI scoring)
-    // =========================================================================
-
-    /**
-     * PM cập nhật skill của một member trong project này.
-     * Chỉ PROJECT_MANAGER của đúng project này mới được phép.
-     * Skill này có priority cao nhất cho AI scoring (trên workspace + profile skill).
-     */
-    @Transactional
-    public void updateMemberSkills(UUID projectId, UUID targetUserId, List<String> skillTags, UUID actorId) {
-        requireProjectManager(projectId, actorId);
-
-        ProjectMember pm = projectMemberRepository.findByProjectIdAndUserId(projectId, targetUserId)
-                .orElseThrow(() -> new BadRequestException("User không phải thành viên của project này"));
-
-        pm.setSkillTags(skillTags);
-        projectMemberRepository.save(pm);
-
-        log.info("[Member] PM={} updated skills of user={} in project={}: {}", actorId, targetUserId, projectId, skillTags);
-    }
-
-    private void requireProjectManager(UUID projectId, UUID actorId) {
-        ProjectMember actor = projectMemberRepository.findByProjectIdAndUserId(projectId, actorId)
-                .orElseThrow(() -> new Forbidden("Bạn không phải thành viên của dự án này"));
-        if (actor.getProjectRole() != ProjectRole.PROJECT_MANAGER) {
-            throw new Forbidden("Chỉ Project Manager mới có quyền cập nhật skill thành viên");
-        }
-    }
-
-    // =========================================================================
     // 3. ĐỔI ROLE THÀNH VIÊN
     // =========================================================================
     @Transactional
