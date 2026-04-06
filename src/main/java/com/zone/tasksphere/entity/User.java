@@ -132,5 +132,5 @@ public class User extends BaseEntity {
     /** Hours per week available for work — used by AI load balancing. */
     @Column(name = "work_capacity_hours")
     @Builder.Default
-    private int workCapacityHours = 40;
+    private Integer workCapacityHours = 40;
 }

@@ -63,7 +63,7 @@ public class ProjectMemberSkillService {
                 .skillTags(u.getSkillTags() != null ? u.getSkillTags() : Collections.emptyList())
                 .activeTaskCount(pm.getActiveTaskCount())
                 .avgStoryPoints(pm.getAvgStoryPoints())
-                .workCapacityHours(u.getWorkCapacityHours())
+                .workCapacityHours(u.getWorkCapacityHours() != null ? u.getWorkCapacityHours() : 40)
                 .build();
     }
 }

@@ -48,7 +48,7 @@ public class UserProfileService {
                 .jobTitle(user.getJobTitle())
                 .bio(user.getBio())
                 .skillTags(user.getSkillTags() != null ? user.getSkillTags() : Collections.emptyList())
-                .workCapacityHours(user.getWorkCapacityHours())
+                .workCapacityHours(user.getWorkCapacityHours() != null ? user.getWorkCapacityHours() : 40)
                 .participatedProjects(projects)
                 .build();
     }
