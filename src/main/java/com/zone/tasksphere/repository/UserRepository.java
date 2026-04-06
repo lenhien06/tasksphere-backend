@@ -5,6 +5,7 @@ import com.zone.tasksphere.entity.enums.UserStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -60,4 +61,13 @@ public interface UserRepository extends JpaRepository<User, UUID> {
           AND u.deletedAt IS NULL
     """)
     List<User> findDigestEligibleUsers();
+
+    @Modifying
+    @Query("""
+        UPDATE User u
+        SET u.timezone = :timezone
+        WHERE u.deletedAt IS NULL
+          AND (u.timezone IS NULL OR TRIM(u.timezone) = '' OR u.timezone = 'UTC')
+    """)
+    int migrateLegacyDefaultTimezone(@Param("timezone") String timezone);
 }

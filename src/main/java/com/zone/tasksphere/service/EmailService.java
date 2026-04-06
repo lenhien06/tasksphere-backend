@@ -28,6 +28,7 @@ import java.util.UUID;
 @Slf4j
 @SuppressWarnings("SpringJavaInjectionPointsAutowiringInspection")
 public class EmailService {
+    private static final ZoneId DEFAULT_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     private final JavaMailSender mailSender;
     private final TemplateEngine templateEngine;
@@ -296,12 +297,12 @@ public class EmailService {
 
     private ZoneId resolveZone(String timezone) {
         if (timezone == null || timezone.isBlank()) {
-            return ZoneId.of("UTC");
+            return DEFAULT_ZONE;
         }
         try {
             return ZoneId.of(timezone);
         } catch (Exception ex) {
-            return ZoneId.of("UTC");
+            return DEFAULT_ZONE;
         }
     }
 

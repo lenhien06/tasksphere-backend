@@ -84,7 +84,7 @@ public class User extends BaseEntity {
 
     @Column(name = "timezone", length = 50)
     @Builder.Default
-    private String timezone = "UTC";
+    private String timezone = "Asia/Ho_Chi_Minh";
 
     @Column(name = "email_daily_digest", nullable = false)
     @Builder.Default

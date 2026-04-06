@@ -160,7 +160,7 @@ public class UserServiceImpl implements UserService {
         return NotificationPreferencesResponse.builder()
                 .emailDailyDigest(user.isEmailDailyDigest())
                 .weekdaysOnly(user.isWeekdaysOnly())
-                .timezone(user.getTimezone() != null && !user.getTimezone().isBlank() ? user.getTimezone() : "UTC")
+                .timezone(user.getTimezone() != null && !user.getTimezone().isBlank() ? user.getTimezone() : "Asia/Ho_Chi_Minh")
                 .typePreferences(defaultTypePreferences())
                 .build();
     }

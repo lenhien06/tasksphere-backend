@@ -42,6 +42,7 @@ public class DailyDigestJob {
 
     private static final int DIGEST_HOUR = 7;
     private static final String DIGEST_SENT_KEY_PREFIX = "digest:daily:sent:";
+    private static final ZoneId DEFAULT_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private final UserRepository userRepository;
     private final TaskRepository taskRepository;
     private final NotificationRepository notificationRepository;
@@ -153,13 +154,13 @@ public class DailyDigestJob {
     private ZoneId resolveZone(User user) {
         String timezone = user.getTimezone();
         if (timezone == null || timezone.isBlank()) {
-            return ZoneId.of("UTC");
+            return DEFAULT_ZONE;
         }
         try {
             return ZoneId.of(timezone);
         } catch (Exception ex) {
-            log.warn("[DailyDigest] Invalid timezone '{}' for user {}, fallback UTC", timezone, user.getEmail());
-            return ZoneId.of("UTC");
+            log.warn("[DailyDigest] Invalid timezone '{}' for user {}, fallback {}", timezone, user.getEmail(), DEFAULT_ZONE);
+            return DEFAULT_ZONE;
         }
     }
 
