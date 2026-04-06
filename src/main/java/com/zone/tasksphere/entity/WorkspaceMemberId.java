@@ -18,10 +18,20 @@ import java.util.UUID;
 public class WorkspaceMemberId implements Serializable {
 
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(name = "workspace_id", length = 36, nullable = false)
+    @Column(
+        name = "workspace_id",
+        length = 36,
+        nullable = false,
+        columnDefinition = "CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+    )
     private UUID workspaceId;
 
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(name = "user_id", length = 36, nullable = false)
+    @Column(
+        name = "user_id",
+        length = 36,
+        nullable = false,
+        columnDefinition = "CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+    )
     private UUID userId;
 }

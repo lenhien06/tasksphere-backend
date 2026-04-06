@@ -26,7 +26,13 @@ public class BaseEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(name = "id", length = 36, updatable = false, nullable = false)
+    @Column(
+        name = "id",
+        length = 36,
+        updatable = false,
+        nullable = false,
+        columnDefinition = "CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+    )
     private UUID id;
 
     @CreatedDate

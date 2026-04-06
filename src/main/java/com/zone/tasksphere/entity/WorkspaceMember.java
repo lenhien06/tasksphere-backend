@@ -34,12 +34,20 @@ public class WorkspaceMember {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @MapsId("workspaceId")
-    @JoinColumn(name = "workspace_id", nullable = false)
+    @JoinColumn(
+        name = "workspace_id",
+        nullable = false,
+        columnDefinition = "CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+    )
     private Workspace workspace;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @MapsId("userId")
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(
+        name = "user_id",
+        nullable = false,
+        columnDefinition = "CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+    )
     private User user;
 
     @Enumerated(EnumType.STRING)
@@ -64,6 +72,9 @@ public class WorkspaceMember {
     private Instant joinedAt = Instant.now();
 
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(name = "invited_by", columnDefinition = "CHAR(36)")
+    @Column(
+        name = "invited_by",
+        columnDefinition = "CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+    )
     private UUID invitedBy;
 }

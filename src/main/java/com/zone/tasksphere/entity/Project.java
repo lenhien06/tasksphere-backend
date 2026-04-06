@@ -102,6 +102,7 @@ public class Project extends BaseEntity {
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "workspace_id",
+                columnDefinition = "CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
                 foreignKey = @ForeignKey(name = "fk_proj_workspace"))
     private Workspace workspace;
 

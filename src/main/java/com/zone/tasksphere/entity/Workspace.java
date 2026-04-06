@@ -50,7 +50,11 @@ public class Workspace extends BaseEntity {
     private String avatarUrl;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "owner_id", nullable = false)
+    @JoinColumn(
+        name = "owner_id",
+        nullable = false,
+        columnDefinition = "CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+    )
     private User owner;
 
     @Enumerated(EnumType.STRING)
