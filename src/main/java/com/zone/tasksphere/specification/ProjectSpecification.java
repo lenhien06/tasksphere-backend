@@ -3,6 +3,7 @@ package com.zone.tasksphere.specification;
 import com.zone.tasksphere.entity.Project;
 import com.zone.tasksphere.entity.ProjectMember;
 import com.zone.tasksphere.entity.ProjectView;
+import com.zone.tasksphere.entity.Workspace;
 import com.zone.tasksphere.entity.enums.ProjectStatus;
 import com.zone.tasksphere.entity.enums.ProjectVisibility;
 import jakarta.persistence.criteria.Join;
@@ -21,6 +22,8 @@ public class ProjectSpecification {
             String search,
             ProjectStatus status,
             ProjectVisibility visibility,
+            UUID workspaceId,
+            UUID personalWorkspaceId,
             UUID userId,
             boolean isAdmin) {
 
@@ -52,7 +55,20 @@ public class ProjectSpecification {
                 predicates.add(cb.equal(root.get("visibility"), visibility));
             }
 
-            // 4. Phân quyền hiển thị
+            // 4. Scope theo context hiện tại
+            Join<Project, Workspace> workspaceJoin = root.join("workspace", JoinType.LEFT);
+            if (workspaceId != null) {
+                predicates.add(cb.equal(workspaceJoin.get("id"), workspaceId));
+            } else if (personalWorkspaceId != null && userId != null) {
+                Predicate belongsToPersonalWorkspace = cb.equal(workspaceJoin.get("id"), personalWorkspaceId);
+                Predicate legacyPersonalProject = cb.and(
+                        cb.isNull(root.get("workspace")),
+                        cb.equal(root.get("owner").get("id"), userId)
+                );
+                predicates.add(cb.or(belongsToPersonalWorkspace, legacyPersonalProject));
+            }
+
+            // 5. Phân quyền hiển thị
             // - Admin: thấy tất cả theo filter
             // - Guest: không thấy public project trong danh sách chung
             // - Logged user: chỉ thấy project mình sở hữu/tham gia

@@ -10,6 +10,7 @@ import com.zone.tasksphere.entity.Project;
 import com.zone.tasksphere.entity.ProjectMember;
 import com.zone.tasksphere.entity.ProjectStatusColumn;
 import com.zone.tasksphere.entity.ProjectView;
+import com.zone.tasksphere.entity.Workspace;
 import com.zone.tasksphere.entity.User;
 import com.zone.tasksphere.entity.enums.*;
 import com.zone.tasksphere.event.ActivityLogEvent;
@@ -21,6 +22,8 @@ import com.zone.tasksphere.repository.ProjectStatusColumnRepository;
 import com.zone.tasksphere.repository.ProjectViewRepository;
 import com.zone.tasksphere.repository.TaskRepository;
 import com.zone.tasksphere.repository.UserRepository;
+import com.zone.tasksphere.repository.WorkspaceMemberRepository;
+import com.zone.tasksphere.repository.WorkspaceRepository;
 import com.zone.tasksphere.specification.ProjectSpecification;
 import com.zone.tasksphere.utils.AuthUtils;
 import jakarta.persistence.EntityManager;
@@ -60,12 +63,20 @@ public class ProjectService {
     private final DefaultColumnSeeder defaultColumnSeeder;
     private final com.zone.tasksphere.service.impl.MinioStorageService minioStorageService;
     private final EntityManager entityManager;
+    private final WorkspaceRepository workspaceRepository;
+    private final WorkspaceMemberRepository workspaceMemberRepository;
 
     public Page<ProjectResponse> getProjects(String search, ProjectStatus status,
-                                             ProjectVisibility visibility, UUID userId,
+                                             ProjectVisibility visibility, UUID workspaceId, String scope, UUID userId,
                                              boolean isAdmin, Pageable pageable) {
+        UUID personalWorkspaceId = null;
+        if (userId != null && !"all".equalsIgnoreCase(scope) && workspaceId == null) {
+            personalWorkspaceId = ensurePersonalWorkspace(userId).getId();
+        }
 
-        Specification<Project> spec = ProjectSpecification.filterProjects(search, status, visibility, userId, isAdmin);
+        Specification<Project> spec = ProjectSpecification.filterProjects(
+                search, status, visibility, workspaceId, personalWorkspaceId, userId, isAdmin
+        );
         Page<Project> projectPage = projectRepository.findAll(spec, pageable);
 
         List<UUID> projectIds = projectPage.getContent().stream()
@@ -158,6 +169,7 @@ public class ProjectService {
     }
 
     private ProjectResponse toSummaryResponse(Project project) {
+        Workspace workspace = project.getWorkspace();
         return ProjectResponse.builder()
                 .id(project.getId())
                 .name(project.getName())
@@ -167,6 +179,10 @@ public class ProjectService {
                 .visibility(project.getVisibility())
                 .ownerId(project.getOwner().getId())
                 .ownerName(project.getOwner().getFullName())
+                .workspaceId(workspace != null ? workspace.getId() : null)
+                .workspaceName(workspace != null ? workspace.getName() : null)
+                .workspaceSlug(workspace != null ? workspace.getSlug() : null)
+                .workspaceType(workspace != null ? workspace.getType() : null)
                 .owner(false)
                 .startDate(project.getStartDate())
                 .endDate(project.getEndDate())
@@ -198,6 +214,7 @@ public class ProjectService {
 
         User owner = userRepository.findById(ownerId)
                 .orElseThrow(() -> new NotFoundException("User not found: " + ownerId));
+        Workspace workspace = resolveProjectWorkspace(request.getWorkspaceId(), ownerId);
 
         Project project = Project.builder()
                 .name(request.getName())
@@ -209,6 +226,7 @@ public class ProjectService {
                 .status(ProjectStatus.ACTIVE)
                 .taskCounter(0)
                 .owner(owner)
+                .workspace(workspace)
                 .build();
 
         List<ProjectStatusColumn> defaultColumns = new ArrayList<>();
@@ -791,10 +809,15 @@ public class ProjectService {
                                     .email(m.getUser().getEmail()).avatarUrl(m.getUser().getAvatarUrl()).build())
                             .build()).collect(Collectors.toList());
         }
+        Workspace workspace = project.getWorkspace();
         ProjectResponse response = ProjectResponse.builder()
                 .id(project.getId()).name(project.getName()).projectKey(project.getProjectKey())
                 .description(project.getDescription()).status(project.getStatus()).visibility(project.getVisibility())
                 .ownerId(project.getOwner().getId()).ownerName(project.getOwner().getFullName())
+                .workspaceId(workspace != null ? workspace.getId() : null)
+                .workspaceName(workspace != null ? workspace.getName() : null)
+                .workspaceSlug(workspace != null ? workspace.getSlug() : null)
+                .workspaceType(workspace != null ? workspace.getType() : null)
                 .owner(userId != null && project.getOwner().getId().equals(userId))
                 .startDate(project.getStartDate()).endDate(project.getEndDate()).members(members)
                 .createdAt(project.getCreatedAt()).updatedAt(project.getUpdatedAt()).build();
@@ -814,5 +837,72 @@ public class ProjectService {
             }
         }
         return response;
+    }
+
+    private Workspace resolveProjectWorkspace(UUID workspaceId, UUID ownerId) {
+        if (workspaceId == null) {
+            return ensurePersonalWorkspace(ownerId);
+        }
+
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() -> new NotFoundException("Workspace not found: " + workspaceId));
+
+        boolean canAccess = workspace.getOwner() != null && workspace.getOwner().getId().equals(ownerId)
+                || workspaceMemberRepository.existsByIdWorkspaceIdAndIdUserId(workspaceId, ownerId);
+        if (!canAccess) {
+            throw new com.zone.tasksphere.exception.Forbidden("You do not have permission to create project in this workspace");
+        }
+
+        return workspace;
+    }
+
+    private Workspace ensurePersonalWorkspace(UUID userId) {
+        return workspaceRepository.findByOwnerIdAndType(userId, WorkspaceType.PERSONAL)
+                .orElseGet(() -> createPersonalWorkspace(userId));
+    }
+
+    private Workspace createPersonalWorkspace(UUID userId) {
+        User owner = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("User not found: " + userId));
+
+        String displayName = owner.getFullName() != null && !owner.getFullName().isBlank()
+                ? owner.getFullName().trim()
+                : (owner.getEmail() != null ? owner.getEmail().split("@")[0] : "Personal");
+
+        Workspace workspace = Workspace.builder()
+                .name(displayName + " Workspace")
+                .slug(resolveUniqueWorkspaceSlug(displayName + " personal workspace"))
+                .description("Workspace ca nhan mac dinh")
+                .owner(owner)
+                .type(WorkspaceType.PERSONAL)
+                .build();
+
+        workspace = workspaceRepository.save(workspace);
+        workspaceMemberRepository.save(com.zone.tasksphere.entity.WorkspaceMember.builder()
+                .id(new com.zone.tasksphere.entity.WorkspaceMemberId(workspace.getId(), userId))
+                .workspace(workspace)
+                .user(owner)
+                .role(WorkspaceRole.OWNER)
+                .joinedAt(Instant.now())
+                .build());
+        return workspace;
+    }
+
+    private String resolveUniqueWorkspaceSlug(String baseName) {
+        String baseSlug = baseName.toLowerCase()
+                .replaceAll("[^a-z0-9\\s-]", "")
+                .replaceAll("\\s+", "-")
+                .replaceAll("-+", "-")
+                .replaceAll("^-|-$", "");
+
+        if (!workspaceRepository.existsBySlug(baseSlug)) {
+            return baseSlug;
+        }
+
+        int suffix = 2;
+        while (workspaceRepository.existsBySlug(baseSlug + "-" + suffix)) {
+            suffix++;
+        }
+        return baseSlug + "-" + suffix;
     }
 }

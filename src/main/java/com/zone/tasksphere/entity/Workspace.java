@@ -1,6 +1,7 @@
 package com.zone.tasksphere.entity;
 
 import com.zone.tasksphere.entity.enums.WorkspacePlan;
+import com.zone.tasksphere.entity.enums.WorkspaceType;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -61,6 +62,12 @@ public class Workspace extends BaseEntity {
     @Column(nullable = false)
     @Builder.Default
     private WorkspacePlan plan = WorkspacePlan.FREE;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false,
+            columnDefinition = "VARCHAR(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'ORGANIZATION'")
+    @Builder.Default
+    private WorkspaceType type = WorkspaceType.ORGANIZATION;
 
     @OneToMany(mappedBy = "workspace", fetch = FetchType.LAZY)
     private List<WorkspaceMember> members;

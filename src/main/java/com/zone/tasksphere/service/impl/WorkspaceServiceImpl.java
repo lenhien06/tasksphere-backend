@@ -11,6 +11,7 @@ import com.zone.tasksphere.entity.Workspace;
 import com.zone.tasksphere.entity.WorkspaceMember;
 import com.zone.tasksphere.entity.WorkspaceMemberId;
 import com.zone.tasksphere.entity.enums.WorkspaceRole;
+import com.zone.tasksphere.entity.enums.WorkspaceType;
 import com.zone.tasksphere.exception.BadRequestException;
 import com.zone.tasksphere.exception.ConflictException;
 import com.zone.tasksphere.exception.Forbidden;
@@ -26,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -60,6 +62,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 .slug(slug)
                 .description(request.getDescription())
                 .owner(creator)
+                .type(WorkspaceType.ORGANIZATION)
                 .build();
 
         workspace = workspaceRepository.save(workspace);
@@ -79,7 +82,13 @@ public class WorkspaceServiceImpl implements WorkspaceService {
 
     @Override
     public List<WorkspaceResponse> getMyWorkspaces(UUID userId) {
-        List<Workspace> workspaces = workspaceRepository.findAllByMemberUserId(userId);
+        ensurePersonalWorkspace(userId);
+
+        List<Workspace> workspaces = workspaceRepository.findAllByMemberUserId(userId).stream()
+                .sorted(Comparator
+                        .comparing((Workspace ws) -> ws.getType() != WorkspaceType.PERSONAL)
+                        .thenComparing(Workspace::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
         return workspaces.stream()
                 .map(ws -> {
                     WorkspaceRole role = workspaceMemberRepository
@@ -132,6 +141,9 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     public void deleteWorkspace(UUID workspaceId, UUID requesterId) {
         Workspace ws = getWorkspaceOrThrow(workspaceId);
         requireOwner(ws, requesterId);
+        if (ws.getType() == WorkspaceType.PERSONAL) {
+            throw new BadRequestException("Không thể xoá personal workspace mặc định");
+        }
 
         // Detach all child projects FIRST (set workspace = NULL → standalone)
         projectRepository.detachFromWorkspace(workspaceId);
@@ -289,6 +301,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 .description(ws.getDescription())
                 .avatarUrl(ws.getAvatarUrl())
                 .plan(ws.getPlan())
+                .type(ws.getType())
                 .memberCount(memberCount)
                 .projectCount(projectCount)
                 .role(role)
@@ -297,6 +310,41 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 .createdAt(ws.getCreatedAt())
                 .updatedAt(ws.getUpdatedAt())
                 .build();
+    }
+
+    private Workspace ensurePersonalWorkspace(UUID userId) {
+        return workspaceRepository.findByOwnerIdAndType(userId, WorkspaceType.PERSONAL)
+                .orElseGet(() -> createPersonalWorkspace(userId));
+    }
+
+    private Workspace createPersonalWorkspace(UUID userId) {
+        User owner = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Người dùng không tồn tại"));
+
+        String displayName = owner.getFullName() != null && !owner.getFullName().isBlank()
+                ? owner.getFullName().trim()
+                : (owner.getEmail() != null ? owner.getEmail().split("@")[0] : "Personal");
+
+        Workspace workspace = Workspace.builder()
+                .name(displayName + " Workspace")
+                .slug(resolveUniqueSlug(generateSlug(displayName + " personal workspace")))
+                .description("Workspace ca nhan mac dinh")
+                .owner(owner)
+                .type(WorkspaceType.PERSONAL)
+                .build();
+
+        workspace = workspaceRepository.save(workspace);
+
+        WorkspaceMember ownerMember = WorkspaceMember.builder()
+                .id(new WorkspaceMemberId(workspace.getId(), userId))
+                .workspace(workspace)
+                .user(owner)
+                .role(WorkspaceRole.OWNER)
+                .joinedAt(Instant.now())
+                .build();
+        workspaceMemberRepository.save(ownerMember);
+
+        return workspace;
     }
 
     private WorkspaceMemberResponse toMemberResponse(WorkspaceMember member, User user) {

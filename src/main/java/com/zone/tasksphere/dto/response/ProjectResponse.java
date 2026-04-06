@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.zone.tasksphere.entity.enums.ProjectStatus;
 import com.zone.tasksphere.entity.enums.ProjectVisibility;
+import com.zone.tasksphere.entity.enums.WorkspaceType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -38,6 +39,14 @@ public class ProjectResponse {
     private UUID ownerId;
     @Schema(description = "Owner name", example = "John Doe")
     private String ownerName;
+    @Schema(description = "Workspace id", example = "550e8400-e29b-41d4-a716-446655440000")
+    private UUID workspaceId;
+    @Schema(description = "Workspace name", example = "TechZone Studio")
+    private String workspaceName;
+    @Schema(description = "Workspace slug", example = "techzone-studio")
+    private String workspaceSlug;
+    @Schema(description = "Workspace type", example = "ORGANIZATION")
+    private WorkspaceType workspaceType;
     @Schema(description = "Start date", example = "2023-12-31T23:59:59Z")
     private Instant startDate;
     @Schema(description = "End date", example = "2023-12-31T23:59:59Z")

@@ -1,6 +1,7 @@
 package com.zone.tasksphere.repository;
 
 import com.zone.tasksphere.entity.Workspace;
+import com.zone.tasksphere.entity.enums.WorkspaceType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,6 +17,8 @@ public interface WorkspaceRepository extends JpaRepository<Workspace, UUID> {
     Optional<Workspace> findBySlug(String slug);
 
     List<Workspace> findByOwnerId(UUID ownerId);
+
+    Optional<Workspace> findByOwnerIdAndType(UUID ownerId, WorkspaceType type);
 
     boolean existsBySlug(String slug);
 

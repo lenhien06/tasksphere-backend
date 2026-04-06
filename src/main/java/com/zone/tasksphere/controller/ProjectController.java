@@ -71,6 +71,8 @@ public class ProjectController {
             @RequestParam(required = false, name = "q") String q,
             @RequestParam(required = false, defaultValue = "active") String status,
             @RequestParam(required = false) ProjectVisibility visibility,
+            @RequestParam(required = false) UUID workspaceId,
+            @RequestParam(required = false, defaultValue = "personal") String scope,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
         UserDetail currentUser = AuthUtils.getUserDetail();
@@ -79,7 +81,7 @@ public class ProjectController {
         
         ProjectStatus projectStatus = ProjectStatus.fromString(status);
 
-        Page<ProjectResponse> projects = projectService.getProjects(q, projectStatus, visibility, userId, isAdmin, pageable);
+        Page<ProjectResponse> projects = projectService.getProjects(q, projectStatus, visibility, workspaceId, scope, userId, isAdmin, pageable);
 
         return ResponseEntity.ok(ApiResponse.success(projects));
     }

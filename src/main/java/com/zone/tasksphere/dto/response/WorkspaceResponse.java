@@ -3,6 +3,7 @@ package com.zone.tasksphere.dto.response;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.zone.tasksphere.entity.enums.WorkspacePlan;
 import com.zone.tasksphere.entity.enums.WorkspaceRole;
+import com.zone.tasksphere.entity.enums.WorkspaceType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
@@ -23,6 +24,7 @@ public class WorkspaceResponse {
     private String description;
     private String avatarUrl;
     private WorkspacePlan plan;
+    private WorkspaceType type;
     private int memberCount;
     private int projectCount;
 

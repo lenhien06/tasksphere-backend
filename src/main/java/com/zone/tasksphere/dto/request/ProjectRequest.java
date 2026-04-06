@@ -13,6 +13,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Data
 @Builder
@@ -42,4 +43,7 @@ public class ProjectRequest {
 
     @Schema(description = "End date", example = "2023-12-31T23:59:59Z")
     private Instant endDate;
+
+    @Schema(description = "Workspace id", example = "550e8400-e29b-41d4-a716-446655440000")
+    private UUID workspaceId;
 }
