@@ -26,7 +26,7 @@ public class LlmClient {
 
     private static final String GEMINI_URL        = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
     private static final float  TEMPERATURE       = 0.7f;
-    private static final int    MAX_OUTPUT_TOKENS = 4096;
+    private static final int    MAX_OUTPUT_TOKENS = 8192;
     private static final MediaType JSON           = MediaType.get("application/json; charset=utf-8");
     /** Fallback delays used when the API does not supply a retryDelay (non-429 errors). */
     private static final long[] FALLBACK_DELAYS_MS = {20_000L, 40_000L};
@@ -96,12 +96,15 @@ public class LlmClient {
             if (!res.isSuccessful()) {
                 throw new IOException("Gemini API HTTP " + res.code() + ": " + raw);
             }
-            JsonNode root = objectMapper.readTree(raw);
-            JsonNode text = root.path("candidates").path(0)
-                                .path("content").path("parts").path(0)
-                                .path("text");
+            JsonNode root         = objectMapper.readTree(raw);
+            JsonNode candidate    = root.path("candidates").path(0);
+            String   finishReason = candidate.path("finishReason").asText("");
+            if ("MAX_TOKENS".equals(finishReason)) {
+                throw new IOException("Gemini response truncated (MAX_TOKENS). Consider reducing output size.");
+            }
+            JsonNode text = candidate.path("content").path("parts").path(0).path("text");
             if (!text.isMissingNode() && !text.asText().isBlank()) {
-                return text.asText();
+                return stripMarkdownFences(text.asText());
             }
             throw new IOException("Unexpected Gemini response: " + raw);
         }
@@ -166,6 +169,21 @@ public class LlmClient {
         } catch (Exception e) {
             throw new LlmException("Failed to serialize LLM request", e);
         }
+    }
+
+    /** Strips ```json ... ``` or ``` ... ``` fences the model sometimes adds despite instructions. */
+    private static String stripMarkdownFences(String text) {
+        String trimmed = text.strip();
+        if (trimmed.startsWith("```")) {
+            int firstNewline = trimmed.indexOf('\n');
+            if (firstNewline != -1) {
+                trimmed = trimmed.substring(firstNewline + 1);
+            }
+            if (trimmed.endsWith("```")) {
+                trimmed = trimmed.substring(0, trimmed.length() - 3).stripTrailing();
+            }
+        }
+        return trimmed;
     }
 
     private static void sleep(long ms) {
