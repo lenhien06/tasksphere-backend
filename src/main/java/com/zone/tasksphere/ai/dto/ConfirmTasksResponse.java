@@ -9,5 +9,7 @@ import java.util.List;
 @Builder
 public class ConfirmTasksResponse {
     private List<String> createdTaskIds;
-    private int count;
+    private int          count;
+    private int          memberCount;
+    private String       projectId;
 }

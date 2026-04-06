@@ -558,6 +558,19 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
             """)
     List<Task> findUnassignedActiveByProjectId(@Param("projectId") UUID projectId);
 
+    /** Feature 2: filter unassigned tasks by explicit ID list (PM-selected subset). */
+    @Query("""
+            SELECT t FROM Task t
+            WHERE t.id IN :taskIds
+              AND t.assignee IS NULL
+              AND t.taskStatus NOT IN (
+                  com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+                  com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+              )
+            ORDER BY t.createdAt ASC
+            """)
+    List<Task> findUnassignedByIds(@Param("taskIds") List<UUID> taskIds);
+
     /** Feature 2: safe lookup by id + project (prevents cross-project access). */
     Optional<Task> findByIdAndProject_Id(UUID id, UUID projectId);
 }

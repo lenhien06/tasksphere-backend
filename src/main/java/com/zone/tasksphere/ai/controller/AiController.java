@@ -55,9 +55,10 @@ public class AiController {
     @PostMapping("/suggest-assignments")
     @PreAuthorize("@projectPermissions.isProjectManager(#projectId)")
     public ResponseEntity<Map<String, Object>> suggestAssignments(
-            @PathVariable String projectId) {
+            @PathVariable String projectId,
+            @RequestBody(required = false) SuggestAssignmentsRequest request) {
 
-        SuggestAssignmentsResponse result = aiService.suggestAssignments(uuid(projectId));
+        SuggestAssignmentsResponse result = aiService.suggestAssignments(uuid(projectId), request);
         return ok(result);
     }
 
@@ -90,8 +91,6 @@ public class AiController {
 
     private static User currentUser(Authentication auth) {
         CustomUserDetail detail = (CustomUserDetail) auth.getPrincipal();
-        // Build a lightweight User with just the ID populated — sufficient for
-        // setting reporter / confirmerId in service layer.
         User u = new User();
         u.setId(detail.getUserDetail().getId());
         u.setFullName(detail.getUserDetail().getFullName());
