@@ -215,13 +215,17 @@ public class SprintServiceImpl implements SprintService {
         result = result.stream().sorted((a, b) -> {
             if (a.getStatus() == b.getStatus()) {
                 if (a.getStatus() == SprintStatus.PLANNED) {
-                    if (a.getStartDate() == null) return 1;
-                    if (b.getStartDate() == null) return -1;
+                    if (a.getStartDate() == null)
+                        return 1;
+                    if (b.getStartDate() == null)
+                        return -1;
                     return a.getStartDate().compareTo(b.getStartDate());
                 }
                 if (a.getStatus() == SprintStatus.COMPLETED) {
-                    if (a.getCompletedAt() == null) return 1;
-                    if (b.getCompletedAt() == null) return -1;
+                    if (a.getCompletedAt() == null)
+                        return 1;
+                    if (b.getCompletedAt() == null)
+                        return -1;
                     return b.getCompletedAt().compareTo(a.getCompletedAt());
                 }
                 return 0;
@@ -273,8 +277,7 @@ public class SprintServiceImpl implements SprintService {
                 NotificationType.SPRINT_STARTED,
                 "Sprint đã bắt đầu",
                 "Sprint " + sprintName + " đã bắt đầu!",
-                EntityType.SPRINT.name(), sprintFinalId
-        ));
+                EntityType.SPRINT.name(), sprintFinalId));
 
         long taskCount = sprintRepository.countTasksBySprintId(sprint.getId());
 
@@ -312,8 +315,8 @@ public class SprintServiceImpl implements SprintService {
         long doneTasks = sprintRepository.countDoneTasksBySprintId(sprintId);
         long cancelledTasks = sprint.getTasks() != null
                 ? sprint.getTasks().stream()
-                    .filter(t -> t.getDeletedAt() == null && t.getTaskStatus() == TaskStatus.CANCELLED)
-                    .count()
+                        .filter(t -> t.getDeletedAt() == null && t.getTaskStatus() == TaskStatus.CANCELLED)
+                        .count()
                 : 0;
 
         long movedToBacklog = 0;
@@ -331,7 +334,8 @@ public class SprintServiceImpl implements SprintService {
                 // Validate nextSprint là PLANNED trong project
                 Sprint nextSprint = sprintRepository.findByIdAndProject_IdAndDeletedAtIsNull(
                         request.getNextSprintId(), projectId)
-                        .orElseThrow(() -> new NotFoundException("Sprint tiếp theo không tồn tại hoặc không thuộc dự án"));
+                        .orElseThrow(
+                                () -> new NotFoundException("Sprint tiếp theo không tồn tại hoặc không thuộc dự án"));
                 if (nextSprint.getStatus() != SprintStatus.PLANNED) {
                     throw new BusinessRuleException("Sprint tiếp theo phải ở trạng thái PLANNED");
                 }
@@ -361,8 +365,7 @@ public class SprintServiceImpl implements SprintService {
                 NotificationType.SPRINT_COMPLETED,
                 "Sprint đã hoàn thành",
                 "Sprint " + completedSprintName + " đã được hoàn thành!",
-                EntityType.SPRINT.name(), completedSprintId
-        ));
+                EntityType.SPRINT.name(), completedSprintId));
 
         double completionRate = totalTasks > 0
                 ? Math.round(doneTasks * 1000.0 / totalTasks) / 10.0
@@ -393,7 +396,7 @@ public class SprintServiceImpl implements SprintService {
     @Override
     @Transactional(readOnly = true)
     public PageResponse<TaskResponse> getBacklog(UUID projectId, TaskFilterParams params,
-                                                  Pageable pageable, UUID currentUserId) {
+            Pageable pageable, UUID currentUserId) {
         if (!projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId)) {
             throw new Forbidden("Bạn không phải thành viên dự án này");
         }
@@ -535,7 +538,7 @@ public class SprintServiceImpl implements SprintService {
         Instant endInstant = end.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
 
         List<Object[]> doneByDateRaw = taskRepository.findDonePointsByCompletedAt(
-            sprintId, startInstant, endInstant);
+                sprintId, startInstant, endInstant);
 
         // Map date → points done on that day
         Map<LocalDate, Long> donePointsByDate = new LinkedHashMap<>();
@@ -560,13 +563,42 @@ public class SprintServiceImpl implements SprintService {
 
         for (long i = 0; i <= days; i++) {
             LocalDate date = start.plusDays(i);
-            if (date.isAfter(today)) break; // chỉ hiển thị đến hôm nay
+            if (date.isAfter(today))
+                break; // chỉ hiển thị đến hôm nay
             cumulativeDone += donePointsByDate.getOrDefault(date, 0L);
             double remaining = Math.max(0, totalPoints - cumulativeDone);
             actualLine.add(BurndownResponse.DataPoint.builder()
                     .date(date)
                     .remainingPoints(remaining)
                     .build());
+        }
+
+        // Fallback: if actualLine is empty or very sparse, use task count for synthetic
+        // actual line
+        if (actualLine.isEmpty() || donePointsByDate.isEmpty()) {
+            actualLine.clear();
+            long donePointsNow = taskRepository.findTasksBySprintAndStatus(sprintId, TaskStatus.DONE)
+                    .stream()
+                    .filter(t -> t.getStoryPoints() != null)
+                    .mapToLong(Task::getStoryPoints)
+                    .sum();
+
+            cumulativeDone = 0;
+            for (long i = 0; i <= days; i++) {
+                LocalDate date = start.plusDays(i);
+                if (date.isAfter(today))
+                    break;
+
+                // On start date, use 0; progress linearly; by today use actual done count
+                double progressRatio = days > 0 ? (double) i / days : 0;
+                long estimatedDone = Math.round(donePointsNow * progressRatio);
+                double remaining = Math.max(0, totalPoints - estimatedDone);
+
+                actualLine.add(BurndownResponse.DataPoint.builder()
+                        .date(date)
+                        .remainingPoints(remaining)
+                        .build());
+            }
         }
 
         return BurndownResponse.builder()
@@ -609,8 +641,8 @@ public class SprintServiceImpl implements SprintService {
                 })
                 .toList();
 
-        double avgVelocity = sprintVelocities.isEmpty() ? 0 :
-                sprintVelocities.stream()
+        double avgVelocity = sprintVelocities.isEmpty() ? 0
+                : sprintVelocities.stream()
                         .mapToInt(v -> v.getVelocity() != null ? v.getVelocity() : 0)
                         .average()
                         .orElse(0);
@@ -692,10 +724,10 @@ public class SprintServiceImpl implements SprintService {
     }
 
     private void logActivity(UUID projectId, UUID actorId, EntityType entityType,
-                              UUID entityId, ActionType action, String oldVal, String newVal) {
+            UUID entityId, ActionType action, String oldVal, String newVal) {
         try {
-            HttpServletRequest httpRequest = ((ServletRequestAttributes)
-                    RequestContextHolder.currentRequestAttributes()).getRequest();
+            HttpServletRequest httpRequest = ((ServletRequestAttributes) RequestContextHolder
+                    .currentRequestAttributes()).getRequest();
             activityLogService.logActivity(projectId, actorId, entityType, entityId,
                     action, oldVal, newVal, httpRequest);
         } catch (Exception e) {

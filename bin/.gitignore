@@ -1,0 +1,73 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Logs ###
+logs/
+*.log
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Claude ###
+.claude/
+
+### Local config & secrets ###
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+secrets/
+
+### Sensitive YAML / config ###
+*.yml
+*.yaml
+!docker-compose.yml
+!docker-compose*.yml
+!application.yml
+!application-example.yml
+!application-*.example.yml
+!*.template.yml
+!*.template.yaml
+!.github/
+!.github/**
+!.github/workflows/
+!.github/workflows/*.yml
+
+### Security keys / certificates ###
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_rsa.pub
+known_hosts
+
+### Cloud credentials ###
+credentials.json
+service-account*.json
+google-credentials*.json
+aws-credentials*

@@ -1,0 +1,83 @@
+services:
+  # ─── MySQL ─────────────────────────────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: tasksphere-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: "TaskSphere@2026#SecurePass"
+      MYSQL_DATABASE: tasksphere_prod
+      MYSQL_USER: tasksphere_user
+      MYSQL_PASSWORD: "TaskSphere@2026#SecurePass"
+    ports:
+      - "3308:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "tasksphere_user", "-pTaskSphere@2026#SecurePass"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: tasksphere-redis
+    restart: always
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── MinIO ─────────────────────────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: tasksphere-minio
+    restart: always
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─── Spring Boot App ───────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tasksphere-app
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    mem_limit: 700m
+    memswap_limit: 1400m
+volumes:
+  mysql_data:
+  redis_data:
+  minio_data:

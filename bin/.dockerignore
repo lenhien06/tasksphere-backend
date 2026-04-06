@@ -1,0 +1,15 @@
+target/
+.git/
+.idea/
+.vscode/
+.claude/
+*.log
+logs/
+.mvn/
+mvnw
+mvnw.cmd
+README.md
+note.md
+.env
+.env.*
+*.md
