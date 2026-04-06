@@ -267,6 +267,10 @@ public class WorkspaceAiService {
         project.setStatusColumns(columns);
 
         Project saved = projectRepository.save(project);
+        ProjectStatusColumn defaultTodoColumn = columns.stream()
+                .filter(col -> col.getMappedStatus() == TaskStatus.TODO)
+                .findFirst()
+                .orElse(columns.get(0));
 
         // ── 3. Add creator as PROJECT_MANAGER ─────────────────────────────────
         projectMemberRepository.save(ProjectMember.builder()
@@ -299,6 +303,7 @@ public class WorkspaceAiService {
         int taskCount = 0;
         int assignedCount = 0;
         int nextTaskCounter = saved.getTaskCounter() != null ? saved.getTaskCounter() : 0;
+        int nextTodoPosition = 0;
 
         List<GenerateProjectPlanResponse.SprintPlanDto> sprintDtos =
                 plan.getSprints() != null ? plan.getSprints() : List.of();
@@ -341,12 +346,16 @@ public class WorkspaceAiService {
                 Task task = Task.builder()
                         .project(saved)
                         .sprint(savedSprint)
+                        .statusColumn(defaultTodoColumn)
                         .taskCode(taskCode)
                         .title(cap(taskDto.getTitle(), 255))
                         .type(safeType(taskDto.getType()))
                         .taskStatus(TaskStatus.TODO)
+                        .taskPosition(nextTodoPosition++)
                         .priority(safePriority(taskDto.getPriority()))
                         .storyPoints(taskDto.getStoryPoints() > 0 ? taskDto.getStoryPoints() : 3)
+                        .startDate(sprintStart)
+                        .dueDate(sprintEnd)
                         .skillTagsRequired(taskDto.getSkillTagsRequired())
                         .aiGenerated(true)
                         .reporter(creator)
