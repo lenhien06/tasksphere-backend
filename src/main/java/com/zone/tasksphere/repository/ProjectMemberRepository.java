@@ -29,6 +29,7 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, UU
 
     List<ProjectMember> findByUserIdAndProjectIdIn(UUID userId, List<UUID> projectIds);
     long countByProjectIdAndProjectRole(UUID projectId, ProjectRole role);
+    long countByProjectIdAndProjectRoleIn(UUID projectId, List<ProjectRole> roles);
     Optional<ProjectMember> findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(UUID projectId, ProjectRole role);
 
     /** Đếm tổng thành viên và số thành viên mới trong 7 ngày qua */
@@ -68,4 +69,22 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, UU
 
     /** Needed by confirmAssignments to update active_task_count. */
     Optional<ProjectMember> findByProject_IdAndUser_Id(UUID projectId, UUID userId);
+
+    /** Profile page: projects a user is a member of (soft-delete filter applied by @SQLRestriction). */
+    @Query("""
+            SELECT pm FROM ProjectMember pm
+            JOIN FETCH pm.project
+            WHERE pm.user.id = :userId
+            ORDER BY pm.joinedAt DESC
+            """)
+    List<ProjectMember> findByUserIdWithProject(@Param("userId") UUID userId);
+
+    /** Skills modal: all members of a project with user data. */
+    @Query("""
+            SELECT pm FROM ProjectMember pm
+            JOIN FETCH pm.user
+            WHERE pm.project.id = :projectId
+            ORDER BY pm.joinedAt ASC
+            """)
+    List<ProjectMember> findAllByProjectIdWithUser(@Param("projectId") UUID projectId);
 }

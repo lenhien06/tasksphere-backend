@@ -119,4 +119,18 @@ public class User extends BaseEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "skill_tags", columnDefinition = "json")
     private List<String> skillTags;
+
+    // ── Extended Profile ──────────────────────────────────────────────────────
+
+    @Column(name = "job_title", length = 100,
+            columnDefinition = "VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+    private String jobTitle;
+
+    @Column(name = "bio", columnDefinition = "TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+    private String bio;
+
+    /** Hours per week available for work — used by AI load balancing. */
+    @Column(name = "work_capacity_hours")
+    @Builder.Default
+    private int workCapacityHours = 40;
 }
