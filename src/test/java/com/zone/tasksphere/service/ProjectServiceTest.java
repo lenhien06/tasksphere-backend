@@ -17,6 +17,8 @@ import com.zone.tasksphere.repository.ProjectStatusColumnRepository;
 import com.zone.tasksphere.repository.ProjectViewRepository;
 import com.zone.tasksphere.repository.TaskRepository;
 import com.zone.tasksphere.repository.UserRepository;
+import com.zone.tasksphere.repository.WorkspaceMemberRepository;
+import com.zone.tasksphere.repository.WorkspaceRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import org.junit.jupiter.api.Test;
@@ -57,6 +59,10 @@ class ProjectServiceTest {
     private ProjectViewRepository projectViewRepository;
     @Mock
     private TaskRepository taskRepository;
+    @Mock
+    private WorkspaceRepository workspaceRepository;
+    @Mock
+    private WorkspaceMemberRepository workspaceMemberRepository;
     @Mock
     private com.zone.tasksphere.service.impl.MinioStorageService minioStorageService;
     @Mock
@@ -145,7 +151,16 @@ class ProjectServiceTest {
         when(taskRepository.getProjectTaskStats(List.of(project.getId()))).thenReturn(List.of());
         when(projectMemberRepository.findByUserIdAndProjectIdIn(viewer.getId(), List.of(project.getId()))).thenReturn(List.of());
 
-        var page = projectService.getProjects(null, ProjectStatus.ACTIVE, null, viewer.getId(), false, PageRequest.of(0, 10));
+        var page = projectService.getProjects(
+                null,
+                ProjectStatus.ACTIVE,
+                null,
+                null,
+                "all",
+                viewer.getId(),
+                false,
+                PageRequest.of(0, 10)
+        );
 
         assertThat(page.getContent()).singleElement().satisfies(item -> {
             assertThat(item.getId()).isEqualTo(project.getId());
