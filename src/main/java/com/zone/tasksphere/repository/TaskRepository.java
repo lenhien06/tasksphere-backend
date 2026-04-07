@@ -228,7 +228,7 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
     void softDeleteDirectSubtasks(@Param("parentId") UUID parentId, @Param("now") Instant now);
 
     /** Dịch chuyển position để giữ thứ tự khi reorder */
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("""
                 UPDATE Task t SET t.taskPosition = t.taskPosition + 1
                 WHERE t.statusColumn.id = :columnId

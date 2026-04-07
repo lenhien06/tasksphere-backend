@@ -1,6 +1,7 @@
 package com.zone.tasksphere.exception;
 
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import com.zone.tasksphere.ai.config.LlmClient;
 import com.zone.tasksphere.dto.response.ApiErrorResponse;
 import com.zone.tasksphere.dto.response.ApiResponse;
 import com.zone.tasksphere.utils.CookieUtils;
@@ -164,6 +165,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleGoneException(GoneException ex) {
         log.warn("Gone: {}", ex.getMessage());
         return buildResponse(ex.getMessage(), HttpStatus.GONE);
+    }
+
+    // 9b. AI quota exhausted / LLM failure (503)
+    @ExceptionHandler(LlmClient.LlmException.class)
+    public ResponseEntity<ApiResponse<Void>> handleLlmException(LlmClient.LlmException ex) {
+        log.warn("LLM unavailable: {}", ex.getMessage());
+        return buildResponse("Tính năng AI tạm thời không khả dụng, vui lòng thử lại sau!", HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     // 10. CATCH-ALL: Lỗi hệ thống (500)
