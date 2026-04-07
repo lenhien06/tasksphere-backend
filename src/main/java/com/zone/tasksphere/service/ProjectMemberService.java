@@ -1,5 +1,23 @@
 package com.zone.tasksphere.service;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+
 import com.zone.tasksphere.dto.request.DirectMemberRequest;
 import com.zone.tasksphere.dto.request.InviteMemberRequest;
 import com.zone.tasksphere.dto.request.UpdateRoleRequest;
@@ -7,31 +25,28 @@ import com.zone.tasksphere.dto.response.InviteMemberResponse;
 import com.zone.tasksphere.dto.response.MemberSearchResponse;
 import com.zone.tasksphere.dto.response.ProjectInviteResponse;
 import com.zone.tasksphere.dto.response.ProjectMemberResponse;
-import com.zone.tasksphere.entity.*;
-import com.zone.tasksphere.entity.enums.*;
+import com.zone.tasksphere.entity.Project;
+import com.zone.tasksphere.entity.ProjectInvite;
+import com.zone.tasksphere.entity.ProjectMember;
+import com.zone.tasksphere.entity.User;
+import com.zone.tasksphere.entity.enums.ActionType;
+import com.zone.tasksphere.entity.enums.EntityType;
+import com.zone.tasksphere.entity.enums.InviteStatus;
+import com.zone.tasksphere.entity.enums.NotificationType;
+import com.zone.tasksphere.entity.enums.ProjectRole;
+import com.zone.tasksphere.entity.enums.SystemRole;
+import com.zone.tasksphere.entity.enums.UserStatus;
 import com.zone.tasksphere.exception.BadRequestException;
 import com.zone.tasksphere.exception.NotFoundException;
 import com.zone.tasksphere.exception.StructuredApiException;
-import com.zone.tasksphere.repository.*;
-import com.zone.tasksphere.exception.Forbidden;
+import com.zone.tasksphere.repository.ProjectInviteRepository;
+import com.zone.tasksphere.repository.ProjectMemberRepository;
+import com.zone.tasksphere.repository.ProjectRepository;
+import com.zone.tasksphere.repository.UserRepository;
+
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
-
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -49,6 +64,12 @@ public class ProjectMemberService {
     private final com.zone.tasksphere.repository.TaskRepository taskRepository;
     private final ReportService reportService;
 
+    @Value("${app.membership.max-members-per-project:50}")
+    private int maxMembersPerProject;
+
+    @Value("${app.membership.subscription-plan:FREE}")
+    private String subscriptionPlan;
+
     // =========================================================================
     // 1. LẤY DANH SÁCH THÀNH VIÊN
     // =========================================================================
@@ -56,22 +77,27 @@ public class ProjectMemberService {
     public List<ProjectMemberResponse> getProjectMembers(UUID projectId) {
         List<ProjectMember> members = projectMemberRepository.findByProjectId(projectId);
 
-        return members.stream().map(member -> ProjectMemberResponse.builder()
-                .id(member.getId())
-                .projectRole(member.getProjectRole())
-                .joinedAt(member.getJoinedAt())
-                .skillTags(resolveEffectiveSkillTags(member))
-                .activeTaskCount(member.getActiveTaskCount())
-                .avgStoryPoints(member.getAvgStoryPoints())
-                .workCapacityHours(member.getUser().getWorkCapacityHours() != null ? member.getUser().getWorkCapacityHours() : 40)
-                .user(ProjectMemberResponse.UserInfo.builder()
-                        .id(member.getUser().getId())
-                        .fullName(member.getUser().getFullName())
-                        .email(member.getUser().getEmail())
-                        .avatarUrl(member.getUser().getAvatarUrl())
+        return members.stream()
+                .map(member -> ProjectMemberResponse.builder()
+                        .id(member.getId())
+                        .projectRole(member.getProjectRole())
+                        .joinedAt(member.getJoinedAt())
+                        .skillTags(resolveEffectiveSkillTags(member))
+                        .activeTaskCount(member.getActiveTaskCount())
+                        .avgStoryPoints(member.getAvgStoryPoints())
+                        .workCapacityHours(member.getUser() != null && member.getUser().getWorkCapacityHours() != null
+                                ? member.getUser().getWorkCapacityHours()
+                                : 40)
+                        .user(member.getUser() == null ? null
+                                : ProjectMemberResponse.UserInfo.builder()
+                                        .id(member.getUser().getId())
+                                        .fullName(member.getUser().getFullName())
+                                        .email(member.getUser().getEmail())
+                                        .avatarUrl(member.getUser().getAvatarUrl())
+                                        .build())
                         .build())
-                .build()
-        ).collect(Collectors.toList());
+                .filter(member -> member.getUser() != null)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -108,14 +134,16 @@ public class ProjectMemberService {
         reportService.invalidateOverviewCache(projectId);
 
         // Ghi log hoạt động
-        HttpServletRequest httpServletRequest = ((ServletRequestAttributes) RequestContextHolder.currentRequestAttributes()).getRequest();
-        activityLogService.logActivity(projectId, actorId, EntityType.MEMBER, newMember.getId(), 
+        HttpServletRequest httpServletRequest = ((ServletRequestAttributes) RequestContextHolder
+                .currentRequestAttributes()).getRequest();
+        activityLogService.logActivity(projectId, actorId, EntityType.MEMBER, newMember.getId(),
                 ActionType.CREATED, null, request.getRole().name(), httpServletRequest);
 
         // Thông báo cho user
         notificationService.createNotification(user, NotificationType.PROJECT_INVITED,
                 "Bạn đã được thêm vào dự án",
-                "Bạn đã được thêm trực tiếp vào dự án " + project.getName() + " với vai trò " + request.getRole().getDisplayName(),
+                "Bạn đã được thêm trực tiếp vào dự án " + project.getName() + " với vai trò "
+                        + request.getRole().getDisplayName(),
                 EntityType.PROJECT.name(), projectId);
 
         // Gửi email thông báo (token=null → email "đã được thêm", không cần accept)
@@ -171,7 +199,8 @@ public class ProjectMemberService {
             }
         }
 
-        // Nếu đã có invite pending cùng email trong dự án thì revoke token cũ trước khi tạo token mới.
+        // Nếu đã có invite pending cùng email trong dự án thì revoke token cũ trước khi
+        // tạo token mới.
         Optional<ProjectInvite> pendingInvite = projectInviteRepository
                 .findByProjectIdAndInviteeEmailAndStatus(projectId, email, InviteStatus.PENDING);
         if (pendingInvite.isPresent()) {
@@ -199,7 +228,8 @@ public class ProjectMemberService {
             User invitee = inviteeOpt.get();
             notificationService.createNotification(invitee, NotificationType.PROJECT_INVITED,
                     "Bạn nhận được lời mời vào dự án",
-                    "Bạn được mời vào dự án " + project.getName() + " với vai trò " + request.getRole().getDisplayName(),
+                    "Bạn được mời vào dự án " + project.getName() + " với vai trò "
+                            + request.getRole().getDisplayName(),
                     EntityType.PROJECT.name(), projectId);
         }
 
@@ -209,8 +239,7 @@ public class ProjectMemberService {
                 actor.getFullName(),
                 request.getRole().name(),
                 token,
-                projectId
-        );
+                projectId);
 
         logActivity(projectId, actorId, EntityType.PROJECT, invite.getId(), ActionType.MEMBER_INVITED, null,
                 "email=" + email + ",role=" + request.getRole().name());
@@ -302,9 +331,9 @@ public class ProjectMemberService {
         logActivity(invite.getProject().getId(), newUser.getId(), EntityType.MEMBER, newMember.getId(),
                 ActionType.MEMBER_JOINED, null, invite.getProjectRole().name());
 
-        log.info("User {} tự động gia nhập dự án {} sau khi đăng ký.", newUser.getEmail(), invite.getProject().getName());
+        log.info("User {} tự động gia nhập dự án {} sau khi đăng ký.", newUser.getEmail(),
+                invite.getProject().getName());
     }
-
 
     /**
      * Lấy danh sách lời mời theo trạng thái (có phân trang).
@@ -312,14 +341,14 @@ public class ProjectMemberService {
      * Tự động mark EXPIRED trước khi query (chỉ khi lọc PENDING).
      */
     @Transactional
-    public Page<ProjectInviteResponse> getInvitesByStatus(UUID projectId, UUID actorId, InviteStatus status, Pageable pageable) {
+    public Page<ProjectInviteResponse> getInvitesByStatus(UUID projectId, UUID actorId, InviteStatus status,
+            Pageable pageable) {
         requireInviteManager(projectId, actorId);
 
         // Auto-expire: cập nhật các invite PENDING đã quá hạn trước khi query
         if (status == InviteStatus.PENDING) {
             projectInviteRepository.markExpiredInvites(
-                    projectId, Instant.now(), InviteStatus.PENDING, InviteStatus.EXPIRED
-            );
+                    projectId, Instant.now(), InviteStatus.PENDING, InviteStatus.EXPIRED);
         }
 
         return projectInviteRepository
@@ -386,8 +415,7 @@ public class ProjectMemberService {
                 actor.getFullName(),
                 invite.getProjectRole().name(),
                 invite.getToken(),
-                invite.getProject().getId()
-        );
+                invite.getProject().getId());
     }
 
     @Transactional(readOnly = true)
@@ -466,7 +494,7 @@ public class ProjectMemberService {
         ProjectMember targetMember = projectMemberRepository.findByProjectIdAndUserId(projectId, targetUserId)
                 .orElseThrow(() -> new NotFoundException("Thành viên không nằm trong dự án này"));
 
-        if (project.getOwner().getId().equals(targetUserId)) {
+        if (project.getOwner() != null && project.getOwner().getId().equals(targetUserId)) {
             throw new BadRequestException("Không thể thay đổi vai trò của Chủ sở hữu (Owner) dự án.");
         }
 
@@ -478,7 +506,8 @@ public class ProjectMemberService {
         targetMember.setProjectRole(request.getRole());
         projectMemberRepository.save(targetMember);
 
-        // activityLogService.log(actorId, "PROJECT_MEMBER", targetMember.getId(), "CHANGED_ROLE", oldRole.name(), request.getRole().name());
+        // activityLogService.log(actorId, "PROJECT_MEMBER", targetMember.getId(),
+        // "CHANGED_ROLE", oldRole.name(), request.getRole().name());
     }
 
     // =========================================================================
@@ -492,16 +521,18 @@ public class ProjectMemberService {
         ProjectMember targetMember = projectMemberRepository.findByProjectIdAndUserId(projectId, targetUserId)
                 .orElseThrow(() -> new NotFoundException("Thành viên không nằm trong dự án này"));
 
-        if (project.getOwner().getId().equals(targetUserId)) {
+        if (project.getOwner() != null && project.getOwner().getId().equals(targetUserId)) {
             throw new StructuredApiException(HttpStatus.FORBIDDEN, "CANNOT_REMOVE_OWNER",
                     "Không thể xóa Chủ sở hữu (Owner) ra khỏi dự án.");
         }
 
         // Kiểm tra nếu đây là PROJECT_MANAGER duy nhất
         if (targetMember.getProjectRole() == ProjectRole.PROJECT_MANAGER) {
-            long pmCount = projectMemberRepository.countByProjectIdAndProjectRole(projectId, ProjectRole.PROJECT_MANAGER);
+            long pmCount = projectMemberRepository.countByProjectIdAndProjectRole(projectId,
+                    ProjectRole.PROJECT_MANAGER);
             if (pmCount <= 1) {
-                throw new BadRequestException("Không thể xóa Project Manager duy nhất của dự án. Hãy chỉ định người khác trước.");
+                throw new BadRequestException(
+                        "Không thể xóa Project Manager duy nhất của dự án. Hãy chỉ định người khác trước.");
             }
         }
 
@@ -524,7 +555,7 @@ public class ProjectMemberService {
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new NotFoundException("Dự án không tồn tại"));
 
-        if (project.getOwner().getId().equals(actorId)) {
+        if (project.getOwner() != null && project.getOwner().getId().equals(actorId)) {
             throw new StructuredApiException(HttpStatus.FORBIDDEN, "OWNER_CANNOT_LEAVE",
                     "Owner không thể rời dự án. Hãy chuyển quyền sở hữu cho thành viên khác trước.");
         }
@@ -534,9 +565,11 @@ public class ProjectMemberService {
 
         // Kiểm tra nếu là PROJECT_MANAGER duy nhất
         if (member.getProjectRole() == ProjectRole.PROJECT_MANAGER) {
-            long pmCount = projectMemberRepository.countByProjectIdAndProjectRole(projectId, ProjectRole.PROJECT_MANAGER);
+            long pmCount = projectMemberRepository.countByProjectIdAndProjectRole(projectId,
+                    ProjectRole.PROJECT_MANAGER);
             if (pmCount <= 1) {
-                throw new BadRequestException("Bạn là Project Manager duy nhất. Hãy chỉ định người khác trước khi rời dự án.");
+                throw new BadRequestException(
+                        "Bạn là Project Manager duy nhất. Hãy chỉ định người khác trước khi rời dự án.");
             }
         }
 
@@ -563,15 +596,15 @@ public class ProjectMemberService {
 
         return users.stream().map(u -> {
             ProjectRole role = projectMemberRepository.findByProjectIdAndUserId(projectId, u.getId())
-                .map(ProjectMember::getProjectRole)
-                .orElse(ProjectRole.MEMBER);
+                    .map(ProjectMember::getProjectRole)
+                    .orElse(ProjectRole.MEMBER);
             return MemberSearchResponse.builder()
-                .id(u.getId())
-                .fullName(u.getFullName())
-                .email(u.getEmail())
-                .avatarUrl(u.getAvatarUrl())
-                .projectRole(role)
-                .build();
+                    .id(u.getId())
+                    .fullName(u.getFullName())
+                    .email(u.getEmail())
+                    .avatarUrl(u.getAvatarUrl())
+                    .projectRole(role)
+                    .build();
         }).toList();
     }
 
@@ -674,11 +707,31 @@ public class ProjectMemberService {
                 .toList();
     }
 
+    private void ensureMemberLimitNotExceeded(UUID projectId) {
+        if (maxMembersPerProject <= 0) {
+            return;
+        }
+        long activeMembers = projectMemberRepository.countByProjectId(projectId);
+        long pendingInvites = projectInviteRepository.findByProjectIdAndStatus(projectId, InviteStatus.PENDING).size();
+        if (activeMembers + pendingInvites >= maxMembersPerProject) {
+            throw new StructuredApiException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "MEMBER_LIMIT_EXCEEDED",
+                    "Đã đạt giới hạn thành viên theo gói dịch vụ hiện tại",
+                    Map.of(
+                            "currentCount", activeMembers + pendingInvites,
+                            "limit", maxMembersPerProject,
+                            "plan", subscriptionPlan));
+        }
+    }
+
     private void logActivity(UUID projectId, UUID actorId, EntityType entityType, UUID entityId,
-                             ActionType actionType, String oldValue, String newValue) {
+            ActionType actionType, String oldValue, String newValue) {
         try {
-            HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.currentRequestAttributes()).getRequest();
-            activityLogService.logActivity(projectId, actorId, entityType, entityId, actionType, oldValue, newValue, request);
+            HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.currentRequestAttributes())
+                    .getRequest();
+            activityLogService.logActivity(projectId, actorId, entityType, entityId, actionType, oldValue, newValue,
+                    request);
         } catch (Exception e) {
             log.warn("Không thể ghi activity log {} cho entity {}: {}", actionType, entityId, e.getMessage());
         }
