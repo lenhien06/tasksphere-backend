@@ -6,10 +6,12 @@ import com.zone.tasksphere.dto.request.UpdateWorkspaceRequest;
 import com.zone.tasksphere.dto.request.WorkspaceInviteMemberRequest;
 import com.zone.tasksphere.dto.response.ApiResponse;
 import com.zone.tasksphere.dto.response.UserProfileResponse;
+import com.zone.tasksphere.dto.response.WorkspaceInviteListResponse;
 import com.zone.tasksphere.dto.response.WorkspaceInviteResponse;
 import com.zone.tasksphere.dto.response.WorkspaceMemberResponse;
 import com.zone.tasksphere.dto.response.WorkspaceResponse;
 import com.zone.tasksphere.dto.response.UserDetail;
+import com.zone.tasksphere.entity.enums.InviteStatus;
 import com.zone.tasksphere.service.WorkspaceService;
 import com.zone.tasksphere.utils.AuthUtils;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,12 +19,16 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -118,6 +124,49 @@ public class WorkspaceController {
                 .body(ApiResponse.success(response, response.isAddedToWorkspace()
                         ? "Thành viên đã được thêm vào workspace và email đã được gửi"
                         : "Email mời đã được gửi"));
+    }
+
+    @Operation(summary = "Lấy danh sách lời mời workspace")
+    @GetMapping("/{wsId}/invites")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getInvites(
+            @PathVariable UUID wsId,
+            @RequestParam(defaultValue = "PENDING") InviteStatus status,
+            @PageableDefault(page = 0, size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+
+        UserDetail currentUser = AuthUtils.getUserDetail();
+        if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
+        var page = workspaceService.getInvitesByStatus(wsId, currentUser.getId(), status, pageable);
+        return ResponseEntity.ok(ApiResponse.successPage(page, "Lấy danh sách lời mời workspace thành công."));
+    }
+
+    @Operation(summary = "Thu hồi lời mời workspace")
+    @DeleteMapping("/{wsId}/invites/{inviteId}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> revokeInvite(
+            @PathVariable UUID wsId,
+            @PathVariable UUID inviteId) {
+
+        UserDetail currentUser = AuthUtils.getUserDetail();
+        if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
+        workspaceService.revokeInvite(wsId, inviteId, currentUser.getId());
+        return ResponseEntity.ok(ApiResponse.success(null, "Đã thu hồi lời mời workspace."));
+    }
+
+    @Operation(summary = "Gửi lại lời mời workspace")
+    @PostMapping("/{wsId}/invites/{inviteId}/resend")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> resendInvite(
+            @PathVariable UUID wsId,
+            @PathVariable UUID inviteId) {
+
+        UserDetail currentUser = AuthUtils.getUserDetail();
+        if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
+        workspaceService.resendInvite(wsId, inviteId, currentUser.getId());
+        return ResponseEntity.ok(ApiResponse.success(null, "Đã gửi lại lời mời workspace."));
     }
 
     @Operation(summary = "Danh sách thành viên + skill tags")

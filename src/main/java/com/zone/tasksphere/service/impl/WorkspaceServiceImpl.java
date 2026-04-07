@@ -5,14 +5,17 @@ import com.zone.tasksphere.dto.request.UpdateMemberSkillsRequest;
 import com.zone.tasksphere.dto.request.UpdateWorkspaceRequest;
 import com.zone.tasksphere.dto.request.WorkspaceInviteMemberRequest;
 import com.zone.tasksphere.dto.response.UserProfileResponse;
+import com.zone.tasksphere.dto.response.WorkspaceInviteListResponse;
 import com.zone.tasksphere.dto.response.WorkspaceInviteResponse;
 import com.zone.tasksphere.dto.response.WorkspaceMemberResponse;
 import com.zone.tasksphere.dto.response.WorkspaceResponse;
 import com.zone.tasksphere.entity.User;
 import com.zone.tasksphere.entity.Workspace;
+import com.zone.tasksphere.entity.WorkspaceInvite;
 import com.zone.tasksphere.entity.WorkspaceMember;
 import com.zone.tasksphere.entity.WorkspaceMemberId;
 import com.zone.tasksphere.entity.enums.EntityType;
+import com.zone.tasksphere.entity.enums.InviteStatus;
 import com.zone.tasksphere.entity.enums.NotificationType;
 import com.zone.tasksphere.entity.enums.WorkspaceRole;
 import com.zone.tasksphere.entity.enums.WorkspaceType;
@@ -23,6 +26,7 @@ import com.zone.tasksphere.exception.NotFoundException;
 import com.zone.tasksphere.repository.ProjectRepository;
 import com.zone.tasksphere.repository.TaskRepository;
 import com.zone.tasksphere.repository.UserRepository;
+import com.zone.tasksphere.repository.WorkspaceInviteRepository;
 import com.zone.tasksphere.repository.WorkspaceMemberRepository;
 import com.zone.tasksphere.repository.WorkspaceRepository;
 import com.zone.tasksphere.service.EmailService;
@@ -33,11 +37,14 @@ import com.zone.tasksphere.service.WorkspaceService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -54,6 +61,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
 
     private final WorkspaceRepository workspaceRepository;
     private final WorkspaceMemberRepository workspaceMemberRepository;
+    private final WorkspaceInviteRepository workspaceInviteRepository;
     private final UserRepository userRepository;
     private final ProjectRepository projectRepository;
     private final TaskRepository taskRepository;
@@ -211,6 +219,12 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 throw ex;
             }
 
+            workspaceInviteRepository.findByWorkspaceIdAndInviteeEmailAndStatus(workspaceId, normalizedEmail, InviteStatus.PENDING)
+                    .ifPresent(invite -> {
+                        invite.setStatus(InviteStatus.REVOKED);
+                        workspaceInviteRepository.save(invite);
+                    });
+
             WorkspaceMember member = WorkspaceMember.builder()
                     .id(new WorkspaceMemberId(workspaceId, inviteeId))
                     .workspace(ws)
@@ -236,7 +250,8 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                     inviterName,
                     request.getRole().name(),
                     true,
-                    ws.getSlug()
+                    ws.getSlug(),
+                    null
             );
             afterCommit(() -> publishWorkspaceMemberEvent(ws.getId(), "workspace.member_added", Map.of(
                     "userId", invitee.getId(),
@@ -253,14 +268,36 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                     .build();
         }
 
+        workspaceInviteRepository.findByWorkspaceIdAndInviteeEmailAndStatus(workspaceId, normalizedEmail, InviteStatus.PENDING)
+                .ifPresent(invite -> {
+                    invite.setStatus(InviteStatus.REVOKED);
+                    workspaceInviteRepository.save(invite);
+                });
+
+        WorkspaceInvite invite = workspaceInviteRepository.save(WorkspaceInvite.builder()
+                .workspace(ws)
+                .invitedBy(inviter)
+                .inviteeEmail(normalizedEmail)
+                .token(UUID.randomUUID().toString())
+                .workspaceRole(request.getRole())
+                .status(InviteStatus.PENDING)
+                .expiresAt(Instant.now().plus(72, ChronoUnit.HOURS))
+                .skillTags(sanitizedSkills.isEmpty() ? null : sanitizedSkills)
+                .build());
+
         emailService.sendWorkspaceInviteEmail(
                 normalizedEmail,
                 ws.getName(),
                 inviterName,
                 request.getRole().name(),
                 false,
-                ws.getSlug()
+                ws.getSlug(),
+                invite.getToken()
         );
+        afterCommit(() -> publishWorkspaceMemberEvent(ws.getId(), "workspace.invite_created", Map.of(
+                "inviteId", invite.getId(),
+                "email", invite.getInviteeEmail()
+        )));
         log.info("Invitation email sent to external address {} for workspace {}", normalizedEmail, workspaceId);
         return WorkspaceInviteResponse.builder()
                 .email(normalizedEmail)
@@ -269,6 +306,139 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 .addedToWorkspace(false)
                 .status("pending")
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public Page<WorkspaceInviteListResponse> getInvitesByStatus(UUID workspaceId, UUID actorId, InviteStatus status, Pageable pageable) {
+        requireAdminOrOwner(getWorkspaceOrThrow(workspaceId), actorId);
+
+        if (status == InviteStatus.PENDING) {
+            workspaceInviteRepository.markExpiredInvites(workspaceId, Instant.now(), InviteStatus.PENDING, InviteStatus.EXPIRED);
+        }
+
+        return workspaceInviteRepository.findByWorkspaceIdAndStatus(workspaceId, status, pageable)
+                .map(invite -> WorkspaceInviteListResponse.builder()
+                        .id(invite.getId())
+                        .email(invite.getInviteeEmail())
+                        .role(invite.getWorkspaceRole())
+                        .status(invite.getStatus())
+                        .inviterName(invite.getInvitedBy().getFullName())
+                        .invitedAt(invite.getCreatedAt())
+                        .expiresAt(invite.getExpiresAt())
+                        .daysLeft(invite.getStatus() == InviteStatus.PENDING
+                                ? Math.max(0, ChronoUnit.DAYS.between(Instant.now(), invite.getExpiresAt()))
+                                : null)
+                        .build());
+    }
+
+    @Override
+    @Transactional
+    public void revokeInvite(UUID workspaceId, UUID inviteId, UUID actorId) {
+        requireAdminOrOwner(getWorkspaceOrThrow(workspaceId), actorId);
+
+        WorkspaceInvite invite = workspaceInviteRepository.findById(inviteId)
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy lời mời workspace"));
+
+        if (!invite.getWorkspace().getId().equals(workspaceId)) {
+            throw new BadRequestException("Lời mời không thuộc workspace này");
+        }
+        if (invite.getStatus() != InviteStatus.PENDING) {
+            throw new BadRequestException("Chỉ có thể thu hồi lời mời đang chờ");
+        }
+
+        invite.setStatus(InviteStatus.REVOKED);
+        workspaceInviteRepository.save(invite);
+        afterCommit(() -> publishWorkspaceMemberEvent(workspaceId, "workspace.invite_updated", Map.of(
+                "inviteId", inviteId,
+                "status", InviteStatus.REVOKED.name()
+        )));
+    }
+
+    @Override
+    @Transactional
+    public void resendInvite(UUID workspaceId, UUID inviteId, UUID actorId) {
+        Workspace ws = getWorkspaceOrThrow(workspaceId);
+        requireAdminOrOwner(ws, actorId);
+
+        WorkspaceInvite invite = workspaceInviteRepository.findById(inviteId)
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy lời mời workspace"));
+
+        if (!invite.getWorkspace().getId().equals(workspaceId)) {
+            throw new BadRequestException("Lời mời không thuộc workspace này");
+        }
+        if (invite.getStatus() != InviteStatus.PENDING) {
+            throw new BadRequestException("Chỉ có thể gửi lại lời mời đang chờ");
+        }
+
+        invite.setToken(UUID.randomUUID().toString());
+        invite.setExpiresAt(Instant.now().plus(72, ChronoUnit.HOURS));
+        workspaceInviteRepository.save(invite);
+
+        User actor = userRepository.findById(actorId)
+                .orElseThrow(() -> new NotFoundException("Người mời không tồn tại"));
+        String inviterName = actor.getFullName() != null && !actor.getFullName().isBlank()
+                ? actor.getFullName()
+                : actor.getEmail();
+
+        emailService.sendWorkspaceInviteEmail(
+                invite.getInviteeEmail(),
+                ws.getName(),
+                inviterName,
+                invite.getWorkspaceRole().name(),
+                false,
+                ws.getSlug(),
+                invite.getToken()
+        );
+        afterCommit(() -> publishWorkspaceMemberEvent(workspaceId, "workspace.invite_updated", Map.of(
+                "inviteId", inviteId,
+                "status", InviteStatus.PENDING.name()
+        )));
+    }
+
+    @Override
+    @Transactional
+    public void acceptInviteAfterSignup(String token, User newUser) {
+        WorkspaceInvite invite = workspaceInviteRepository.findByToken(token).orElse(null);
+        if (invite == null || invite.getStatus() != InviteStatus.PENDING) {
+            return;
+        }
+        if (invite.getExpiresAt().isBefore(Instant.now())) {
+            invite.setStatus(InviteStatus.EXPIRED);
+            workspaceInviteRepository.save(invite);
+            return;
+        }
+        if (!newUser.getEmail().equalsIgnoreCase(invite.getInviteeEmail())) {
+            return;
+        }
+        if (workspaceMemberRepository.existsByIdWorkspaceIdAndIdUserId(invite.getWorkspace().getId(), newUser.getId())) {
+            invite.setStatus(InviteStatus.ACCEPTED);
+            invite.setAcceptedAt(Instant.now());
+            invite.setInviteeUser(newUser);
+            workspaceInviteRepository.save(invite);
+            return;
+        }
+
+        WorkspaceMember member = WorkspaceMember.builder()
+                .id(new WorkspaceMemberId(invite.getWorkspace().getId(), newUser.getId()))
+                .workspace(invite.getWorkspace())
+                .user(newUser)
+                .role(invite.getWorkspaceRole())
+                .skillTags(invite.getSkillTags())
+                .invitedBy(invite.getInvitedBy().getId())
+                .joinedAt(Instant.now())
+                .build();
+        workspaceMemberRepository.save(member);
+
+        invite.setStatus(InviteStatus.ACCEPTED);
+        invite.setAcceptedAt(Instant.now());
+        invite.setInviteeUser(newUser);
+        workspaceInviteRepository.save(invite);
+
+        afterCommit(() -> publishWorkspaceMemberEvent(invite.getWorkspace().getId(), "workspace.member_added", Map.of(
+                "userId", newUser.getId(),
+                "email", newUser.getEmail()
+        )));
     }
 
     @Override

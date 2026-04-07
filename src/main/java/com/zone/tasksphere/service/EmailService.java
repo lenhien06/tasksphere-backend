@@ -108,14 +108,15 @@ public class EmailService {
 
     @Async
     public void sendWorkspaceInviteEmail(String toEmail, String workspaceName, String inviterName,
-                                         String workspaceRole, boolean existingUser, String workspaceSlug) {
+                                         String workspaceRole, boolean existingUser, String workspaceSlug, String inviteToken) {
         String subject = existingUser
                 ? "Bạn đã được thêm vào workspace " + workspaceName
                 : inviterName + " mời bạn tham gia workspace " + workspaceName + " trên TaskSphere";
 
         String targetLink = existingUser
                 ? frontendUrl + "/ws/" + workspaceSlug
-                : frontendUrl + "/signup?email=" + URLEncoder.encode(toEmail, StandardCharsets.UTF_8);
+                : frontendUrl + "/signup?email=" + URLEncoder.encode(toEmail, StandardCharsets.UTF_8)
+                    + "&inviteToken=" + URLEncoder.encode(inviteToken == null ? "" : inviteToken, StandardCharsets.UTF_8);
 
         Context context = createEmailContext();
         context.setVariable("workspaceName", workspaceName);

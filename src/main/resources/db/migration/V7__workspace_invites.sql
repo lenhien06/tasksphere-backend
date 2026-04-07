@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS workspace_invites (
+    id                  CHAR(36)        NOT NULL DEFAULT (UUID()),
+    workspace_id        CHAR(36)        NOT NULL,
+    invited_by          CHAR(36)        NOT NULL,
+    invitee_email       VARCHAR(255)    NOT NULL,
+    invitee_user_id     CHAR(36)        DEFAULT NULL,
+    token               VARCHAR(36)     NOT NULL,
+    workspace_role      ENUM('OWNER','ADMIN','MEMBER') NOT NULL DEFAULT 'MEMBER',
+    status              ENUM('PENDING','ACCEPTED','DECLINED','EXPIRED','REVOKED') NOT NULL DEFAULT 'PENDING',
+    expires_at          DATETIME(3)     NOT NULL,
+    accepted_at         DATETIME(3)     DEFAULT NULL,
+    skill_tags          JSON            DEFAULT NULL,
+    created_at          DATETIME(3)     NOT NULL DEFAULT NOW(3),
+    updated_at          DATETIME(3)     NOT NULL DEFAULT NOW(3) ON UPDATE NOW(3),
+    deleted_at          DATETIME(3)     DEFAULT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_workspace_invite_token (token),
+    KEY idx_workspace_invites_workspace_status (workspace_id, status),
+    KEY idx_workspace_invites_email_status (invitee_email, status),
+    CONSTRAINT fk_workspace_invites_workspace FOREIGN KEY (workspace_id) REFERENCES workspaces(id),
+    CONSTRAINT fk_workspace_invites_invited_by FOREIGN KEY (invited_by) REFERENCES users(id),
+    CONSTRAINT fk_workspace_invites_invitee_user FOREIGN KEY (invitee_user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

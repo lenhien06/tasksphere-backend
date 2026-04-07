@@ -36,6 +36,7 @@ public class AuthService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final EmailService emailService;
     private final ProjectMemberService projectMemberService;
+    private final WorkspaceService workspaceService;
     private final ApplicationEventPublisher eventPublisher;
 
     private static final String ROLE_USER = "USER";
@@ -148,6 +149,7 @@ public class AuthService {
         // Tự động gia nhập dự án nếu có inviteToken
         if (request.getInviteToken() != null && !request.getInviteToken().isBlank()) {
             projectMemberService.acceptInviteAfterSignup(request.getInviteToken(), newUser);
+            workspaceService.acceptInviteAfterSignup(request.getInviteToken(), newUser);
         }
 
         redisTemplate.delete(OTP_PREFIX + email);
