@@ -2,10 +2,12 @@ package com.zone.tasksphere.dto.response;
 
 import com.zone.tasksphere.entity.enums.TaskPriority;
 import com.zone.tasksphere.entity.enums.TaskStatus;
+import com.zone.tasksphere.entity.enums.SprintStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -41,7 +43,10 @@ public class TimelineViewResponse {
         private UserSummary assignee;
         private LocalDate startDate;
         private LocalDate dueDate;
+        private Integer storyPoints;
+        private BigDecimal estimatedHours;
         private UUID parentTaskId;
+        private SprintSummary sprint;
         private List<DependencyRef> blockedBy;
         private List<DependencyRef> blocking;
     }
@@ -75,5 +80,15 @@ public class TimelineViewResponse {
         private UUID id;
         private String fullName;
         private String avatarUrl;
+    }
+
+    @Data
+    @Builder
+    public static class SprintSummary {
+        private UUID id;
+        private String name;
+        private SprintStatus status;
+        private LocalDate startDate;
+        private LocalDate endDate;
     }
 }

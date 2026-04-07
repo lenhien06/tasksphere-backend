@@ -315,6 +315,12 @@ public class TaskServiceImpl implements TaskService {
         }
         if (request.getStartDate() != null) {
             validateStartDateAgainstDependencies(task, request.getStartDate());
+            validateScheduledWindowWithinSprint(
+                    effectiveSprint,
+                    request.getStartDate(),
+                    request.getEstimatedHours() != null ? request.getEstimatedHours() : task.getEstimatedHours(),
+                    request.getStoryPoints() != null ? request.getStoryPoints() : task.getStoryPoints()
+            );
         }
 
         taskMapper.updateEntityFromRequest(task, request);
@@ -902,7 +908,16 @@ public class TaskServiceImpl implements TaskService {
                         .assignee(toTimelineUserSummary(task.getAssignee()))
                         .startDate(task.getStartDate())
                         .dueDate(task.getDueDate())
+                        .storyPoints(task.getStoryPoints())
+                        .estimatedHours(task.getEstimatedHours())
                         .parentTaskId(task.getParentTask() != null ? task.getParentTask().getId() : null)
+                        .sprint(task.getSprint() != null ? TimelineViewResponse.SprintSummary.builder()
+                                .id(task.getSprint().getId())
+                                .name(task.getSprint().getName())
+                                .status(task.getSprint().getStatus())
+                                .startDate(task.getSprint().getStartDate())
+                                .endDate(task.getSprint().getEndDate())
+                                .build() : null)
                         .blockedBy(blockedByMap.getOrDefault(task.getId(), List.of()))
                         .blocking(blockingMap.getOrDefault(task.getId(), List.of()))
                         .build())
@@ -1082,6 +1097,27 @@ public class TaskServiceImpl implements TaskService {
         }
     }
 
+    private void validateScheduledWindowWithinSprint(
+            Sprint sprint,
+            LocalDate scheduledStart,
+            BigDecimal estimatedHours,
+            Integer storyPoints
+    ) {
+        if (sprint == null || scheduledStart == null) {
+            return;
+        }
+        if (sprint.getStatus() != SprintStatus.ACTIVE && sprint.getStatus() != SprintStatus.PLANNED) {
+            return;
+        }
+        if (sprint.getStartDate() != null && scheduledStart.isBefore(sprint.getStartDate())) {
+            throw new BadRequestException("Lỗi: Lịch thi công không được nằm ngoài phạm vi thời gian của Sprint");
+        }
+        LocalDate scheduledEnd = scheduledStart.plusDays(Math.max(computeScheduledDurationDays(estimatedHours, storyPoints) - 1L, 0L));
+        if (sprint.getEndDate() != null && scheduledEnd.isAfter(sprint.getEndDate())) {
+            throw new BadRequestException("Lỗi: Lịch thi công không được nằm ngoài phạm vi thời gian của Sprint");
+        }
+    }
+
     private Map<UUID, List<Task>> buildCalendarBlockers(UUID projectId, List<Task> tasks) {
         if (tasks.isEmpty()) {
             return Collections.emptyMap();
@@ -1251,6 +1287,16 @@ public class TaskServiceImpl implements TaskService {
             return 2.0;
         }
         return roundToOneDecimal(8.0 / averagePointsPerDay);
+    }
+
+    private int computeScheduledDurationDays(BigDecimal estimatedHours, Integer storyPoints) {
+        if (estimatedHours != null && estimatedHours.compareTo(BigDecimal.ZERO) > 0) {
+            return Math.max(1, estimatedHours.divide(BigDecimal.valueOf(8), 0, RoundingMode.CEILING).intValue());
+        }
+        if (storyPoints != null && storyPoints > 0) {
+            return Math.max(1, (int) Math.ceil(storyPoints / 2.0));
+        }
+        return 1;
     }
 
     private List<String> resolveEffectiveSkillTags(ProjectMember member) {
