@@ -26,6 +26,7 @@ import com.zone.tasksphere.repository.ChecklistItemRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -36,9 +37,16 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -202,26 +210,7 @@ public class TaskServiceImpl implements TaskService {
     public TaskDetailResponse getTaskById(UUID projectId, UUID taskId, UUID currentUserId) {
         validateMembership(projectId, currentUserId);
         Task task = getTaskInProject(taskId, projectId);
-
-        TaskDetailResponse response = taskMapper.toDetailResponse(task);
-
-        // Compute permission flags based on current user's role
-        User currentUser = getUser(currentUserId);
-        boolean isAssignee = task.getAssignee() != null && task.getAssignee().getId().equals(currentUserId);
-        boolean isPM = isMemberPM(projectId, currentUserId);
-        boolean isAdmin = currentUser.getSystemRole() == SystemRole.ADMIN;
-
-        response.setCanEdit(isAssignee || isPM || isAdmin);
-        response.setCanDelete(isPM || isAdmin);
-
-        // Checklist counts (always from repository — not lazy loaded)
-        response.setChecklistTotal((int) checklistItemRepository.countByTaskIdAndDeletedAtIsNull(taskId));
-        response.setChecklistDone((int) checklistItemRepository.countByTaskIdAndIsCompletedTrueAndDeletedAtIsNull(taskId));
-
-        // Build link summaries from this task's perspective
-        response.setLinks(buildLinkSummaries(taskId));
-
-        return response;
+        return enrichTaskDetailResponse(task, currentUserId);
     }
 
     private List<TaskDetailResponse.TaskLinkSummary> buildLinkSummaries(UUID taskId) {
@@ -304,6 +293,8 @@ public class TaskServiceImpl implements TaskService {
             task.setTaskPosition((int) taskRepository.countByStatusColumnId(newCol.getId()));
         }
 
+        Sprint effectiveSprint = task.getSprint();
+
         // Đổi sprint nếu có (BR-20: chỉ PM thêm task vào sprint ACTIVE)
         if (request.getSprintId() != null) {
             Sprint sprint = sprintRepository
@@ -316,6 +307,14 @@ public class TaskServiceImpl implements TaskService {
                 throw new Forbidden("BR-20: Chỉ PM mới được thêm task vào sprint đang ACTIVE");
             }
             task.setSprint(sprint);
+            effectiveSprint = sprint;
+        }
+
+        if (request.getDueDate() != null) {
+            validateDueDateWithinSprint(effectiveSprint, request.getDueDate());
+        }
+        if (request.getStartDate() != null) {
+            validateStartDateAgainstDependencies(task, request.getStartDate());
         }
 
         taskMapper.updateEntityFromRequest(task, request);
@@ -357,7 +356,7 @@ public class TaskServiceImpl implements TaskService {
         }
 
         reportService.invalidateOverviewCache(projectId);
-        return taskMapper.toDetailResponse(task);
+        return enrichTaskDetailResponse(task, currentUserId);
     }
 
     // ════════════════════════════════════════
@@ -534,15 +533,7 @@ public class TaskServiceImpl implements TaskService {
         }
 
         LocalDate newDueDate = request.getDueDate();
-
-        Sprint sprint = task.getSprint();
-        if (sprint != null && sprint.getStatus() == SprintStatus.ACTIVE) {
-            boolean beforeStart = sprint.getStartDate() != null && newDueDate.isBefore(sprint.getStartDate());
-            boolean afterEnd = sprint.getEndDate() != null && newDueDate.isAfter(sprint.getEndDate());
-            if (beforeStart || afterEnd) {
-                throw new BadRequestException("Due date phai nam trong khoang thoi gian cua sprint dang ACTIVE");
-            }
-        }
+        validateDueDateWithinSprint(task.getSprint(), newDueDate);
 
         LocalDate oldDueDate = task.getDueDate();
         task.setDueDate(newDueDate);
@@ -553,7 +544,7 @@ public class TaskServiceImpl implements TaskService {
                 oldDueDate == null ? null : oldDueDate.toString(),
                 newDueDate.toString());
 
-        return taskMapper.toDetailResponse(task);
+        return enrichTaskDetailResponse(task, currentUserId);
     }
 
     // ════════════════════════════════════════
@@ -959,6 +950,8 @@ public class TaskServiceImpl implements TaskService {
         TaskFilterParams normalizedParams = TaskFilterSupport.resolveForQuery(params, currentUserId);
         normalizedParams.setProjectId(projectId);
         List<Task> tasks = taskRepository.findAll(buildCalendarSpecification(projectId, year, month, normalizedParams));
+        Map<UUID, List<Task>> blockersByTaskId = buildCalendarBlockers(projectId, tasks);
+        double hoursPerStoryPoint = computeHoursPerStoryPoint(projectId);
 
         List<CalendarViewResponse.CalendarTaskItem> items = tasks.stream().map(t -> {
             CalendarViewResponse.UserSummary assignee = null;
@@ -985,16 +978,26 @@ public class TaskServiceImpl implements TaskService {
                         .build();
             }
 
+            List<Task> blockers = blockersByTaskId.getOrDefault(t.getId(), List.of());
+            boolean dependencyConflict = hasDependencyConflict(t, blockers);
+
             return CalendarViewResponse.CalendarTaskItem.builder()
                     .id(t.getId())
                     .taskCode(t.getTaskCode())
                     .title(t.getTitle())
                     .priority(t.getPriority())
                     .taskStatus(t.getTaskStatus())
+                    .startDate(t.getStartDate())
                     .dueDate(t.getDueDate())
+                    .storyPoints(t.getStoryPoints())
+                    .skillTagsRequired(t.getSkillTagsRequired())
+                    .columnName(t.getStatusColumn() != null ? t.getStatusColumn().getName() : null)
+                    .columnColor(t.getStatusColumn() != null ? t.getStatusColumn().getColorHex() : null)
                     .isOverdue(isOverdue)
                     .assignee(assignee)
                     .sprint(sprint)
+                    .dependencyConflict(dependencyConflict)
+                    .blockedBy(blockers.stream().map(this::toCalendarDependencySummary).toList())
                     .build();
         }).toList();
 
@@ -1003,6 +1006,8 @@ public class TaskServiceImpl implements TaskService {
                 .month(month)
                 .totalTasks(items.size())
                 .tasks(items)
+                .workloadHeatmap(buildCalendarWorkload(items, hoursPerStoryPoint))
+                .hoursPerStoryPoint(roundToOneDecimal(hoursPerStoryPoint))
                 .build();
     }
 
@@ -1014,6 +1019,8 @@ public class TaskServiceImpl implements TaskService {
             predicates.add(cb.equal(root.get("project").get("id"), projectId));
             predicates.add(cb.isNull(root.get("deletedAt")));
             predicates.add(cb.isNotNull(root.get("dueDate")));
+            predicates.add(cb.isNotNull(root.get("sprint")));
+            predicates.add(root.get("sprint").get("status").in(SprintStatus.ACTIVE, SprintStatus.PLANNED));
             predicates.add(cb.equal(cb.function("YEAR", Integer.class, root.get("dueDate")), year));
             predicates.add(cb.equal(cb.function("MONTH", Integer.class, root.get("dueDate")), month));
             jakarta.persistence.criteria.Predicate commonPredicate = TaskSpecification.buildFilter(params, false)
@@ -1028,6 +1035,299 @@ public class TaskServiceImpl implements TaskService {
             );
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
+    }
+
+    private TaskDetailResponse enrichTaskDetailResponse(Task task, UUID currentUserId) {
+        UUID projectId = task.getProject().getId();
+        UUID taskId = task.getId();
+        TaskDetailResponse response = taskMapper.toDetailResponse(task);
+
+        User currentUser = getUser(currentUserId);
+        boolean isAssignee = task.getAssignee() != null && task.getAssignee().getId().equals(currentUserId);
+        boolean isPM = isMemberPM(projectId, currentUserId);
+        boolean isAdmin = currentUser.getSystemRole() == SystemRole.ADMIN;
+
+        response.setCanEdit(isAssignee || isPM || isAdmin);
+        response.setCanDelete(isPM || isAdmin);
+        response.setChecklistTotal((int) checklistItemRepository.countByTaskIdAndDeletedAtIsNull(taskId));
+        response.setChecklistDone((int) checklistItemRepository.countByTaskIdAndIsCompletedTrueAndDeletedAtIsNull(taskId));
+        response.setLinks(buildLinkSummaries(taskId));
+        response.setAssigneeSuggestions(buildAssigneeSuggestions(projectId, task));
+        return response;
+    }
+
+    private void validateDueDateWithinSprint(Sprint sprint, LocalDate newDueDate) {
+        if (sprint == null || newDueDate == null) {
+            return;
+        }
+        if (sprint.getStatus() != SprintStatus.ACTIVE && sprint.getStatus() != SprintStatus.PLANNED) {
+            return;
+        }
+        boolean beforeStart = sprint.getStartDate() != null && newDueDate.isBefore(sprint.getStartDate());
+        boolean afterEnd = sprint.getEndDate() != null && newDueDate.isAfter(sprint.getEndDate());
+        if (beforeStart || afterEnd) {
+            throw new BadRequestException("Lỗi: Hạn chót không được vượt quá phạm vi thời gian của Sprint");
+        }
+    }
+
+    private void validateStartDateAgainstDependencies(Task task, LocalDate newStartDate) {
+        if (newStartDate == null) {
+            return;
+        }
+        List<Task> blockers = dependencyRepository.findBlockingTasksByBlockedTaskId(task.getId());
+        for (Task blocker : blockers) {
+            if (blocker.getDueDate() != null && newStartDate.isBefore(blocker.getDueDate())) {
+                throw new BadRequestException("Lỗi: Ngày bắt đầu không được sớm hơn ngày kết thúc của task phụ thuộc");
+            }
+        }
+    }
+
+    private Map<UUID, List<Task>> buildCalendarBlockers(UUID projectId, List<Task> tasks) {
+        if (tasks.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Set<UUID> taskIds = tasks.stream().map(Task::getId).collect(java.util.stream.Collectors.toSet());
+        Map<UUID, List<Task>> blockersByTaskId = new HashMap<>();
+        for (TaskDependency dependency : dependencyRepository.findBlockingEdgesByProjectId(projectId)) {
+            Task blocked = dependency.getBlockedTask();
+            if (blocked == null || !taskIds.contains(blocked.getId())) {
+                continue;
+            }
+            blockersByTaskId
+                    .computeIfAbsent(blocked.getId(), ignored -> new ArrayList<>())
+                    .add(dependency.getBlockingTask());
+        }
+        return blockersByTaskId;
+    }
+
+    private boolean hasDependencyConflict(Task task, List<Task> blockers) {
+        if (task.getStartDate() == null || blockers == null || blockers.isEmpty()) {
+            return false;
+        }
+        return blockers.stream()
+                .filter(blocker -> blocker.getDueDate() != null)
+                .anyMatch(blocker -> task.getStartDate().isBefore(blocker.getDueDate()));
+    }
+
+    private CalendarViewResponse.DependencySummary toCalendarDependencySummary(Task blocker) {
+        return CalendarViewResponse.DependencySummary.builder()
+                .taskId(blocker.getId())
+                .taskCode(blocker.getTaskCode())
+                .title(blocker.getTitle())
+                .dueDate(blocker.getDueDate())
+                .linkType(DependencyType.BLOCKS.name())
+                .build();
+    }
+
+    private List<CalendarViewResponse.DayWorkload> buildCalendarWorkload(
+            List<CalendarViewResponse.CalendarTaskItem> items,
+            double hoursPerStoryPoint
+    ) {
+        Map<LocalDate, DayWorkloadAccumulator> perDay = new LinkedHashMap<>();
+        for (CalendarViewResponse.CalendarTaskItem item : items) {
+            if (item.getDueDate() == null || item.getAssignee() == null || item.getStoryPoints() == null || item.getStoryPoints() <= 0) {
+                continue;
+            }
+            DayWorkloadAccumulator day = perDay.computeIfAbsent(item.getDueDate(), ignored -> new DayWorkloadAccumulator());
+            day.totalStoryPoints += item.getStoryPoints();
+            UserWorkloadAccumulator user = day.users.computeIfAbsent(item.getAssignee().getId(), ignored ->
+                    new UserWorkloadAccumulator(item.getAssignee()));
+            user.storyPoints += item.getStoryPoints();
+        }
+
+        return perDay.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> {
+                    DayWorkloadAccumulator day = entry.getValue();
+                    double totalHours = estimateHoursFromStoryPoints(day.totalStoryPoints, hoursPerStoryPoint);
+                    List<CalendarViewResponse.UserWorkload> users = day.users.values().stream()
+                            .sorted(Comparator.comparing((UserWorkloadAccumulator u) -> u.storyPoints).reversed())
+                            .map(user -> {
+                                double estimatedHours = estimateHoursFromStoryPoints(user.storyPoints, hoursPerStoryPoint);
+                                return CalendarViewResponse.UserWorkload.builder()
+                                        .user(user.user)
+                                        .storyPoints(user.storyPoints)
+                                        .estimatedHours(estimatedHours)
+                                        .overloaded(estimatedHours > 8.0)
+                                        .build();
+                            })
+                            .toList();
+                    return CalendarViewResponse.DayWorkload.builder()
+                            .date(entry.getKey())
+                            .totalStoryPoints(day.totalStoryPoints)
+                            .estimatedHours(totalHours)
+                            .overloaded(totalHours > 8.0)
+                            .users(users)
+                            .build();
+                })
+                .toList();
+    }
+
+    private List<TaskDetailResponse.AssigneeSuggestion> buildAssigneeSuggestions(UUID projectId, Task task) {
+        List<ProjectMember> members = projectMemberRepository.findAllByProjectIdWithUser(projectId);
+        if (members.isEmpty()) {
+            return List.of();
+        }
+
+        LocalDate anchorDate = task.getDueDate() != null ? task.getDueDate() : LocalDate.now();
+        LocalDate weekStart = anchorDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        LocalDate weekEnd = anchorDate.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
+        double hoursPerStoryPoint = computeHoursPerStoryPoint(projectId);
+        double taskLoadHours = estimateHoursFromStoryPoints(task.getStoryPoints(), hoursPerStoryPoint);
+        Map<UUID, Integer> weeklyStoryPoints = loadWeeklyStoryPoints(projectId, members, weekStart, weekEnd);
+
+        return members.stream()
+                .map(member -> {
+                    List<String> effectiveSkills = resolveEffectiveSkillTags(member);
+                    double similarity = computeCosineSimilarity(task.getSkillTagsRequired(), effectiveSkills);
+                    double currentWeeklyLoadHours = estimateHoursFromStoryPoints(
+                            weeklyStoryPoints.getOrDefault(member.getUser().getId(), 0),
+                            hoursPerStoryPoint
+                    );
+                    double projectedWeeklyLoadHours = roundToOneDecimal(currentWeeklyLoadHours + taskLoadHours);
+                    int weeklyCapacityHours = member.getUser().getWorkCapacityHours() != null
+                            ? member.getUser().getWorkCapacityHours()
+                            : 40;
+                    return TaskDetailResponse.AssigneeSuggestion.builder()
+                            .userId(member.getUser().getId())
+                            .fullName(member.getUser().getFullName())
+                            .avatarUrl(member.getUser().getAvatarUrl())
+                            .skillTags(effectiveSkills)
+                            .matchedSkills(findMatchedSkills(task.getSkillTagsRequired(), effectiveSkills))
+                            .similarityScore(roundToThreeDecimals(similarity))
+                            .currentWeeklyLoadHours(currentWeeklyLoadHours)
+                            .projectedWeeklyLoadHours(projectedWeeklyLoadHours)
+                            .weeklyCapacityHours(weeklyCapacityHours)
+                            .willExceedWeeklyCapacity(projectedWeeklyLoadHours > weeklyCapacityHours)
+                            .build();
+                })
+                .sorted(Comparator
+                        .comparing(TaskDetailResponse.AssigneeSuggestion::getSimilarityScore).reversed()
+                        .thenComparing(TaskDetailResponse.AssigneeSuggestion::isWillExceedWeeklyCapacity)
+                        .thenComparing(TaskDetailResponse.AssigneeSuggestion::getCurrentWeeklyLoadHours)
+                        .thenComparing(TaskDetailResponse.AssigneeSuggestion::getFullName, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+    }
+
+    private Map<UUID, Integer> loadWeeklyStoryPoints(
+            UUID projectId,
+            List<ProjectMember> members,
+            LocalDate weekStart,
+            LocalDate weekEnd
+    ) {
+        List<UUID> assigneeIds = members.stream().map(member -> member.getUser().getId()).toList();
+        if (assigneeIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<UUID, Integer> weeklyStoryPoints = new HashMap<>();
+        for (Object[] row : taskRepository.sumWeeklyStoryPointsByAssignee(projectId, assigneeIds, weekStart, weekEnd)) {
+            UUID assigneeId = (UUID) row[0];
+            Number total = (Number) row[1];
+            weeklyStoryPoints.put(assigneeId, total != null ? total.intValue() : 0);
+        }
+        return weeklyStoryPoints;
+    }
+
+    private double computeHoursPerStoryPoint(UUID projectId) {
+        List<Sprint> completedSprints = sprintRepository.findByProject_IdAndStatusAndDeletedAtIsNullOrderByCompletedAtDesc(
+                projectId,
+                SprintStatus.COMPLETED,
+                PageRequest.of(0, 5)
+        );
+
+        double averagePointsPerDay = completedSprints.stream()
+                .filter(sprint -> sprint.getVelocity() != null && sprint.getVelocity() > 0)
+                .filter(sprint -> sprint.getStartDate() != null && sprint.getEndDate() != null)
+                .mapToDouble(sprint -> {
+                    long days = ChronoUnit.DAYS.between(sprint.getStartDate(), sprint.getEndDate()) + 1;
+                    long safeDays = Math.max(days, 1);
+                    return sprint.getVelocity() / (double) safeDays;
+                })
+                .filter(pointsPerDay -> pointsPerDay > 0)
+                .average()
+                .orElse(0.0);
+
+        if (averagePointsPerDay <= 0.0) {
+            return 2.0;
+        }
+        return roundToOneDecimal(8.0 / averagePointsPerDay);
+    }
+
+    private List<String> resolveEffectiveSkillTags(ProjectMember member) {
+        if (member.getSkillTags() != null && !member.getSkillTags().isEmpty()) {
+            return member.getSkillTags();
+        }
+        if (member.getUser() != null && member.getUser().getSkillTags() != null) {
+            return member.getUser().getSkillTags();
+        }
+        return List.of();
+    }
+
+    private List<String> findMatchedSkills(List<String> taskSkills, List<String> memberSkills) {
+        if (taskSkills == null || memberSkills == null) {
+            return List.of();
+        }
+        Set<String> normalizedMemberSkills = normalizeSkills(memberSkills);
+        return taskSkills.stream()
+                .filter(skill -> skill != null && normalizedMemberSkills.contains(skill.trim().toLowerCase()))
+                .distinct()
+                .toList();
+    }
+
+    private double computeCosineSimilarity(List<String> taskSkills, List<String> memberSkills) {
+        Set<String> taskVector = normalizeSkills(taskSkills);
+        Set<String> memberVector = normalizeSkills(memberSkills);
+        if (taskVector.isEmpty() || memberVector.isEmpty()) {
+            return 0.0;
+        }
+        long intersection = taskVector.stream().filter(memberVector::contains).count();
+        double denominator = Math.sqrt(taskVector.size()) * Math.sqrt(memberVector.size());
+        if (denominator == 0.0) {
+            return 0.0;
+        }
+        return intersection / denominator;
+    }
+
+    private Set<String> normalizeSkills(List<String> skills) {
+        if (skills == null || skills.isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<String> normalized = new HashSet<>();
+        for (String skill : skills) {
+            if (skill != null && !skill.isBlank()) {
+                normalized.add(skill.trim().toLowerCase());
+            }
+        }
+        return normalized;
+    }
+
+    private double estimateHoursFromStoryPoints(Integer storyPoints, double hoursPerStoryPoint) {
+        if (storyPoints == null || storyPoints <= 0) {
+            return 0.0;
+        }
+        return roundToOneDecimal(storyPoints * hoursPerStoryPoint);
+    }
+
+    private double roundToOneDecimal(double value) {
+        return BigDecimal.valueOf(value).setScale(1, RoundingMode.HALF_UP).doubleValue();
+    }
+
+    private double roundToThreeDecimals(double value) {
+        return BigDecimal.valueOf(value).setScale(3, RoundingMode.HALF_UP).doubleValue();
+    }
+
+    private static class DayWorkloadAccumulator {
+        private int totalStoryPoints = 0;
+        private final Map<UUID, UserWorkloadAccumulator> users = new LinkedHashMap<>();
+    }
+
+    private static class UserWorkloadAccumulator {
+        private final CalendarViewResponse.UserSummary user;
+        private int storyPoints = 0;
+
+        private UserWorkloadAccumulator(CalendarViewResponse.UserSummary user) {
+            this.user = user;
+        }
     }
 
     // ════════════════════════════════════════

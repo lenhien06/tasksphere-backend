@@ -6,7 +6,9 @@ import com.zone.tasksphere.entity.enums.ProjectRole;
 import lombok.Builder;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -21,6 +23,14 @@ public class ProjectMemberResponse {
     private ProjectRole projectRole;
     @Schema(description = "Joined at", example = "2023-12-31T23:59:59Z")
     private Instant joinedAt;
+    @Schema(description = "Effective skill tags for this member in the project")
+    private List<String> skillTags;
+    @Schema(description = "Current active task count")
+    private int activeTaskCount;
+    @Schema(description = "Historical average story points for completed tasks")
+    private BigDecimal avgStoryPoints;
+    @Schema(description = "Weekly work capacity in hours")
+    private int workCapacityHours;
 
     @Data
     @Builder

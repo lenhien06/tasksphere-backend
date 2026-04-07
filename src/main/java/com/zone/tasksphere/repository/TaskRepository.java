@@ -403,6 +403,27 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
             @Param("dateFrom") java.time.Instant dateFrom,
             @Param("dateTo") java.time.Instant dateTo);
 
+    @Query("""
+                SELECT t.assignee.id, COALESCE(SUM(t.storyPoints), 0)
+                FROM Task t
+                WHERE t.project.id = :projectId
+                  AND t.assignee.id IN :assigneeIds
+                  AND t.deletedAt IS NULL
+                  AND t.taskStatus NOT IN (
+                      com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+                      com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+                  )
+                  AND t.storyPoints IS NOT NULL
+                  AND t.dueDate IS NOT NULL
+                  AND t.dueDate BETWEEN :weekStart AND :weekEnd
+                GROUP BY t.assignee.id
+            """)
+    List<Object[]> sumWeeklyStoryPointsByAssignee(
+            @Param("projectId") UUID projectId,
+            @Param("assigneeIds") List<UUID> assigneeIds,
+            @Param("weekStart") java.time.LocalDate weekStart,
+            @Param("weekEnd") java.time.LocalDate weekEnd);
+
     /** Đếm task overdue của assignee trong period */
     @Query("""
                 SELECT COUNT(t) FROM Task t

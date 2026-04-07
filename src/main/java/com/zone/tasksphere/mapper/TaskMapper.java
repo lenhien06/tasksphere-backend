@@ -213,6 +213,9 @@ public class TaskMapper {
         return TaskDetailResponse.SprintSummary.builder()
             .id(task.getSprint().getId())
             .name(task.getSprint().getName())
+            .status(task.getSprint().getStatus() != null ? task.getSprint().getStatus().name() : null)
+            .startDate(task.getSprint().getStartDate())
+            .endDate(task.getSprint().getEndDate())
             .build();
     }
 

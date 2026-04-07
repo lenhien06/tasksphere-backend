@@ -143,11 +143,17 @@ public static class ColumnSummary {
 
     @Data @Builder
 @Schema(description = "Sprint Summary")
-public static class SprintSummary {
+    public static class SprintSummary {
         @Schema(description = "Id", example = "550e8400-e29b-41d4-a716-446655440000")
         private UUID id;
         @Schema(description = "Name", example = "John Doe")
         private String name;
+        @Schema(description = "Sprint status", example = "ACTIVE")
+        private String status;
+        @Schema(description = "Sprint start date", example = "2026-04-01")
+        private LocalDate startDate;
+        @Schema(description = "Sprint end date", example = "2026-04-14")
+        private LocalDate endDate;
     }
 
     @Data @Builder
@@ -208,5 +214,23 @@ public static class VersionSummary {
         private UUID id;
         @Schema(description = "Name", example = "John Doe")
         private String name;
+    }
+
+    @Schema(description = "Smart assignee suggestions ordered by cosine similarity and weekly capacity")
+    @Setter private List<AssigneeSuggestion> assigneeSuggestions;
+
+    @Data @Builder
+    @Schema(description = "Assignee suggestion")
+    public static class AssigneeSuggestion {
+        private UUID userId;
+        private String fullName;
+        private String avatarUrl;
+        private List<String> skillTags;
+        private List<String> matchedSkills;
+        private double similarityScore;
+        private double currentWeeklyLoadHours;
+        private double projectedWeeklyLoadHours;
+        private int weeklyCapacityHours;
+        private boolean willExceedWeeklyCapacity;
     }
 }

@@ -26,6 +26,10 @@ public class CalendarViewResponse {
     private int totalTasks;
     @Schema(description = "Tasks", example = "[]")
     private List<CalendarTaskItem> tasks;
+    @Schema(description = "Per-day workload heatmap")
+    private List<DayWorkload> workloadHeatmap;
+    @Schema(description = "Historical conversion ratio from story points to hours", example = "2.0")
+    private double hoursPerStoryPoint;
 
     @Data
     @Builder
@@ -41,10 +45,24 @@ public class CalendarViewResponse {
         private TaskPriority priority;
         @Schema(description = "Task status", example = "TODO")
         private TaskStatus taskStatus;
+        @Schema(description = "Start date", example = "2026-04-08")
+        private LocalDate startDate;
         @Schema(description = "Due date", example = "2023-12-31")
         private LocalDate dueDate;
+        @Schema(description = "Story points", example = "5")
+        private Integer storyPoints;
+        @Schema(description = "Task required skills")
+        private List<String> skillTagsRequired;
+        @Schema(description = "Status column name")
+        private String columnName;
+        @Schema(description = "Status column color")
+        private String columnColor;
         @Schema(description = "Sprint")
         private SprintSummary sprint;
+        @Schema(description = "Whether this task currently violates a blocker dependency")
+        private boolean dependencyConflict;
+        @Schema(description = "Blocking tasks that must finish before this task can start")
+        private List<DependencySummary> blockedBy;
         @JsonProperty("isOverdue")
         @Schema(description = "Is overdue", example = "true")
         private boolean isOverdue;
@@ -73,5 +91,37 @@ public class CalendarViewResponse {
         private String fullName;
         @Schema(description = "Avatar url", example = "https://example.com/image.png")
         private String avatarUrl;
+    }
+
+    @Data
+    @Builder
+    @Schema(description = "Dependency summary for calendar")
+    public static class DependencySummary {
+        private UUID taskId;
+        private String taskCode;
+        private String title;
+        private LocalDate dueDate;
+        private String linkType;
+    }
+
+    @Data
+    @Builder
+    @Schema(description = "Daily workload summary")
+    public static class DayWorkload {
+        private LocalDate date;
+        private int totalStoryPoints;
+        private double estimatedHours;
+        private boolean overloaded;
+        private List<UserWorkload> users;
+    }
+
+    @Data
+    @Builder
+    @Schema(description = "Daily workload per assignee")
+    public static class UserWorkload {
+        private UserSummary user;
+        private int storyPoints;
+        private double estimatedHours;
+        private boolean overloaded;
     }
 }

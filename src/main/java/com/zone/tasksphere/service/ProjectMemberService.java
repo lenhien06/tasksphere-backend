@@ -60,6 +60,10 @@ public class ProjectMemberService {
                 .id(member.getId())
                 .projectRole(member.getProjectRole())
                 .joinedAt(member.getJoinedAt())
+                .skillTags(resolveEffectiveSkillTags(member))
+                .activeTaskCount(member.getActiveTaskCount())
+                .avgStoryPoints(member.getAvgStoryPoints())
+                .workCapacityHours(member.getUser().getWorkCapacityHours() != null ? member.getUser().getWorkCapacityHours() : 40)
                 .user(ProjectMemberResponse.UserInfo.builder()
                         .id(member.getUser().getId())
                         .fullName(member.getUser().getFullName())
@@ -129,6 +133,10 @@ public class ProjectMemberService {
                 .id(newMember.getId())
                 .projectRole(newMember.getProjectRole())
                 .joinedAt(newMember.getJoinedAt())
+                .skillTags(resolveEffectiveSkillTags(newMember))
+                .activeTaskCount(newMember.getActiveTaskCount())
+                .avgStoryPoints(newMember.getAvgStoryPoints())
+                .workCapacityHours(user.getWorkCapacityHours() != null ? user.getWorkCapacityHours() : 40)
                 .user(ProjectMemberResponse.UserInfo.builder()
                         .id(user.getId())
                         .fullName(user.getFullName())
@@ -213,6 +221,16 @@ public class ProjectMemberService {
                 .status("pending")
                 .isNewUser(inviteeOpt.isEmpty())
                 .build();
+    }
+
+    private List<String> resolveEffectiveSkillTags(ProjectMember member) {
+        if (member.getSkillTags() != null && !member.getSkillTags().isEmpty()) {
+            return member.getSkillTags();
+        }
+        if (member.getUser() != null && member.getUser().getSkillTags() != null) {
+            return member.getUser().getSkillTags();
+        }
+        return Collections.emptyList();
     }
 
     /**
