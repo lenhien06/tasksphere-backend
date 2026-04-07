@@ -59,6 +59,7 @@ public class TaskServiceImpl implements TaskService {
     private final ProjectStatusColumnRepository columnRepository;
     private final SprintRepository sprintRepository;
     private final ProjectMemberRepository projectMemberRepository;
+    private final WorkspaceMemberRepository workspaceMemberRepository;
     private final ActivityLogService activityLogService;
     private final NotificationService notificationService;
     private final TaskCodeGenerator taskCodeGenerator;
@@ -156,6 +157,7 @@ public class TaskServiceImpl implements TaskService {
             .build();
 
         task = taskRepository.save(task);
+        syncWorkspaceMemberActiveTaskCount(project, assignee != null ? assignee.getId() : null);
 
         // Ghi activity log
         logActivity(project.getId(), currentUserId, EntityType.TASK, task.getId(),
@@ -318,6 +320,7 @@ public class TaskServiceImpl implements TaskService {
 
         taskMapper.updateEntityFromRequest(task, request);
         task = taskRepository.save(task);
+        syncWorkspaceMemberActiveTaskCounts(task.getProject(), oldAssigneeId, task.getAssignee() != null ? task.getAssignee().getId() : null);
 
         Map<String, Object> newSnapshot = buildTaskSnapshot(task);
         logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
@@ -425,6 +428,7 @@ public class TaskServiceImpl implements TaskService {
                         projectMemberRepository.save(pm);
                     });
         }
+        syncWorkspaceMemberActiveTaskCount(task.getProject(), task.getAssignee() != null ? task.getAssignee().getId() : null);
 
         logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
             ActionType.STATUS_CHANGED,
@@ -489,6 +493,7 @@ public class TaskServiceImpl implements TaskService {
             }
         }
         taskRepository.save(task);
+        syncWorkspaceMemberActiveTaskCount(task.getProject(), task.getAssignee() != null ? task.getAssignee().getId() : null);
 
         if (oldStatus != task.getTaskStatus()) {
             notifyTaskStatusStakeholders(task, currentUser, oldStatus, task.getTaskStatus());
@@ -565,6 +570,7 @@ public class TaskServiceImpl implements TaskService {
         Task task = getTaskInProject(taskId, projectId);
         Instant now = Instant.now();
         List<UUID> deletedTaskIds = collectTaskTreeIds(taskId);
+        Set<UUID> affectedWorkspaceAssignees = collectTaskTreeAssigneeIds(taskId);
 
         dependencyRepository.deleteAllByTaskIds(deletedTaskIds);
 
@@ -573,6 +579,7 @@ public class TaskServiceImpl implements TaskService {
 
         // BR-24: Đệ quy soft delete sub-tasks
         softDeleteSubtasksRecursively(projectId, currentUserId, taskId, now);
+        syncWorkspaceMemberActiveTaskCounts(task.getProject(), affectedWorkspaceAssignees.toArray(UUID[]::new));
 
         logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
             ActionType.DELETED, toJson(Map.of(
@@ -668,6 +675,7 @@ public class TaskServiceImpl implements TaskService {
             .build();
 
         subTask = taskRepository.save(subTask);
+        syncWorkspaceMemberActiveTaskCount(parentTask.getProject(), assignee != null ? assignee.getId() : null);
         logActivity(projectId, currentUserId, EntityType.TASK, subTask.getId(), ActionType.SUBTASK_CREATED, null, toJson(Map.of(
                 "taskCode", taskCode,
                 "title", subTask.getTitle(),
@@ -1263,6 +1271,49 @@ public class TaskServiceImpl implements TaskService {
         for (Task child : taskRepository.findByParentTaskId(taskId)) {
             collectTaskTreeIds(child.getId(), ids);
         }
+    }
+
+    private Set<UUID> collectTaskTreeAssigneeIds(UUID taskId) {
+        Set<UUID> assigneeIds = new HashSet<>();
+        collectTaskTreeAssigneeIds(taskId, assigneeIds);
+        return assigneeIds;
+    }
+
+    private void collectTaskTreeAssigneeIds(UUID taskId, Set<UUID> assigneeIds) {
+        taskRepository.findById(taskId).ifPresent(task -> {
+            if (task.getAssignee() != null) {
+                assigneeIds.add(task.getAssignee().getId());
+            }
+            for (Task child : taskRepository.findByParentTaskId(taskId)) {
+                collectTaskTreeAssigneeIds(child.getId(), assigneeIds);
+            }
+        });
+    }
+
+    private void syncWorkspaceMemberActiveTaskCount(Project project, UUID userId) {
+        if (project == null || project.getWorkspace() == null || userId == null) {
+            return;
+        }
+        UUID workspaceId = project.getWorkspace().getId();
+        long exactCount = taskRepository.countAssignedOpenTasksInWorkspace(workspaceId, userId);
+        workspaceMemberRepository.findByWorkspaceIdAndUserId(workspaceId, userId)
+                .ifPresent(member -> {
+                    member.setActiveTaskCount((int) exactCount);
+                    workspaceMemberRepository.save(member);
+                });
+    }
+
+    private void syncWorkspaceMemberActiveTaskCounts(Project project, UUID... userIds) {
+        if (project == null || project.getWorkspace() == null || userIds == null) {
+            return;
+        }
+        Set<UUID> uniqueIds = new HashSet<>();
+        for (UUID userId : userIds) {
+            if (userId != null) {
+                uniqueIds.add(userId);
+            }
+        }
+        uniqueIds.forEach(userId -> syncWorkspaceMemberActiveTaskCount(project, userId));
     }
 
     private void syncCompletedAt(Task task, TaskStatus oldStatus, TaskStatus newStatus) {

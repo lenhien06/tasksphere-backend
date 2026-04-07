@@ -2,6 +2,7 @@ package com.zone.tasksphere.repository;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,6 +45,35 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
                   )
             """)
     long countAssignedOpenTasks(@Param("userId") UUID userId);
+
+    @Query("""
+                SELECT COUNT(t) FROM Task t
+                WHERE t.assignee.id = :userId
+                  AND t.project.workspace.id = :workspaceId
+                  AND t.deletedAt IS NULL
+                  AND t.project.deletedAt IS NULL
+                  AND t.taskStatus NOT IN (
+                      com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+                      com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+                  )
+            """)
+    long countAssignedOpenTasksInWorkspace(@Param("workspaceId") UUID workspaceId,
+                                           @Param("userId") UUID userId);
+
+    @Query("""
+                SELECT t.assignee.id, COUNT(t) FROM Task t
+                WHERE t.project.workspace.id = :workspaceId
+                  AND t.assignee.id IN :userIds
+                  AND t.deletedAt IS NULL
+                  AND t.project.deletedAt IS NULL
+                  AND t.taskStatus NOT IN (
+                      com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+                      com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+                  )
+                GROUP BY t.assignee.id
+            """)
+    List<Object[]> countAssignedOpenTasksByWorkspaceAndUsers(@Param("workspaceId") UUID workspaceId,
+                                                             @Param("userIds") Collection<UUID> userIds);
 
     @Query("""
                 SELECT COUNT(t) FROM Task t

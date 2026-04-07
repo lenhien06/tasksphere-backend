@@ -34,6 +34,20 @@ public class WebSocketService {
         }
     }
 
+    public void sendToWorkspace(String workspaceId, String eventType, Object payload) {
+        try {
+            Map<String, Object> event = Map.of(
+                "type", eventType,
+                "data", payload,
+                "timestamp", Instant.now().toString()
+            );
+            messagingTemplate.convertAndSend("/topic/workspace/" + workspaceId, event);
+            log.debug("[WS] sendToWorkspace: {} → {}", workspaceId, eventType);
+        } catch (Exception e) {
+            log.warn("[WS] Failed to send to workspace {}: {}", workspaceId, e.getMessage());
+        }
+    }
+
     /**
      * Gửi đến 1 user cụ thể (notification, upload status).
      * Client subscribe: /user/queue/notifications

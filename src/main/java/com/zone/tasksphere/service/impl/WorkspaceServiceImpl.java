@@ -4,6 +4,7 @@ import com.zone.tasksphere.dto.request.CreateWorkspaceRequest;
 import com.zone.tasksphere.dto.request.UpdateMemberSkillsRequest;
 import com.zone.tasksphere.dto.request.UpdateWorkspaceRequest;
 import com.zone.tasksphere.dto.request.WorkspaceInviteMemberRequest;
+import com.zone.tasksphere.dto.response.UserProfileResponse;
 import com.zone.tasksphere.dto.response.WorkspaceInviteResponse;
 import com.zone.tasksphere.dto.response.WorkspaceMemberResponse;
 import com.zone.tasksphere.dto.response.WorkspaceResponse;
@@ -20,21 +21,28 @@ import com.zone.tasksphere.exception.ConflictException;
 import com.zone.tasksphere.exception.Forbidden;
 import com.zone.tasksphere.exception.NotFoundException;
 import com.zone.tasksphere.repository.ProjectRepository;
+import com.zone.tasksphere.repository.TaskRepository;
 import com.zone.tasksphere.repository.UserRepository;
 import com.zone.tasksphere.repository.WorkspaceMemberRepository;
 import com.zone.tasksphere.repository.WorkspaceRepository;
 import com.zone.tasksphere.service.EmailService;
 import com.zone.tasksphere.service.NotificationService;
+import com.zone.tasksphere.service.UserProfileService;
+import com.zone.tasksphere.service.WebSocketService;
 import com.zone.tasksphere.service.WorkspaceService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -48,8 +56,11 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final UserRepository userRepository;
     private final ProjectRepository projectRepository;
+    private final TaskRepository taskRepository;
     private final EmailService emailService;
     private final NotificationService notificationService;
+    private final UserProfileService userProfileService;
+    private final WebSocketService webSocketService;
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Workspace CRUD
@@ -227,6 +238,10 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                     true,
                     ws.getSlug()
             );
+            afterCommit(() -> publishWorkspaceMemberEvent(ws.getId(), "workspace.member_added", Map.of(
+                    "userId", invitee.getId(),
+                    "email", invitee.getEmail()
+            )));
 
             log.info("User {} added to workspace {} as {}", inviteeId, workspaceId, request.getRole());
             return WorkspaceInviteResponse.builder()
@@ -259,9 +274,21 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     @Override
     public List<WorkspaceMemberResponse> getMembers(UUID workspaceId) {
         getWorkspaceOrThrow(workspaceId);
-        return workspaceMemberRepository.findByWorkspaceId(workspaceId).stream()
-                .map(m -> toMemberResponse(m, m.getUser()))
+        List<WorkspaceMember> members = workspaceMemberRepository.findByWorkspaceId(workspaceId);
+        Map<UUID, Integer> openTaskCounts = loadWorkspaceOpenTaskCounts(workspaceId, members);
+        return members.stream()
+                .map(m -> toMemberResponse(m, m.getUser(), openTaskCounts.getOrDefault(m.getUser().getId(), 0)))
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public UserProfileResponse getMemberProfile(UUID workspaceId, UUID targetUserId, UUID requesterId) {
+        getWorkspaceOrThrow(workspaceId);
+        workspaceMemberRepository.findByWorkspaceIdAndUserId(workspaceId, requesterId)
+                .orElseThrow(() -> new Forbidden("Bạn không phải thành viên của workspace này"));
+        workspaceMemberRepository.findByWorkspaceIdAndUserId(workspaceId, targetUserId)
+                .orElseThrow(() -> new NotFoundException("Thành viên không tồn tại trong workspace"));
+        return userProfileService.getProfile(targetUserId);
     }
 
     @Override
@@ -282,8 +309,12 @@ public class WorkspaceServiceImpl implements WorkspaceService {
 
         member.setSkillTags(request.getSkillTags());
         workspaceMemberRepository.save(member);
+        afterCommit(() -> publishWorkspaceMemberEvent(workspaceId, "workspace.member_skills_updated", Map.of(
+                "userId", userId
+        )));
 
-        return toMemberResponse(member, member.getUser());
+        int exactActiveTaskCount = (int) taskRepository.countAssignedOpenTasksInWorkspace(workspaceId, userId);
+        return toMemberResponse(member, member.getUser(), exactActiveTaskCount);
     }
 
     @Override
@@ -306,6 +337,9 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         }
 
         workspaceMemberRepository.delete(target);
+        afterCommit(() -> publishWorkspaceMemberEvent(workspaceId, "workspace.member_removed", Map.of(
+                "userId", userId
+        )));
         log.info("Member {} removed from workspace {} by {}", userId, workspaceId, requesterId);
     }
 
@@ -401,7 +435,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         return workspace;
     }
 
-    private WorkspaceMemberResponse toMemberResponse(WorkspaceMember member, User user) {
+    private WorkspaceMemberResponse toMemberResponse(WorkspaceMember member, User user, int activeTaskCount) {
         List<String> effectiveSkills = member.getSkillTags() != null && !member.getSkillTags().isEmpty()
                 ? member.getSkillTags()
                 : (user.getSkillTags() != null ? user.getSkillTags() : Collections.emptyList());
@@ -412,10 +446,23 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 .avatarUrl(user.getAvatarUrl())
                 .role(member.getRole())
                 .skillTags(effectiveSkills)
-                .activeTaskCount(member.getActiveTaskCount())
+                .activeTaskCount(activeTaskCount)
                 .avgStoryPoints(member.getAvgStoryPoints())
                 .joinedAt(member.getJoinedAt())
                 .build();
+    }
+
+    private Map<UUID, Integer> loadWorkspaceOpenTaskCounts(UUID workspaceId, List<WorkspaceMember> members) {
+        if (members.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> userIds = members.stream()
+                .map(member -> member.getUser().getId())
+                .toList();
+        Map<UUID, Integer> counts = new HashMap<>();
+        taskRepository.countAssignedOpenTasksByWorkspaceAndUsers(workspaceId, userIds)
+                .forEach(row -> counts.put((UUID) row[0], ((Long) row[1]).intValue()));
+        return counts;
     }
 
     private List<String> sanitizeSkillTags(List<String> skillTags) {
@@ -428,5 +475,22 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                 .distinct()
                 .limit(20)
                 .toList();
+    }
+
+    private void publishWorkspaceMemberEvent(UUID workspaceId, String eventType, Map<String, Object> payload) {
+        webSocketService.sendToWorkspace(workspaceId.toString(), eventType, payload);
+    }
+
+    private void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+            return;
+        }
+        action.run();
     }
 }

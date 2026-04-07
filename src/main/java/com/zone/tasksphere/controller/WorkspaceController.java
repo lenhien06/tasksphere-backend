@@ -5,6 +5,7 @@ import com.zone.tasksphere.dto.request.UpdateMemberSkillsRequest;
 import com.zone.tasksphere.dto.request.UpdateWorkspaceRequest;
 import com.zone.tasksphere.dto.request.WorkspaceInviteMemberRequest;
 import com.zone.tasksphere.dto.response.ApiResponse;
+import com.zone.tasksphere.dto.response.UserProfileResponse;
 import com.zone.tasksphere.dto.response.WorkspaceInviteResponse;
 import com.zone.tasksphere.dto.response.WorkspaceMemberResponse;
 import com.zone.tasksphere.dto.response.WorkspaceResponse;
@@ -125,6 +126,20 @@ public class WorkspaceController {
     public ResponseEntity<ApiResponse<List<WorkspaceMemberResponse>>> getMembers(@PathVariable UUID wsId) {
         List<WorkspaceMemberResponse> members = workspaceService.getMembers(wsId);
         return ResponseEntity.ok(ApiResponse.success(members));
+    }
+
+    @Operation(summary = "Xem profile của một thành viên trong workspace")
+    @GetMapping("/{wsId}/members/{userId}/profile")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<UserProfileResponse>> getMemberProfile(
+            @PathVariable UUID wsId,
+            @PathVariable UUID userId) {
+
+        UserDetail currentUser = AuthUtils.getUserDetail();
+        if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
+        UserProfileResponse response = workspaceService.getMemberProfile(wsId, userId, currentUser.getId());
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     @Operation(summary = "Cập nhật skill của thành viên")
