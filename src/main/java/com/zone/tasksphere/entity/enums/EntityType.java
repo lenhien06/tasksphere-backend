@@ -24,6 +24,9 @@ public enum EntityType {
     @Schema(description = "Thành viên")
     MEMBER("Thành viên"),
 
+    @Schema(description = "Workspace")
+    WORKSPACE("Workspace"),
+
     @Schema(description = "Người dùng")
     USER("Người dùng");
 

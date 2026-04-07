@@ -27,6 +27,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -146,6 +147,7 @@ public class ProjectMemberService {
                 .orElseThrow(() -> new NotFoundException("Dự án không tồn tại"));
 
         User actor = requireInviteManager(projectId, actorId);
+        List<String> sanitizedSkills = sanitizeSkillTags(request.getSkillTags());
 
         if (request.getRole() != ProjectRole.MEMBER && request.getRole() != ProjectRole.VIEWER) {
             throw new BadRequestException("Role mời qua email chỉ được là MEMBER hoặc VIEWER");
@@ -180,6 +182,7 @@ public class ProjectMemberService {
                 .status(InviteStatus.PENDING)
                 .expiresAt(Instant.now().plus(INVITE_EXPIRES_HOURS, ChronoUnit.HOURS))
                 .inviteeUser(inviteeOpt.orElse(null))
+                .skillTags(sanitizedSkills.isEmpty() ? null : sanitizedSkills)
                 .build();
         invite = projectInviteRepository.save(invite);
 
@@ -269,6 +272,7 @@ public class ProjectMemberService {
                 .projectRole(invite.getProjectRole())
                 .joinedAt(Instant.now())
                 .invitedBy(invite.getInvitedBy().getId())
+                .skillTags(invite.getSkillTags())
                 .build();
         projectMemberRepository.save(newMember);
         reportService.invalidateOverviewCache(invite.getProject().getId());
@@ -607,6 +611,7 @@ public class ProjectMemberService {
                 .projectRole(invite.getProjectRole())
                 .joinedAt(Instant.now())
                 .invitedBy(invite.getInvitedBy().getId())
+                .skillTags(invite.getSkillTags())
                 .build();
         projectMemberRepository.save(newMember);
         reportService.invalidateOverviewCache(invite.getProject().getId());
@@ -637,6 +642,18 @@ public class ProjectMemberService {
                     "Chỉ PM hoặc Admin mới có quyền thao tác lời mời.");
         }
         return actor;
+    }
+
+    private List<String> sanitizeSkillTags(List<String> skillTags) {
+        if (skillTags == null) {
+            return Collections.emptyList();
+        }
+        return skillTags.stream()
+                .map(tag -> tag == null ? "" : tag.trim())
+                .filter(tag -> !tag.isBlank())
+                .distinct()
+                .limit(20)
+                .toList();
     }
 
     private void logActivity(UUID projectId, UUID actorId, EntityType entityType, UUID entityId,

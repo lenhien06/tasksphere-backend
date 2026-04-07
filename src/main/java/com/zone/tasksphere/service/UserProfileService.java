@@ -1,6 +1,7 @@
 package com.zone.tasksphere.service;
 
 import com.zone.tasksphere.dto.request.UpdateUserProfileRequest;
+import com.zone.tasksphere.dto.response.InviteePreviewResponse;
 import com.zone.tasksphere.dto.response.UserProfileResponse;
 import com.zone.tasksphere.entity.ProjectMember;
 import com.zone.tasksphere.entity.User;
@@ -51,6 +52,33 @@ public class UserProfileService {
                 .workCapacityHours(user.getWorkCapacityHours() != null ? user.getWorkCapacityHours() : 40)
                 .participatedProjects(projects)
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public InviteePreviewResponse getInviteePreview(String email) {
+        String normalizedEmail = email == null ? "" : email.trim().toLowerCase();
+        if (normalizedEmail.isBlank()) {
+            return InviteePreviewResponse.builder()
+                    .email(normalizedEmail)
+                    .existsInSystem(false)
+                    .skillTags(Collections.emptyList())
+                    .build();
+        }
+
+        return userRepository.findByEmail(normalizedEmail)
+                .map(user -> InviteePreviewResponse.builder()
+                        .email(normalizedEmail)
+                        .existsInSystem(true)
+                        .userId(user.getId())
+                        .fullName(user.getFullName())
+                        .avatarUrl(user.getAvatarUrl())
+                        .skillTags(user.getSkillTags() != null ? user.getSkillTags() : Collections.emptyList())
+                        .build())
+                .orElseGet(() -> InviteePreviewResponse.builder()
+                        .email(normalizedEmail)
+                        .existsInSystem(false)
+                        .skillTags(Collections.emptyList())
+                        .build());
     }
 
     @Transactional

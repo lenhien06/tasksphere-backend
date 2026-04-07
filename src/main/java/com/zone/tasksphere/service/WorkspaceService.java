@@ -4,6 +4,7 @@ import com.zone.tasksphere.dto.request.CreateWorkspaceRequest;
 import com.zone.tasksphere.dto.request.UpdateWorkspaceRequest;
 import com.zone.tasksphere.dto.request.WorkspaceInviteMemberRequest;
 import com.zone.tasksphere.dto.request.UpdateMemberSkillsRequest;
+import com.zone.tasksphere.dto.response.WorkspaceInviteResponse;
 import com.zone.tasksphere.dto.response.WorkspaceMemberResponse;
 import com.zone.tasksphere.dto.response.WorkspaceResponse;
 
@@ -22,7 +23,7 @@ public interface WorkspaceService {
 
     void deleteWorkspace(UUID workspaceId, UUID requesterId);
 
-    WorkspaceMemberResponse inviteMember(UUID workspaceId, WorkspaceInviteMemberRequest request, UUID inviterId);
+    WorkspaceInviteResponse inviteMember(UUID workspaceId, WorkspaceInviteMemberRequest request, UUID inviterId);
 
     List<WorkspaceMemberResponse> getMembers(UUID workspaceId);
 

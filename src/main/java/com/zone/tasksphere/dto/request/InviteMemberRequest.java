@@ -7,6 +7,8 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.util.List;
+
 @Data
 @Schema(description = "Invite Member Request")
 public class InviteMemberRequest {
@@ -18,4 +20,7 @@ public class InviteMemberRequest {
     @NotNull(message = "Role không được để trống")
     @Schema(description = "Role", example = "example")
     private ProjectRole role;
+
+    @Schema(description = "Skill tags override cho member trong project. Nếu null/rỗng thì dùng skill profile của user khi có.", example = "[\"Java\", \"React\"]")
+    private List<String> skillTags;
 }

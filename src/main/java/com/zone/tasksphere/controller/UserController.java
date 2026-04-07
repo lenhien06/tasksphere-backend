@@ -4,10 +4,12 @@ import com.zone.tasksphere.dto.request.CreateUserRequest;
 import com.zone.tasksphere.dto.request.NotifPrefsRequest;
 import com.zone.tasksphere.dto.request.UpdateProfileRequest;
 import com.zone.tasksphere.dto.response.ApiResponse;
+import com.zone.tasksphere.dto.response.InviteePreviewResponse;
 import com.zone.tasksphere.dto.response.NotificationPreferencesResponse;
 import com.zone.tasksphere.dto.response.PageResponse;
 import com.zone.tasksphere.dto.response.UserDetail;
 import com.zone.tasksphere.entity.enums.UserStatus;
+import com.zone.tasksphere.service.UserProfileService;
 import com.zone.tasksphere.service.UserService;
 import com.zone.tasksphere.utils.AuthUtils;
 import io.swagger.v3.oas.annotations.Operation;
@@ -32,6 +34,7 @@ import java.util.UUID;
 public class UserController {
 
     private final UserService userService;
+    private final UserProfileService userProfileService;
 
     @Operation(
         summary = "[Admin] Danh sách tất cả user",
@@ -82,6 +85,17 @@ public class UserController {
     public ResponseEntity<ApiResponse<UserDetail>> getMyProfile() {
         UserDetail currentUser = AuthUtils.getUserDetail();
         return ResponseEntity.ok(ApiResponse.success(currentUser));
+    }
+
+    @Operation(
+        summary = "Preview người được mời theo email",
+        description = "Trả về avatar, tên và skill profile nếu email đã có tài khoản trong hệ thống.",
+        security = @SecurityRequirement(name = "bearerAuth")
+    )
+    @GetMapping("/invite-preview")
+    public ResponseEntity<ApiResponse<InviteePreviewResponse>> getInvitePreview(
+            @RequestParam String email) {
+        return ResponseEntity.ok(ApiResponse.success(userProfileService.getInviteePreview(email)));
     }
 
     @Operation(

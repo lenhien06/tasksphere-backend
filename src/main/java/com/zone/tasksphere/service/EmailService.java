@@ -20,6 +20,8 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 /** Email service for transactional emails (OTP, welcome, password reset). */
@@ -82,7 +84,7 @@ public class EmailService {
         // Người chưa có TK → trang invite để xem chi tiết rồi đăng ký/đăng nhập & chấp nhận
         // Người đã có TK   → thẳng vào trang dự án
         String inviteLink = hasInviteToken
-                ? frontendUrl + "/invite?token=" + token
+                ? frontendUrl + "/invites/" + token
                 : frontendUrl + "/projects/" + projectId;
 
         Context context = createEmailContext();
@@ -100,6 +102,36 @@ public class EmailService {
             String simpleMessage = hasInviteToken
                     ? "Bạn nhận được lời mời tham gia dự án " + projectName + " từ " + inviterName + ". Xem tại: " + inviteLink
                     : "Bạn đã được thêm vào dự án " + projectName + " bởi " + inviterName + ". Truy cập tại: " + inviteLink;
+            sendSimpleEmail(toEmail, subject, simpleMessage);
+        }
+    }
+
+    @Async
+    public void sendWorkspaceInviteEmail(String toEmail, String workspaceName, String inviterName,
+                                         String workspaceRole, boolean existingUser, String workspaceSlug) {
+        String subject = existingUser
+                ? "Bạn đã được thêm vào workspace " + workspaceName
+                : inviterName + " mời bạn tham gia workspace " + workspaceName + " trên TaskSphere";
+
+        String targetLink = existingUser
+                ? frontendUrl + "/ws/" + workspaceSlug
+                : frontendUrl + "/signup?email=" + URLEncoder.encode(toEmail, StandardCharsets.UTF_8);
+
+        Context context = createEmailContext();
+        context.setVariable("workspaceName", workspaceName);
+        context.setVariable("inviterName", inviterName);
+        context.setVariable("workspaceRole", workspaceRole);
+        context.setVariable("workspaceLink", targetLink);
+        context.setVariable("isExistingUser", existingUser);
+
+        try {
+            String htmlContent = templateEngine.process("emails/workspace-invite-email", context);
+            sendWithRetryAsync(toEmail, subject, htmlContent);
+        } catch (Exception e) {
+            log.error("Lỗi khi xử lý template email mời workspace: {}", e.getMessage());
+            String simpleMessage = existingUser
+                    ? "Bạn đã được thêm vào workspace " + workspaceName + " bởi " + inviterName + ". Truy cập tại: " + targetLink
+                    : "Bạn được mời tham gia workspace " + workspaceName + " bởi " + inviterName + ". Đăng ký tại: " + targetLink;
             sendSimpleEmail(toEmail, subject, simpleMessage);
         }
     }

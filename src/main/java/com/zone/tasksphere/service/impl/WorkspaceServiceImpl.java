@@ -4,12 +4,15 @@ import com.zone.tasksphere.dto.request.CreateWorkspaceRequest;
 import com.zone.tasksphere.dto.request.UpdateMemberSkillsRequest;
 import com.zone.tasksphere.dto.request.UpdateWorkspaceRequest;
 import com.zone.tasksphere.dto.request.WorkspaceInviteMemberRequest;
+import com.zone.tasksphere.dto.response.WorkspaceInviteResponse;
 import com.zone.tasksphere.dto.response.WorkspaceMemberResponse;
 import com.zone.tasksphere.dto.response.WorkspaceResponse;
 import com.zone.tasksphere.entity.User;
 import com.zone.tasksphere.entity.Workspace;
 import com.zone.tasksphere.entity.WorkspaceMember;
 import com.zone.tasksphere.entity.WorkspaceMemberId;
+import com.zone.tasksphere.entity.enums.EntityType;
+import com.zone.tasksphere.entity.enums.NotificationType;
 import com.zone.tasksphere.entity.enums.WorkspaceRole;
 import com.zone.tasksphere.entity.enums.WorkspaceType;
 import com.zone.tasksphere.exception.BadRequestException;
@@ -20,6 +23,8 @@ import com.zone.tasksphere.repository.ProjectRepository;
 import com.zone.tasksphere.repository.UserRepository;
 import com.zone.tasksphere.repository.WorkspaceMemberRepository;
 import com.zone.tasksphere.repository.WorkspaceRepository;
+import com.zone.tasksphere.service.EmailService;
+import com.zone.tasksphere.service.NotificationService;
 import com.zone.tasksphere.service.WorkspaceService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +32,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -42,6 +48,8 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final UserRepository userRepository;
     private final ProjectRepository projectRepository;
+    private final EmailService emailService;
+    private final NotificationService notificationService;
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Workspace CRUD
@@ -161,7 +169,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
 
     @Override
     @Transactional
-    public WorkspaceMemberResponse inviteMember(UUID workspaceId,
+    public WorkspaceInviteResponse inviteMember(UUID workspaceId,
                                                 WorkspaceInviteMemberRequest request,
                                                 UUID inviterId) {
         Workspace ws = getWorkspaceOrThrow(workspaceId);
@@ -172,34 +180,80 @@ public class WorkspaceServiceImpl implements WorkspaceService {
             throw new BadRequestException("Không thể mời thành viên với vai trò OWNER");
         }
 
-        Optional<User> userOpt = userRepository.findByEmail(request.getEmail());
-        if (userOpt.isEmpty()) {
-            throw new NotFoundException("Không tìm thấy người dùng với email này");
+        String normalizedEmail = request.getEmail().trim().toLowerCase();
+        List<String> sanitizedSkills = sanitizeSkillTags(request.getSkillTags());
+
+        User inviter = userRepository.findById(inviterId)
+                .orElseThrow(() -> new NotFoundException("Người mời không tồn tại"));
+        String inviterName = inviter.getFullName() != null && !inviter.getFullName().isBlank()
+                ? inviter.getFullName()
+                : inviter.getEmail();
+
+        Optional<User> userOpt = userRepository.findByEmail(normalizedEmail);
+        if (userOpt.isPresent()) {
+            User invitee = userOpt.get();
+            UUID inviteeId = invitee.getId();
+
+            if (workspaceMemberRepository.existsByIdWorkspaceIdAndIdUserId(workspaceId, inviteeId)) {
+                ConflictException ex = new ConflictException();
+                ex.setMessage("Người dùng đã là thành viên của workspace này");
+                throw ex;
+            }
+
+            WorkspaceMember member = WorkspaceMember.builder()
+                    .id(new WorkspaceMemberId(workspaceId, inviteeId))
+                    .workspace(ws)
+                    .user(invitee)
+                    .role(request.getRole())
+                    .skillTags(sanitizedSkills.isEmpty() ? null : sanitizedSkills)
+                    .invitedBy(inviterId)
+                    .joinedAt(Instant.now())
+                    .build();
+
+            workspaceMemberRepository.save(member);
+            notificationService.createNotification(
+                    invitee,
+                    NotificationType.PROJECT_INVITED,
+                    "Bạn đã được thêm vào workspace",
+                    "Bạn đã được thêm vào workspace " + ws.getName() + " với vai trò " + request.getRole().name(),
+                    EntityType.WORKSPACE.name(),
+                    ws.getId()
+            );
+            emailService.sendWorkspaceInviteEmail(
+                    invitee.getEmail(),
+                    ws.getName(),
+                    inviterName,
+                    request.getRole().name(),
+                    true,
+                    ws.getSlug()
+            );
+
+            log.info("User {} added to workspace {} as {}", inviteeId, workspaceId, request.getRole());
+            return WorkspaceInviteResponse.builder()
+                    .email(invitee.getEmail())
+                    .role(request.getRole())
+                    .existingUser(true)
+                    .addedToWorkspace(true)
+                    .status("active")
+                    .build();
         }
 
-        User invitee = userOpt.get();
-        UUID inviteeId = invitee.getId();
-
-        if (workspaceMemberRepository.existsByIdWorkspaceIdAndIdUserId(workspaceId, inviteeId)) {
-            ConflictException ex = new ConflictException();
-            ex.setMessage("Người dùng đã là thành viên của workspace này");
-            throw ex;
-        }
-
-        WorkspaceMember member = WorkspaceMember.builder()
-                .id(new WorkspaceMemberId(workspaceId, inviteeId))
-                .workspace(ws)
-                .user(invitee)
+        emailService.sendWorkspaceInviteEmail(
+                normalizedEmail,
+                ws.getName(),
+                inviterName,
+                request.getRole().name(),
+                false,
+                ws.getSlug()
+        );
+        log.info("Invitation email sent to external address {} for workspace {}", normalizedEmail, workspaceId);
+        return WorkspaceInviteResponse.builder()
+                .email(normalizedEmail)
                 .role(request.getRole())
-                .skillTags(request.getSkillTags())
-                .invitedBy(inviterId)
-                .joinedAt(Instant.now())
+                .existingUser(false)
+                .addedToWorkspace(false)
+                .status("pending")
                 .build();
-
-        workspaceMemberRepository.save(member);
-        log.info("User {} added to workspace {} as {}", inviteeId, workspaceId, request.getRole());
-
-        return toMemberResponse(member, invitee);
     }
 
     @Override
@@ -348,16 +402,31 @@ public class WorkspaceServiceImpl implements WorkspaceService {
     }
 
     private WorkspaceMemberResponse toMemberResponse(WorkspaceMember member, User user) {
+        List<String> effectiveSkills = member.getSkillTags() != null && !member.getSkillTags().isEmpty()
+                ? member.getSkillTags()
+                : (user.getSkillTags() != null ? user.getSkillTags() : Collections.emptyList());
         return WorkspaceMemberResponse.builder()
                 .userId(user.getId())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
                 .avatarUrl(user.getAvatarUrl())
                 .role(member.getRole())
-                .skillTags(member.getSkillTags())
+                .skillTags(effectiveSkills)
                 .activeTaskCount(member.getActiveTaskCount())
                 .avgStoryPoints(member.getAvgStoryPoints())
                 .joinedAt(member.getJoinedAt())
                 .build();
+    }
+
+    private List<String> sanitizeSkillTags(List<String> skillTags) {
+        if (skillTags == null) {
+            return Collections.emptyList();
+        }
+        return skillTags.stream()
+                .map(tag -> tag == null ? "" : tag.trim())
+                .filter(tag -> !tag.isBlank())
+                .distinct()
+                .limit(20)
+                .toList();
     }
 }

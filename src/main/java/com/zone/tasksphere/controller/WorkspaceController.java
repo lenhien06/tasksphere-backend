@@ -5,6 +5,7 @@ import com.zone.tasksphere.dto.request.UpdateMemberSkillsRequest;
 import com.zone.tasksphere.dto.request.UpdateWorkspaceRequest;
 import com.zone.tasksphere.dto.request.WorkspaceInviteMemberRequest;
 import com.zone.tasksphere.dto.response.ApiResponse;
+import com.zone.tasksphere.dto.response.WorkspaceInviteResponse;
 import com.zone.tasksphere.dto.response.WorkspaceMemberResponse;
 import com.zone.tasksphere.dto.response.WorkspaceResponse;
 import com.zone.tasksphere.dto.response.UserDetail;
@@ -104,16 +105,18 @@ public class WorkspaceController {
     @Operation(summary = "Mời thành viên vào workspace (OWNER hoặc ADMIN)")
     @PostMapping("/{wsId}/members")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<WorkspaceMemberResponse>> inviteMember(
+    public ResponseEntity<ApiResponse<WorkspaceInviteResponse>> inviteMember(
             @PathVariable UUID wsId,
             @Valid @RequestBody WorkspaceInviteMemberRequest request) {
 
         UserDetail currentUser = AuthUtils.getUserDetail();
         if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
 
-        WorkspaceMemberResponse response = workspaceService.inviteMember(wsId, request, currentUser.getId());
+        WorkspaceInviteResponse response = workspaceService.inviteMember(wsId, request, currentUser.getId());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(response, "Thành viên đã được thêm vào workspace"));
+                .body(ApiResponse.success(response, response.isAddedToWorkspace()
+                        ? "Thành viên đã được thêm vào workspace và email đã được gửi"
+                        : "Email mời đã được gửi"));
     }
 
     @Operation(summary = "Danh sách thành viên + skill tags")
