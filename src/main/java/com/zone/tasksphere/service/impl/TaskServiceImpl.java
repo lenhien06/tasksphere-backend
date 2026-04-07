@@ -416,10 +416,19 @@ public class TaskServiceImpl implements TaskService {
         task.setTaskStatus(newStatus);
         syncCompletedAt(task, oldStatus, newStatus);
 
-        // Sync statusColumn to the first column mapped to the new status so Kanban grouping stays correct.
-        // Older projects often have only To Do marked as default.
-        columnRepository.findFirstByProjectIdAndMappedStatusOrderBySortOrderAsc(projectId, newStatus)
-            .ifPresent(task::setStatusColumn);
+        if (request.getStatusColumnId() != null) {
+            ProjectStatusColumn requestedColumn = columnRepository.findById(request.getStatusColumnId())
+                .orElseThrow(() -> new NotFoundException("Column not found"));
+            if (!requestedColumn.getProject().getId().equals(projectId)) {
+                throw new BadRequestException("Cột không thuộc dự án hiện tại");
+            }
+            task.setStatusColumn(requestedColumn);
+        } else {
+            // Sync statusColumn to the first column mapped to the new status so Kanban grouping stays correct.
+            // Older projects often have only To Do marked as default.
+            columnRepository.findFirstByProjectIdAndMappedStatusOrderBySortOrderAsc(projectId, newStatus)
+                .ifPresent(task::setStatusColumn);
+        }
 
         task = taskRepository.save(task);
 

@@ -8,6 +8,7 @@ import com.zone.tasksphere.dto.response.TaskStatusChangedResponse;
 import com.zone.tasksphere.dto.response.TimelineViewResponse;
 import com.zone.tasksphere.entity.Project;
 import com.zone.tasksphere.entity.ProjectMember;
+import com.zone.tasksphere.entity.ProjectStatusColumn;
 import com.zone.tasksphere.entity.Task;
 import com.zone.tasksphere.entity.TaskDependency;
 import com.zone.tasksphere.entity.User;
@@ -159,6 +160,52 @@ class TaskServiceImplTest {
         assertThat(blocked.getCompletedAt()).isNotNull();
         verify(taskRepository).save(blocked);
         verify(webSocketService).sendToProject(eq(project.getId().toString()), eq("task.status_changed"), any(TaskStatusChangedResponse.class));
+    }
+
+    @Test
+    void updateStatus_usesRequestedStatusColumnWhenProvided() {
+        Project project = project();
+        User actor = user("member@tasksphere.local");
+        Task task = task(project, actor, "TS-3", "Move me", TaskStatus.TODO);
+
+        ProjectStatusColumn sourceColumn = ProjectStatusColumn.builder()
+                .id(UUID.randomUUID())
+                .project(project)
+                .name("To Do")
+                .mappedStatus(TaskStatus.TODO)
+                .build();
+        ProjectStatusColumn targetColumn = ProjectStatusColumn.builder()
+                .id(UUID.randomUUID())
+                .project(project)
+                .name("In Progress")
+                .mappedStatus(TaskStatus.IN_PROGRESS)
+                .build();
+        task.setStatusColumn(sourceColumn);
+
+        UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
+        request.setStatus(TaskStatus.IN_PROGRESS);
+        request.setStatusColumnId(targetColumn.getId());
+
+        stubObjectMapper();
+
+        when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
+        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
+        when(columnRepository.findById(targetColumn.getId())).thenReturn(Optional.of(targetColumn));
+        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
+            Task saved = invocation.getArgument(0);
+            saved.setUpdatedAt(Instant.parse("2026-03-27T10:00:00Z"));
+            return saved;
+        });
+
+        TaskStatusChangedResponse response = service.updateStatus(project.getId(), task.getId(), request, actor.getId());
+
+        assertThat(task.getTaskStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+        assertThat(task.getStatusColumn()).isEqualTo(targetColumn);
+        assertThat(response.getColumnId()).isEqualTo(targetColumn.getId());
+        verify(columnRepository, never()).findFirstByProjectIdAndMappedStatusOrderBySortOrderAsc(any(), any());
+        verify(taskRepository).save(task);
     }
 
     @Test
