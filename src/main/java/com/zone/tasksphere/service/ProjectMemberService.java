@@ -17,7 +17,6 @@ import com.zone.tasksphere.exception.Forbidden;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -28,7 +27,6 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -49,12 +47,6 @@ public class ProjectMemberService {
     private final ActivityLogService activityLogService;
     private final com.zone.tasksphere.repository.TaskRepository taskRepository;
     private final ReportService reportService;
-
-    @Value("${app.membership.max-members-per-project:50}")
-    private int maxMembersPerProject;
-
-    @Value("${app.membership.subscription-plan:FREE}")
-    private String subscriptionPlan;
 
     // =========================================================================
     // 1. LẤY DANH SÁCH THÀNH VIÊN
@@ -160,9 +152,6 @@ public class ProjectMemberService {
         }
 
         String email = request.getEmail().trim().toLowerCase();
-
-        // BR-12: chặn mời khi đã chạm ngưỡng thành viên + pending invite.
-        ensureMemberLimitNotExceeded(projectId);
 
         Optional<User> inviteeOpt = userRepository.findByEmail(email);
         if (inviteeOpt.isPresent()) {
@@ -648,26 +637,6 @@ public class ProjectMemberService {
                     "Chỉ PM hoặc Admin mới có quyền thao tác lời mời.");
         }
         return actor;
-    }
-
-    private void ensureMemberLimitNotExceeded(UUID projectId) {
-        if (maxMembersPerProject <= 0) {
-            return;
-        }
-        long activeMembers = projectMemberRepository.countByProjectId(projectId);
-        long pendingInvites = projectInviteRepository.findByProjectIdAndStatus(projectId, InviteStatus.PENDING).size();
-        if (activeMembers + pendingInvites >= maxMembersPerProject) {
-            throw new StructuredApiException(
-                    HttpStatus.UNPROCESSABLE_ENTITY,
-                    "MEMBER_LIMIT_EXCEEDED",
-                    "Đã đạt giới hạn thành viên theo gói dịch vụ hiện tại",
-                    Map.of(
-                            "currentCount", activeMembers + pendingInvites,
-                            "limit", maxMembersPerProject,
-                            "plan", subscriptionPlan
-                    )
-            );
-        }
     }
 
     private void logActivity(UUID projectId, UUID actorId, EntityType entityType, UUID entityId,

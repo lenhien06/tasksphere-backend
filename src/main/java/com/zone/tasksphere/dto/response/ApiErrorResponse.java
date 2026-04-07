@@ -20,7 +20,7 @@ import java.util.Map;
 @Schema(description = "Structured API error")
 public class ApiErrorResponse {
 
-    @Schema(description = "Mã lỗi ổn định cho FE", example = "MEMBER_LIMIT_EXCEEDED")
+    @Schema(description = "Mã lỗi ổn định cho FE", example = "ALREADY_MEMBER")
     private String error;
 
     @Schema(description = "Thông báo hiển thị cho người dùng")
