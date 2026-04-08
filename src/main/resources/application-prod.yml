@@ -124,14 +124,17 @@ security:
     expiry-time-in-seconds: 3600
     refreshable-duration: 604800
     algorithm: HS512
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
 
 # ─── App Configuration ─────────────────────────────────────────────────────
 app:
   cors:
     allowed-origins: "https://tasksphere.io.vn,https://www.tasksphere.io.vn,https://app.tasksphere.io.vn"
   turnstile:
-    secret-key: 1x4AARBVgUuFe_Z-6A59RjeLycvBNNOxTw6q0NfLFYU
-    url: "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+    enabled: ${TURNSTILE_ENABLED:true}
+    secret-key: ${TURNSTILE_SECRET_KEY:}
+    url: ${TURNSTILE_VERIFY_URL:https://challenges.cloudflare.com/turnstile/v0/siteverify}
   cookie:
     secure: true
     same-site: Strict

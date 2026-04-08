@@ -56,6 +56,14 @@ public class User extends BaseEntity {
     private String avatarUrl;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "auth_provider")
+    @Builder.Default
+    private AuthProvider authProvider = AuthProvider.LOCAL;
+
+    @Column(name = "google_subject", length = 255)
+    private String googleSubject;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "system_role", nullable = false)
     @Builder.Default
     private SystemRole systemRole = SystemRole.USER;

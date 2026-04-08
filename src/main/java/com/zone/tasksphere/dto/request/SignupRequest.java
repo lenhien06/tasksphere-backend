@@ -39,6 +39,10 @@ public class SignupRequest {
     @Schema(description = "Invite token", example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
     private String inviteToken;
 
+    @NotBlank(message = "Vui lòng hoàn tất xác minh bảo mật")
+    @Schema(description = "Cloudflare Turnstile token", example = "0.xxxxxxxxxxxxx")
+    private String turnstileToken;
+
     @AssertTrue(message = "{ERROR_ACCEPT_TERMS}")
     @Schema(description = "Accept terms", example = "true")
     private boolean acceptTerms;

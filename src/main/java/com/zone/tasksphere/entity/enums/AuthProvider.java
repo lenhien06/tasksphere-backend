@@ -6,7 +6,8 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum AuthProvider {
-    LOCAL("Local");
+    LOCAL("Local"),
+    GOOGLE("Google");
 
     private final String displayName;
 }

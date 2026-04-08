@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -15,20 +16,32 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class CaptchaService {
 
-    @Value("${app.turnstile.secret-key}")
+    @Value("${app.turnstile.enabled:true}")
+    private boolean enabled;
+
+    @Value("${app.turnstile.secret-key:}")
     private String secretKey;
 
-    @Value("${app.turnstile.url}")
+    @Value("${app.turnstile.url:https://challenges.cloudflare.com/turnstile/v0/siteverify}")
     private String verifyUrl;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
     public boolean verifyCaptcha(String token, HttpServletRequest servletRequest) {
+        if (!enabled) {
+            return true;
+        }
+
+        if (secretKey == null || secretKey.isBlank()) {
+            log.warn("Turnstile verification is enabled but no secret key is configured.");
+            return false;
+        }
 
         if (token == null || token.isBlank()) {
-            System.out.println("CAPTCHA TOKEN NULL");
+            log.warn("Turnstile token is missing.");
             return false;
         }
 
@@ -54,16 +67,14 @@ public class CaptchaService {
                     TurnstileResponse.class
             );
         } catch (Exception e) {
-            System.out.println("CAPTCHA REQUEST FAILED: " + e.getMessage());
+            log.error("Turnstile verification request failed: {}", e.getMessage(), e);
             return false;
         }
-
-        System.out.println("TURNSTILE RESPONSE = " + response);
 
         if (response == null) return false;
 
         if (!response.success) {
-            System.out.println("CAPTCHA ERROR CODES = " + response.errorCodes);
+            log.warn("Turnstile verification failed with error codes: {}", response.errorCodes);
         }
 
         return response.success;

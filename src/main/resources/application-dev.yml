@@ -82,6 +82,8 @@ security:
     issuer: tasksphere-dev
     expiry-time-in-seconds: 3600
     refreshable-duration: 604800
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
 
 # ─── MinIO (local dev) ───────────────────────────────────────────────────────
 minio:
@@ -96,8 +98,9 @@ app:
   cors:
     allowed-origins: "http://localhost:3000,http://localhost:5173,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:5173"
   turnstile:
-    secret-key: 1x0000000000000000000000000000000AA
-    url: "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+    enabled: ${TURNSTILE_ENABLED:true}
+    secret-key: ${TURNSTILE_SECRET_KEY:1x0000000000000000000000000000000AA}
+    url: ${TURNSTILE_VERIFY_URL:https://challenges.cloudflare.com/turnstile/v0/siteverify}
   cookie:
     secure: false
     same-site: Lax

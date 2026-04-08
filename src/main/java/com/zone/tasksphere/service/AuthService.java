@@ -5,6 +5,8 @@ import com.zone.tasksphere.dto.request.*;
 import com.zone.tasksphere.entity.*;
 import com.zone.tasksphere.entity.enums.*;
 import com.zone.tasksphere.event.ActivityLogEvent;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zone.tasksphere.exception.*;
 import com.zone.tasksphere.repository.*;
 import com.zone.tasksphere.security.*;
@@ -12,15 +14,21 @@ import com.zone.tasksphere.utils.JwtUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -38,6 +46,8 @@ public class AuthService {
     private final ProjectMemberService projectMemberService;
     private final WorkspaceService workspaceService;
     private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
+    private final CaptchaService captchaService;
 
     private static final String ROLE_USER = "USER";
     private static final String OTP_PREFIX = "auth:otp:";
@@ -48,12 +58,18 @@ public class AuthService {
     // FIX: Bug3 - Multi-tab race condition: track recently-used refresh tokens
     private static final String REUSED_REFRESH_PREFIX = "reused_refresh:";
     private static final long REUSED_REFRESH_TTL_SECONDS = 120; // 30 → 120s: đủ cho multi-tab race condition
+    private static final OkHttpClient HTTP_CLIENT = new OkHttpClient();
+    private static final String GOOGLE_TOKEN_INFO_URL = "https://oauth2.googleapis.com/tokeninfo?id_token=";
+
+    @Value("${security.google.client-id:}")
+    private String googleClientId;
 
     // =========================================================
     // 1. THÊM LẠI HÀM GỬI MÃ OTP
     // =========================================================
     @Transactional
-    public void sendRegistrationOtp(String email) {
+    public void sendRegistrationOtp(String email, String turnstileToken, HttpServletRequest httpRequest) {
+        validateTurnstileOrThrow(turnstileToken, httpRequest);
         if (userRepository.existsByEmail(email)) {
             throw new ConflictException("Email này đã được đăng ký hệ thống");
         }
@@ -117,6 +133,7 @@ public class AuthService {
     // =========================================================
     @Transactional
     public AuthResponse signup(SignupRequest request, HttpServletRequest httpServletRequest) {
+        validateTurnstileOrThrow(request.getTurnstileToken(), httpServletRequest);
 
         String email = request.getEmail().trim();
         String savedOtp = (String) redisTemplate.opsForValue().get(OTP_PREFIX + email);
@@ -163,17 +180,18 @@ public class AuthService {
     // =========================================================
     @Transactional
     public AuthResponse login(LoginRequest request, HttpServletRequest httpRequest) {
+        validateTurnstileOrThrow(request.getTurnstileToken(), httpRequest);
 
         String contact = request.getEmail().trim();
 
         User user = userRepository.findByEmail(contact)
                 .orElseThrow(() -> new CustomAuthenticationException("Email hoặc mật khẩu không chính xác"));
 
-        // FIX: BR-02 - Kiểm tra tài khoản bị khóa tạm thời
-        if (user.getLockUntil() != null && user.getLockUntil().isAfter(Instant.now())) {
-            throw new CustomAuthenticationException(
-                "Tài khoản bị tạm khóa do đăng nhập sai nhiều lần. Thử lại sau " + LOCK_DURATION_MINUTES + " phút.");
+        if (user.getPasswordHash() == null || user.getPasswordHash().isBlank()) {
+            throw new CustomAuthenticationException("Tài khoản này sử dụng Google Sign-In. Vui lòng tiếp tục với Google.");
         }
+
+        ensureNotTemporarilyLocked(user);
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             // FIX: BR-02 - Tăng loginAttempts và khóa tài khoản nếu vượt ngưỡng
@@ -210,6 +228,32 @@ public class AuthService {
                 .build());
 
         CustomUserDetail userDetails = (CustomUserDetail) userDetailsService.loadUserByUsername(contact);
+        return buildAuthResponse(userDetails, user);
+    }
+
+    @Transactional
+    public AuthResponse loginWithGoogle(String idToken, String turnstileToken, HttpServletRequest httpRequest) {
+        validateTurnstileOrThrow(turnstileToken, httpRequest);
+        GoogleTokenInfo tokenInfo = verifyGoogleIdToken(idToken);
+        String email = tokenInfo.email().trim().toLowerCase();
+
+        User user = userRepository.findByEmail(email)
+                .map(existing -> syncGoogleUser(existing, tokenInfo))
+                .orElseGet(() -> createGoogleUser(tokenInfo));
+
+        ensureNotTemporarilyLocked(user);
+        checkUserStatus(user);
+
+        eventPublisher.publishEvent(ActivityLogEvent.builder()
+                .actorId(user.getId())
+                .entityType(EntityType.USER)
+                .entityId(user.getId())
+                .action(ActionType.LOGIN)
+                .ipAddress(httpRequest.getRemoteAddr())
+                .userAgent(httpRequest.getHeader("User-Agent"))
+                .build());
+
+        CustomUserDetail userDetails = (CustomUserDetail) userDetailsService.loadUserByUsername(email);
         return buildAuthResponse(userDetails, user);
     }
 
@@ -292,6 +336,126 @@ public class AuthService {
         }
     }
 
+    private void ensureNotTemporarilyLocked(User user) {
+        if (user.getLockUntil() != null && user.getLockUntil().isAfter(Instant.now())) {
+            throw new CustomAuthenticationException(
+                    "Tài khoản bị tạm khóa do đăng nhập sai nhiều lần. Thử lại sau " + LOCK_DURATION_MINUTES + " phút.");
+        }
+    }
+
+    private void validateTurnstileOrThrow(String turnstileToken, HttpServletRequest httpRequest) {
+        if (!captchaService.verifyCaptcha(turnstileToken, httpRequest)) {
+            throw new BadRequestException("Security verification failed. Please try again.");
+        }
+    }
+
+    private User syncGoogleUser(User user, GoogleTokenInfo tokenInfo) {
+        if (user.getGoogleSubject() != null && !user.getGoogleSubject().equals(tokenInfo.sub())) {
+            throw new CustomAuthenticationException("Google account does not match the existing user profile.");
+        }
+
+        user.setGoogleSubject(tokenInfo.sub());
+        if (user.getAuthProvider() == null) {
+            user.setAuthProvider(user.getPasswordHash() == null || user.getPasswordHash().isBlank()
+                    ? AuthProvider.GOOGLE
+                    : AuthProvider.LOCAL);
+        }
+        if (user.getAvatarUrl() == null || user.getAvatarUrl().isBlank()) {
+            user.setAvatarUrl(tokenInfo.picture());
+        }
+        if (user.getFullName() == null || user.getFullName().isBlank()) {
+            user.setFullName(resolveGoogleDisplayName(tokenInfo));
+        }
+        if (user.getEmailVerifiedAt() == null) {
+            user.setEmailVerifiedAt(Instant.now());
+        }
+        if (user.getStatus() == UserStatus.PENDING_VERIFICATION) {
+            user.setStatus(UserStatus.ACTIVE);
+        }
+        return userRepository.save(user);
+    }
+
+    private User createGoogleUser(GoogleTokenInfo tokenInfo) {
+        Role defaultRole = roleRepository.findBySlug(ROLE_USER)
+                .orElseThrow(() -> new BadRequestException("Cấu hình hệ thống lỗi: Role USER chưa được tạo"));
+
+        User newUser = User.builder()
+                .fullName(resolveGoogleDisplayName(tokenInfo))
+                .email(tokenInfo.email().trim().toLowerCase())
+                .passwordHash(null)
+                .status(UserStatus.ACTIVE)
+                .systemRole(SystemRole.USER)
+                .role(defaultRole)
+                .avatarUrl(tokenInfo.picture())
+                .emailVerifiedAt(Instant.now())
+                .authProvider(AuthProvider.GOOGLE)
+                .googleSubject(tokenInfo.sub())
+                .build();
+
+        return userRepository.save(newUser);
+    }
+
+    private String resolveGoogleDisplayName(GoogleTokenInfo tokenInfo) {
+        if (tokenInfo.name() != null && !tokenInfo.name().isBlank()) {
+            return tokenInfo.name().trim();
+        }
+        String email = tokenInfo.email() != null ? tokenInfo.email().trim() : "Google User";
+        int atIndex = email.indexOf('@');
+        String fallback = atIndex > 0 ? email.substring(0, atIndex) : email;
+        return fallback.length() >= 2 ? fallback : "Google User";
+    }
+
+    private GoogleTokenInfo verifyGoogleIdToken(String idToken) {
+        if (googleClientId == null || googleClientId.isBlank()) {
+            throw new BusinessRuleException("Google Sign-In is not configured on the server.");
+        }
+
+        Request request = new Request.Builder()
+                .url(GOOGLE_TOKEN_INFO_URL + URLEncoder.encode(idToken, StandardCharsets.UTF_8))
+                .get()
+                .build();
+
+        try (Response response = HTTP_CLIENT.newCall(request).execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                throw new CustomAuthenticationException("Google token could not be verified.");
+            }
+
+            GoogleTokenInfo tokenInfo = objectMapper.readValue(response.body().string(), GoogleTokenInfo.class);
+            validateGoogleTokenInfo(tokenInfo);
+            return tokenInfo;
+        } catch (CustomAuthenticationException e) {
+            throw e;
+        } catch (IOException e) {
+            log.error("Failed to verify Google token: {}", e.getMessage(), e);
+            throw new BusinessRuleException("Google Sign-In is temporarily unavailable. Please try again.");
+        }
+    }
+
+    private void validateGoogleTokenInfo(GoogleTokenInfo tokenInfo) {
+        if (tokenInfo == null) {
+            throw new CustomAuthenticationException("Google token payload is invalid.");
+        }
+        if (tokenInfo.aud() == null || !googleClientId.equals(tokenInfo.aud())) {
+            throw new CustomAuthenticationException("Google token audience is invalid.");
+        }
+        if (tokenInfo.iss() == null || (!"accounts.google.com".equals(tokenInfo.iss()) && !"https://accounts.google.com".equals(tokenInfo.iss()))) {
+            throw new CustomAuthenticationException("Google token issuer is invalid.");
+        }
+        if (!Boolean.parseBoolean(tokenInfo.emailVerified())) {
+            throw new CustomAuthenticationException("Google account email is not verified.");
+        }
+        if (tokenInfo.email() == null || tokenInfo.email().isBlank() || tokenInfo.sub() == null || tokenInfo.sub().isBlank()) {
+            throw new CustomAuthenticationException("Google account information is incomplete.");
+        }
+        try {
+            if (tokenInfo.exp() != null && Instant.ofEpochSecond(Long.parseLong(tokenInfo.exp())).isBefore(Instant.now().minus(30, ChronoUnit.SECONDS))) {
+                throw new CustomAuthenticationException("Google token has expired.");
+            }
+        } catch (NumberFormatException e) {
+            throw new CustomAuthenticationException("Google token expiry is invalid.");
+        }
+    }
+
     private String generateSmartAvatar(String fullName) {
         if (fullName == null || fullName.isBlank()) return null;
         try {
@@ -301,5 +465,17 @@ public class AuthService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private record GoogleTokenInfo(
+            String sub,
+            String email,
+            String name,
+            String picture,
+            String aud,
+            String iss,
+            String exp,
+            @JsonProperty("email_verified") String emailVerified
+    ) {
     }
 }

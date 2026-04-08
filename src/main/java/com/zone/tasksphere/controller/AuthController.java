@@ -97,6 +97,33 @@ public class AuthController {
     }
 
     @Operation(
+        summary = "Đăng nhập bằng Google",
+        description = """
+            Xác thực người dùng bằng Google ID token.
+
+            **Flow:**
+            - Frontend nhận Google ID token từ Google Identity Services
+            - Backend xác minh token với Google
+            - Nếu email chưa tồn tại, hệ thống tự tạo tài khoản mới
+            - Nếu email đã tồn tại, hệ thống đăng nhập vào tài khoản hiện có
+            """
+    )
+    @PostMapping("/google")
+    public ResponseEntity<ApiResponse<AuthResponse>> loginWithGoogle(
+            @Valid @RequestBody GoogleSigninRequest request,
+            HttpServletRequest httpServletRequest,
+            HttpServletResponse response
+    ) {
+        AuthResponse authResponse = authService.loginWithGoogle(
+                request.getIdToken(),
+                request.getTurnstileToken(),
+                httpServletRequest
+        );
+        cookieUtils.setAuthCookies(response, authResponse.getAccessToken(), authResponse.getRefreshToken());
+        return ResponseEntity.ok(ApiResponse.success(authResponse, "Đăng nhập Google thành công"));
+    }
+
+    @Operation(
         summary = "Đăng ký tài khoản mới",
         description = """
             Tạo tài khoản người dùng mới trong hệ thống.
@@ -126,9 +153,12 @@ public class AuthController {
         description = "Gửi mã OTP 6 số về Email để đăng ký tài khoản"
     )
     @PostMapping("/send-otp")
-    public ResponseEntity<ApiResponse<Void>> sendOtp(@RequestParam String email) {
-        authService.sendRegistrationOtp(email);
-        return ResponseEntity.ok(ApiResponse.success(null, "Mã OTP đã được gửi tới email " + email));
+    public ResponseEntity<ApiResponse<Void>> sendOtp(
+            @Valid @RequestBody SendOtpRequest request,
+            HttpServletRequest httpServletRequest
+    ) {
+        authService.sendRegistrationOtp(request.getEmail(), request.getTurnstileToken(), httpServletRequest);
+        return ResponseEntity.ok(ApiResponse.success(null, "Mã OTP đã được gửi tới email " + request.getEmail()));
     }
 
     @Operation(
