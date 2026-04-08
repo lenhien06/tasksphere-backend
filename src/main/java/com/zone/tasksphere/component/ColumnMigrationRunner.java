@@ -137,6 +137,7 @@ public class ColumnMigrationRunner implements ApplicationRunner {
                     }
                 }
                 boolean isReviewColumn = column.getMappedStatus() == TaskStatus.IN_REVIEW
+                        || column.getMappedStatus() == TaskStatus.READY_FOR_TEST
                         || normalizedName.contains("ready for test")
                         || normalizedName.contains("in review");
                 if (isReviewColumn) {

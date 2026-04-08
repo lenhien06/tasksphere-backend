@@ -891,12 +891,12 @@ public class TaskServiceImpl implements TaskService {
                 .priority(parentTask.getPriority() != null ? parentTask.getPriority() : TaskPriority.MEDIUM)
                 .taskStatus(statusColumn.getMappedStatus() != null ? statusColumn.getMappedStatus() : TaskStatus.TODO)
                 .completedAt(statusColumn.getMappedStatus() == TaskStatus.DONE ? Instant.now() : null)
-                .storyPoints(request.getStoryPoints())
-                .estimatedHours(request.getEstimatedHours())
+                .storyPoints(0)
+                .estimatedHours(null)
                 .skillTagsRequired(request.getSkillTagsRequired())
                 .startDate(scheduledStart)
                 .endDate(scheduledEnd)
-                .dueDate(request.getDueDate())
+                .dueDate(parentTask.getDueDate())
                 .taskPosition(position)
                 .depth(newDepth)
                 .project(parentTask.getProject())
@@ -1881,11 +1881,14 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private boolean canTransitionToDoneFrom(TaskStatus status) {
-        return status == TaskStatus.TESTING || status == TaskStatus.IN_REVIEW;
+        return status == TaskStatus.TESTING
+                || status == TaskStatus.IN_REVIEW
+                || status == TaskStatus.READY_FOR_TEST;
     }
 
     private boolean isQaControlledStage(TaskStatus status) {
-        return status == TaskStatus.IN_REVIEW
+        return status == TaskStatus.READY_FOR_TEST
+                || status == TaskStatus.IN_REVIEW
                 || status == TaskStatus.TESTING
                 || status == TaskStatus.DONE;
     }

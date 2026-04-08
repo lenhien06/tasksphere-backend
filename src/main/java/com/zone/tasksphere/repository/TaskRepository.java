@@ -171,6 +171,7 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
                               SUM(CASE WHEN t.taskStatus = com.zone.tasksphere.entity.enums.TaskStatus.TODO THEN 1 ELSE 0 END),
                               SUM(CASE WHEN t.taskStatus IN (
                                     com.zone.tasksphere.entity.enums.TaskStatus.IN_PROGRESS,
+                                    com.zone.tasksphere.entity.enums.TaskStatus.READY_FOR_TEST,
                                     com.zone.tasksphere.entity.enums.TaskStatus.TESTING,
                                     com.zone.tasksphere.entity.enums.TaskStatus.IN_REVIEW
                                   ) THEN 1 ELSE 0 END)
@@ -514,6 +515,7 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
                               SUM(CASE WHEN t.taskStatus = com.zone.tasksphere.entity.enums.TaskStatus.DONE THEN 1 ELSE 0 END) AS done,
                               SUM(CASE WHEN t.taskStatus IN (
                                   com.zone.tasksphere.entity.enums.TaskStatus.IN_PROGRESS,
+                                  com.zone.tasksphere.entity.enums.TaskStatus.READY_FOR_TEST,
                                   com.zone.tasksphere.entity.enums.TaskStatus.IN_REVIEW
                               ) THEN 1 ELSE 0 END) AS inProgress,
                               SUM(CASE WHEN t.storyPoints IS NOT NULL
