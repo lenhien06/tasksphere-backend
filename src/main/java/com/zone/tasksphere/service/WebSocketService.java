@@ -48,6 +48,20 @@ public class WebSocketService {
         }
     }
 
+    public void sendToProjects(String eventType, Object payload) {
+        try {
+            Map<String, Object> event = Map.of(
+                "type", eventType,
+                "data", payload,
+                "timestamp", Instant.now().toString()
+            );
+            messagingTemplate.convertAndSend("/topic/projects", event);
+            log.debug("[WS] sendToProjects → {}", eventType);
+        } catch (Exception e) {
+            log.warn("[WS] Failed to send to projects topic: {}", e.getMessage());
+        }
+    }
+
     /**
      * Gửi đến 1 user cụ thể (notification, upload status).
      * Client subscribe: /user/queue/notifications

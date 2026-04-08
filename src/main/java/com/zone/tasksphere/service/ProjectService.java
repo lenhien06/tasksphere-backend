@@ -71,6 +71,7 @@ public class ProjectService {
     private final ApplicationEventPublisher eventPublisher;
     private final EmailService emailService;
     private final NotificationService notificationService;
+    private final WebSocketService webSocketService;
     private final DefaultColumnSeeder defaultColumnSeeder;
     private final com.zone.tasksphere.service.impl.MinioStorageService minioStorageService;
     private final EntityManager entityManager;
@@ -272,6 +273,8 @@ public class ProjectService {
         // members=[].
         ProjectResponse response = toResponse(savedProject, ownerId, false);
         response.setMembers(List.of(toProjectMemberResponse(savedMember, owner)));
+        scheduleProjectRealtimeBroadcast("project_created", response,
+                workspace != null ? workspace.getId() : null);
         return response;
     }
 
@@ -387,7 +390,10 @@ public class ProjectService {
         eventPublisher.publishEvent(ActivityLogEvent.builder()
                 .projectId(savedProject.getId()).actorId(actorId).entityType(EntityType.PROJECT)
                 .entityId(savedProject.getId()).action(ActionType.UPDATED).oldValues(oldVal).newValues(newVal).build());
-        return toResponse(savedProject, actorId, isAdmin);
+        ProjectResponse response = toResponse(savedProject, actorId, isAdmin);
+        scheduleProjectRealtimeBroadcast("project_updated", response,
+                savedProject.getWorkspace() != null ? savedProject.getWorkspace().getId() : null);
+        return response;
     }
 
     @Transactional
@@ -452,6 +458,11 @@ public class ProjectService {
                         project.getId());
             }
         });
+
+        scheduleProjectRealtimeBroadcast("project_archived", Map.of(
+                "projectId", project.getId(),
+                "workspaceId", project.getWorkspace() != null ? project.getWorkspace().getId() : null
+        ), project.getWorkspace() != null ? project.getWorkspace().getId() : null);
     }
 
     @Transactional
@@ -718,6 +729,27 @@ public class ProjectService {
         cleanup.run();
     }
 
+    private void scheduleProjectRealtimeBroadcast(String eventType, Object payload, UUID workspaceId) {
+        Runnable publish = () -> {
+            webSocketService.sendToProjects(eventType, payload);
+            if (workspaceId != null) {
+                webSocketService.sendToWorkspace(workspaceId.toString(), eventType, payload);
+            }
+        };
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publish.run();
+                }
+            });
+            return;
+        }
+
+        publish.run();
+    }
+
     @Transactional
     public ProjectResponse restoreProject(UUID projectId) {
         com.zone.tasksphere.dto.response.UserDetail currentUser = AuthUtils.getUserDetail();
@@ -774,7 +806,10 @@ public class ProjectService {
                 .newValues(ProjectStatus.ACTIVE.name())
                 .build());
 
-        return toResponse(restoredProject, actorId, isAdmin);
+        ProjectResponse response = toResponse(restoredProject, actorId, isAdmin);
+        scheduleProjectRealtimeBroadcast("project_restored", response,
+                restoredProject.getWorkspace() != null ? restoredProject.getWorkspace().getId() : null);
+        return response;
     }
 
     /**
