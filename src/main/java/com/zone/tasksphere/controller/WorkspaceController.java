@@ -8,10 +8,12 @@ import com.zone.tasksphere.dto.response.ApiResponse;
 import com.zone.tasksphere.dto.response.UserProfileResponse;
 import com.zone.tasksphere.dto.response.WorkspaceInviteListResponse;
 import com.zone.tasksphere.dto.response.WorkspaceInviteResponse;
+import com.zone.tasksphere.dto.response.WorkspaceHealthMetricsResponse;
 import com.zone.tasksphere.dto.response.WorkspaceMemberResponse;
 import com.zone.tasksphere.dto.response.WorkspaceResponse;
 import com.zone.tasksphere.dto.response.UserDetail;
 import com.zone.tasksphere.entity.enums.InviteStatus;
+import com.zone.tasksphere.service.WorkspaceHealthMetricsService;
 import com.zone.tasksphere.service.WorkspaceService;
 import com.zone.tasksphere.utils.AuthUtils;
 import io.swagger.v3.oas.annotations.Operation;
@@ -39,6 +41,7 @@ import java.util.UUID;
 public class WorkspaceController {
 
     private final WorkspaceService workspaceService;
+    private final WorkspaceHealthMetricsService workspaceHealthMetricsService;
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Workspace CRUD
@@ -77,6 +80,17 @@ public class WorkspaceController {
         UUID userId = currentUser != null ? currentUser.getId() : null;
 
         WorkspaceResponse response = workspaceService.getBySlug(slug, userId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Dashboard sức khỏe của workspace")
+    @GetMapping("/{wsId}/health-metrics")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<WorkspaceHealthMetricsResponse>> getHealthMetrics(@PathVariable UUID wsId) {
+        UserDetail currentUser = AuthUtils.getUserDetail();
+        if (currentUser == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
+        WorkspaceHealthMetricsResponse response = workspaceHealthMetricsService.getHealthMetrics(wsId, currentUser.getId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

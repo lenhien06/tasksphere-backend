@@ -17,6 +17,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.zone.tasksphere.entity.Task;
+import com.zone.tasksphere.entity.enums.TaskPriority;
 import com.zone.tasksphere.entity.enums.TaskStatus;
 
 @Repository
@@ -152,6 +153,134 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
             @Param("today") LocalDate today,
             @Param("toDate") LocalDate toDate,
             Pageable pageable);
+
+    // ── Workspace Health Dashboard ────────────────────────────────────────────
+
+    @Query("""
+                SELECT
+                  COUNT(t),
+                  SUM(CASE WHEN t.taskStatus = com.zone.tasksphere.entity.enums.TaskStatus.DONE THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN t.taskStatus NOT IN (
+                        com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+                        com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+                      ) AND t.dueDate IS NOT NULL AND t.dueDate < CURRENT_DATE THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN t.storyPoints IS NOT NULL THEN t.storyPoints ELSE 0 END),
+                  SUM(CASE WHEN t.storyPoints IS NOT NULL
+                        AND t.taskStatus = com.zone.tasksphere.entity.enums.TaskStatus.DONE
+                      THEN t.storyPoints ELSE 0 END),
+                  SUM(CASE WHEN t.taskStatus = com.zone.tasksphere.entity.enums.TaskStatus.TODO THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN t.taskStatus IN (
+                        com.zone.tasksphere.entity.enums.TaskStatus.IN_PROGRESS,
+                        com.zone.tasksphere.entity.enums.TaskStatus.READY_FOR_TEST,
+                        com.zone.tasksphere.entity.enums.TaskStatus.TESTING,
+                        com.zone.tasksphere.entity.enums.TaskStatus.IN_REVIEW
+                      ) THEN 1 ELSE 0 END)
+                FROM Task t
+                WHERE t.project.workspace.id = :workspaceId
+                  AND t.deletedAt IS NULL
+                  AND t.project.deletedAt IS NULL
+            """)
+    List<Object[]> getWorkspaceHealthSummary(@Param("workspaceId") UUID workspaceId);
+
+    @EntityGraph(attributePaths = { "assignee", "project" })
+    @Query("""
+                SELECT t FROM Task t
+                WHERE t.project.workspace.id = :workspaceId
+                  AND t.deletedAt IS NULL
+                  AND t.project.deletedAt IS NULL
+                  AND t.taskStatus NOT IN (
+                      com.zone.tasksphere.entity.enums.TaskStatus.DONE,
+                      com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+                  )
+                  AND (
+                      (t.dueDate IS NOT NULL AND t.dueDate < :today)
+                      OR t.priority = :criticalPriority
+                  )
+                ORDER BY
+                  CASE WHEN t.dueDate IS NOT NULL AND t.dueDate < :today THEN 0 ELSE 1 END,
+                  CASE WHEN t.priority = :criticalPriority THEN 0 ELSE 1 END,
+                  t.dueDate ASC,
+                  t.updatedAt DESC
+            """)
+    List<Task> findWorkspaceHotspots(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("today") LocalDate today,
+            @Param("criticalPriority") TaskPriority criticalPriority,
+            Pageable pageable);
+
+    @Query(value = """
+                SELECT
+                    t.assignee_id,
+                    COALESCE(SUM(COALESCE(t.story_points, 0) * :hoursPerStoryPoint), 0) AS allocated_hours
+                FROM tasks t
+                JOIN projects p ON p.id = t.project_id
+                WHERE p.workspace_id = :workspaceId
+                  AND p.deleted_at IS NULL
+                  AND t.deleted_at IS NULL
+                  AND t.assignee_id IS NOT NULL
+                  AND t.task_status IN ('TODO', 'IN_PROGRESS')
+                  AND COALESCE(t.start_date, t.due_date, t.end_date) <= :weekEnd
+                  AND COALESCE(t.end_date, t.due_date, t.start_date) >= :weekStart
+                GROUP BY t.assignee_id
+                HAVING COALESCE(SUM(COALESCE(t.story_points, 0) * :hoursPerStoryPoint), 0) > :capacityHours
+                ORDER BY allocated_hours DESC
+            """, nativeQuery = true)
+    List<Object[]> findWorkspaceOverloadedUsers(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("weekStart") LocalDate weekStart,
+            @Param("weekEnd") LocalDate weekEnd,
+            @Param("hoursPerStoryPoint") int hoursPerStoryPoint,
+            @Param("capacityHours") int capacityHours);
+
+    @Query("""
+                SELECT t.project.id, COALESCE(SUM(t.storyPoints), 0)
+                FROM Task t
+                JOIN t.sprint s
+                WHERE t.project.id IN :projectIds
+                  AND s.status = com.zone.tasksphere.entity.enums.SprintStatus.ACTIVE
+                  AND t.deletedAt IS NULL
+                  AND t.project.deletedAt IS NULL
+                  AND t.taskStatus <> com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+                  AND t.storyPoints IS NOT NULL
+                GROUP BY t.project.id
+            """)
+    List<Object[]> sumStoryPointsInActiveSprintsByProjectIds(@Param("projectIds") Collection<UUID> projectIds);
+
+    @Query("""
+                SELECT COALESCE(SUM(t.storyPoints), 0)
+                FROM Task t
+                JOIN t.sprint s
+                WHERE t.project.workspace.id = :workspaceId
+                  AND s.status = com.zone.tasksphere.entity.enums.SprintStatus.ACTIVE
+                  AND t.deletedAt IS NULL
+                  AND t.project.deletedAt IS NULL
+                  AND t.taskStatus <> com.zone.tasksphere.entity.enums.TaskStatus.CANCELLED
+                  AND t.storyPoints IS NOT NULL
+            """)
+    Integer sumWorkspaceActiveSprintStoryPoints(@Param("workspaceId") UUID workspaceId);
+
+    @Query(value = """
+                    SELECT DATE(t.completed_at) as done_date,
+                           SUM(t.story_points) as points
+                    FROM tasks t
+                    JOIN projects p ON p.id = t.project_id
+                    JOIN sprints s ON s.id = t.sprint_id
+                    WHERE p.workspace_id = :workspaceId
+                      AND p.deleted_at IS NULL
+                      AND s.deleted_at IS NULL
+                      AND s.status = 'ACTIVE'
+                      AND t.deleted_at IS NULL
+                      AND t.task_status = 'DONE'
+                      AND t.completed_at IS NOT NULL
+                      AND t.story_points IS NOT NULL
+                      AND t.completed_at BETWEEN :startDate AND :endDate
+                    GROUP BY DATE(t.completed_at)
+                    ORDER BY DATE(t.completed_at)
+            """, nativeQuery = true)
+    List<Object[]> findWorkspaceDonePointsByCompletedAt(
+            @Param("workspaceId") UUID workspaceId,
+            @Param("startDate") Instant startDate,
+            @Param("endDate") Instant endDate);
 
     @Query("""
                 SELECT CASE WHEN COUNT(t) > 0 THEN true ELSE false END FROM Task t

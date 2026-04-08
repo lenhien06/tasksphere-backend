@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -83,6 +84,8 @@ public interface SprintRepository extends JpaRepository<Sprint, UUID> {
 
     /** Kiểm tra sprint ACTIVE đang tồn tại trong project (SPR_003) */
     Optional<Sprint> findByProject_IdAndStatusAndDeletedAtIsNull(UUID projectId, SprintStatus status);
+
+    List<Sprint> findByProject_IdInAndStatusAndDeletedAtIsNull(Collection<UUID> projectIds, SprintStatus status);
 
     List<Sprint> findByStatusAndEndDateBeforeAndDeletedAtIsNull(SprintStatus status, LocalDate date);
 
