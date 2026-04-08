@@ -1882,13 +1882,11 @@ public class TaskServiceImpl implements TaskService {
 
     private boolean canTransitionToDoneFrom(TaskStatus status) {
         return status == TaskStatus.TESTING
-                || status == TaskStatus.IN_REVIEW
-                || status == TaskStatus.READY_FOR_TEST;
+                || status == TaskStatus.IN_REVIEW;
     }
 
     private boolean isQaControlledStage(TaskStatus status) {
-        return status == TaskStatus.READY_FOR_TEST
-                || status == TaskStatus.IN_REVIEW
+        return status == TaskStatus.IN_REVIEW
                 || status == TaskStatus.TESTING
                 || status == TaskStatus.DONE;
     }
