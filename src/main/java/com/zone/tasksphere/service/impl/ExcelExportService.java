@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.ZoneOffset;
 import java.util.List;
 
 @Service
@@ -26,6 +27,7 @@ public class ExcelExportService {
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
             Sheet sheet = wb.createSheet("Tasks - " + project.getProjectKey());
+            sheet.createFreezePane(0, 1);
 
             // Header style
             CellStyle headerStyle = wb.createCellStyle();
@@ -33,56 +35,62 @@ public class ExcelExportService {
             headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
             headerStyle.setBorderBottom(BorderStyle.THIN);
             headerStyle.setAlignment(HorizontalAlignment.CENTER);
+            headerStyle.setVerticalAlignment(VerticalAlignment.CENTER);
 
             Font headerFont = wb.createFont();
+            headerFont.setFontName("Arial");
             headerFont.setColor(IndexedColors.WHITE.getIndex());
             headerFont.setBold(true);
             headerFont.setFontHeightInPoints((short) 11);
             headerStyle.setFont(headerFont);
 
+            CellStyle textStyle = wb.createCellStyle();
+            textStyle.setWrapText(true);
+            textStyle.setVerticalAlignment(VerticalAlignment.TOP);
+            Font textFont = wb.createFont();
+            textFont.setFontName("Arial");
+            textFont.setFontHeightInPoints((short) 10);
+            textStyle.setFont(textFont);
+
             // Header row
             Row headerRow = sheet.createRow(0);
+            headerRow.setHeightInPoints(22);
             for (int i = 0; i < HEADERS.length; i++) {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(HEADERS[i]);
                 cell.setCellStyle(headerStyle);
             }
 
-            // Data rows
-            CellStyle dateCellStyle = wb.createCellStyle();
-            CreationHelper createHelper = wb.getCreationHelper();
-            dateCellStyle.setDataFormat(createHelper.createDataFormat().getFormat("yyyy-mm-dd"));
+            CellStyle numberStyle = wb.createCellStyle();
+            numberStyle.cloneStyleFrom(textStyle);
+            numberStyle.setAlignment(HorizontalAlignment.RIGHT);
 
             int rowNum = 1;
             for (Task task : tasks) {
                 Row row = sheet.createRow(rowNum++);
-                row.createCell(0).setCellValue(task.getTaskCode());
-                row.createCell(1).setCellValue(task.getTitle());
-                row.createCell(2).setCellValue(task.getType() != null ? task.getType().name() : "");
-                row.createCell(3).setCellValue(task.getTaskStatus() != null ? task.getTaskStatus().name() : "");
-                row.createCell(4).setCellValue(task.getPriority() != null ? task.getPriority().name() : "");
-                row.createCell(5).setCellValue(
-                    task.getAssignee() != null ? task.getAssignee().getFullName() : "Unassigned");
-                row.createCell(6).setCellValue(
-                    task.getReporter() != null ? task.getReporter().getFullName() : "");
-                row.createCell(7).setCellValue(
-                    task.getSprint() != null ? task.getSprint().getName() : "Backlog");
-                row.createCell(8).setCellValue(
-                    task.getStoryPoints() != null ? task.getStoryPoints() : 0);
-                row.createCell(9).setCellValue(
-                    task.getDueDate() != null ? task.getDueDate().toString() : "");
-                row.createCell(10).setCellValue(
-                    task.getCreatedAt() != null ? task.getCreatedAt().toString() : "");
-                row.createCell(11).setCellValue(
-                    task.getUpdatedAt() != null ? task.getUpdatedAt().toString() : "");
+                row.setHeightInPoints(20);
+
+                createTextCell(row, 0, task.getTaskCode(), textStyle);
+                createTextCell(row, 1, task.getTitle(), textStyle);
+                createTextCell(row, 2, task.getType() != null ? task.getType().name() : "", textStyle);
+                createTextCell(row, 3, task.getTaskStatus() != null ? task.getTaskStatus().name() : "", textStyle);
+                createTextCell(row, 4, task.getPriority() != null ? task.getPriority().name() : "", textStyle);
+                createTextCell(row, 5, task.getAssignee() != null ? task.getAssignee().getFullName() : "Unassigned", textStyle);
+                createTextCell(row, 6, task.getReporter() != null ? task.getReporter().getFullName() : "", textStyle);
+                createTextCell(row, 7, task.getSprint() != null ? task.getSprint().getName() : "Backlog", textStyle);
+
+                Cell storyPointCell = row.createCell(8);
+                storyPointCell.setCellValue(task.getStoryPoints() != null ? task.getStoryPoints() : 0);
+                storyPointCell.setCellStyle(numberStyle);
+
+                createTextCell(row, 9, task.getDueDate() != null ? task.getDueDate().toString() : "", textStyle);
+                createTextCell(row, 10, task.getCreatedAt() != null ? task.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDateTime().toString() : "", textStyle);
+                createTextCell(row, 11, task.getUpdatedAt() != null ? task.getUpdatedAt().atZone(ZoneOffset.UTC).toLocalDateTime().toString() : "", textStyle);
             }
 
-            // Auto-size columns
+            int[] columnWidths = { 4200, 14000, 4200, 5200, 4800, 7200, 7200, 7200, 4200, 4200, 6200, 6200 };
             for (int i = 0; i < HEADERS.length; i++) {
-                sheet.autoSizeColumn(i);
-                // Cap max width
-                int width = sheet.getColumnWidth(i);
-                if (width > 8000) sheet.setColumnWidth(i, 8000);
+                sheet.setColumnWidth(i, columnWidths[i]);
             }
 
             wb.write(out);
@@ -91,5 +99,11 @@ public class ExcelExportService {
         } catch (IOException e) {
             throw new RuntimeException("Export Excel thất bại: " + e.getMessage(), e);
         }
+    }
+
+    private void createTextCell(Row row, int index, String value, CellStyle style) {
+        Cell cell = row.createCell(index);
+        cell.setCellValue(value != null ? value : "");
+        cell.setCellStyle(style);
     }
 }
