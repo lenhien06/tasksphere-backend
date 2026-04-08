@@ -35,6 +35,7 @@ import java.util.stream.Collectors;
 public class AiService {
 
     private static final int TOP_K = 3;
+    private static final BigDecimal MIN_RECOMMEND_SCORE = new BigDecimal("0.350");
 
     private static final String SYS_GENERATE = """
             Bạn là AI assistant cho hệ thống quản lý dự án Agile/Scrum.
@@ -202,6 +203,7 @@ public class AiService {
 
         // ── Step 2: score (pure Java, no DB) ──────────────────────────────────
         List<Slot> allSlots = new ArrayList<>();
+        Map<UUID, String> noSuggestionReasons = new HashMap<>();
         for (Task task : tasks) {
             List<Slot> ranked = members.stream()
                     .map(pm -> {
@@ -216,21 +218,26 @@ public class AiService {
                     })
                     .sorted(Comparator.comparing(s -> s.score().totalScore(),
                             Comparator.reverseOrder()))
-                    .limit(TOP_K)
                     .collect(Collectors.toList());
-            allSlots.addAll(ranked);
+
+            List<Slot> accepted = filterAcceptedSuggestions(task, ranked);
+            if (accepted.isEmpty()) {
+                noSuggestionReasons.put(task.getId(), buildNoSuggestionReason(task, ranked));
+            }
+            allSlots.addAll(accepted.stream().limit(TOP_K).toList());
         }
 
         // ── Step 3: LLM call — outside any transaction ────────────────────────
         Map<String, String> reasons = fetchReasonsBatch(allSlots);
 
         // ── Step 4: persist in a dedicated short transaction ──────────────────
-        return self.persistSuggestions(projectId, tasks, allSlots, reasons);
+        return self.persistSuggestions(projectId, tasks, allSlots, reasons, noSuggestionReasons);
     }
 
     @Transactional
     public SuggestAssignmentsResponse persistSuggestions(
-            UUID projectId, List<Task> tasks, List<Slot> allSlots, Map<String, String> reasons) {
+            UUID projectId, List<Task> tasks, List<Slot> allSlots, Map<String, String> reasons,
+            Map<UUID, String> noSuggestionReasons) {
 
         Map<UUID, List<Slot>> byTask = allSlots.stream()
                 .collect(Collectors.groupingBy(s -> s.task().getId(),
@@ -285,6 +292,7 @@ public class AiService {
                     .storyPoints(task.getStoryPoints())
                     .skillTagsRequired(task.getSkillTagsRequired() != null
                             ? task.getSkillTagsRequired() : List.of())
+                    .noSuggestionReason(noSuggestionReasons.get(task.getId()))
                     .topSuggestions(memberSuggestions)
                     .build());
         }
@@ -427,6 +435,38 @@ public class AiService {
         List<String> profileSkills = pm.getUser().getSkillTags() != null ? pm.getUser().getSkillTags() : List.of();
         log.debug("[Skill] user={} → profile skill: {}", pm.getUser().getId(), profileSkills);
         return profileSkills;
+    }
+
+    private List<Slot> filterAcceptedSuggestions(Task task, List<Slot> ranked) {
+        if (ranked.isEmpty()) {
+            return List.of();
+        }
+        boolean hasRequiredSkills = task.getSkillTagsRequired() != null && !task.getSkillTagsRequired().isEmpty();
+        return ranked.stream()
+                .filter(slot -> slot.score().totalScore().compareTo(MIN_RECOMMEND_SCORE) >= 0)
+                .filter(slot -> !hasRequiredSkills || slot.score().skillScore().compareTo(new BigDecimal("0.100")) >= 0)
+                .toList();
+    }
+
+    private String buildNoSuggestionReason(Task task, List<Slot> ranked) {
+        if (ranked.isEmpty()) {
+            return "No active project member is available for recommendation right now.";
+        }
+
+        boolean hasRequiredSkills = task.getSkillTagsRequired() != null && !task.getSkillTagsRequired().isEmpty();
+        boolean noSkillMatch = hasRequiredSkills && ranked.stream()
+                .allMatch(slot -> slot.score().skillScore().compareTo(new BigDecimal("0.100")) < 0);
+        if (noSkillMatch) {
+            return "No project member matches the required skill tags for this task.";
+        }
+
+        boolean allOverloaded = ranked.stream()
+                .allMatch(slot -> slot.score().workloadScore().compareTo(new BigDecimal("0.100")) <= 0);
+        if (allOverloaded) {
+            return "All likely assignees are already overloaded, so the system could not recommend a safe owner.";
+        }
+
+        return "The available candidates did not reach the minimum confidence threshold for an assignment recommendation.";
     }
 
     private void requireProject(UUID projectId) {

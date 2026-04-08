@@ -14,6 +14,7 @@ public class TaskAssignmentSuggestion {
     private String taskPriority;
     private Integer storyPoints;
     private List<String> skillTagsRequired;
+    private String noSuggestionReason;
 
     /** Top-3 member suggestions sorted by total_score DESC */
     private List<MemberSuggestion> topSuggestions;

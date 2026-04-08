@@ -63,6 +63,7 @@ public class WorkspaceAiService {
                         - Mỗi sprint 3-6 tasks, không quá nhiều.
                         - Story points: 1-2 (đơn giản), 3-5 (trung bình), 8-13 (phức tạp).
                         - suggestedAssigneeId: chọn userId có skillTags phù hợp nhất với task. Có thể null nếu không ai phù hợp.
+                        - Phân bổ suggestedAssigneeId cân bằng giữa các thành viên, tránh dồn gần hết task cho cùng một người nếu không có lý do rõ ràng.
                         - projectKey: 2-6 ký tự IN HOA từ tên project (VD: PFM, SHOP, HR).
                         - type: "task" | "story" | "bug".
                         - priority: "critical" | "high" | "medium" | "low".
@@ -288,6 +289,7 @@ public class WorkspaceAiService {
 
                 // ── 4. Add selected WS members as MEMBER ─────────────────────────────
                 Map<UUID, User> memberUserMap = new HashMap<>();
+                Map<UUID, WorkspaceMember> workspaceMemberMap = new HashMap<>();
                 if (plan.getMemberIds() != null) {
                         for (String memberId : plan.getMemberIds()) {
                                 try {
@@ -296,6 +298,8 @@ public class WorkspaceAiService {
                                                 continue; // creator already added as PM
                                         userRepository.findById(uid).ifPresent(u -> {
                                                 memberUserMap.put(uid, u);
+                                                workspaceMemberRepository.findByIdWorkspaceIdAndIdUserId(wsId, uid)
+                                                        .ifPresent(wm -> workspaceMemberMap.put(uid, wm));
                                                 projectMemberRepository.save(ProjectMember.builder()
                                                                 .project(saved).user(u)
                                                                 .projectRole(ProjectRole.MEMBER)
@@ -335,26 +339,18 @@ public class WorkspaceAiService {
                         List<GenerateProjectPlanResponse.TaskPlanDto> taskDtos = sprintDto.getTasks() != null
                                         ? sprintDto.getTasks()
                                         : List.of();
+                        List<TaskScheduleWindow> windows = buildTaskScheduleWindows(sprintStart, sprintEnd, taskDtos);
 
-                        for (GenerateProjectPlanResponse.TaskPlanDto taskDto : taskDtos) {
+                        for (int index = 0; index < taskDtos.size(); index++) {
+                                GenerateProjectPlanResponse.TaskPlanDto taskDto = taskDtos.get(index);
+                                TaskScheduleWindow window = windows.get(index);
                                 // Project vừa được tạo trong transaction hiện tại nên chưa visible cho
                                 // TaskCodeGenerator(REQUIRES_NEW). Sinh tuần tự ngay trong transaction này
                                 // để tránh lỗi "Project not found" khi confirm AI plan.
                                 nextTaskCounter++;
                                 String taskCode = String.format("%s-%03d", saved.getProjectKey(), nextTaskCounter);
 
-                                User assignee = null;
-                                if (taskDto.getSuggestedAssigneeId() != null
-                                                && !taskDto.getSuggestedAssigneeId().isBlank()) {
-                                        try {
-                                                UUID assigneeId = UUID.fromString(taskDto.getSuggestedAssigneeId());
-                                                assignee = memberUserMap.get(assigneeId);
-                                                if (assignee == null && assigneeId.equals(creatorId)) {
-                                                        assignee = creator;
-                                                }
-                                        } catch (IllegalArgumentException ignored) {
-                                                /* LLM returned bad UUID */ }
-                                }
+                                User assignee = resolveSuggestedAssignee(taskDto, creatorId, creator, memberUserMap, workspaceMemberMap);
 
                                 Task task = Task.builder()
                                                 .project(saved)
@@ -368,8 +364,9 @@ public class WorkspaceAiService {
                                                 .priority(safePriority(taskDto.getPriority()))
                                                 .storyPoints(taskDto.getStoryPoints() > 0 ? taskDto.getStoryPoints()
                                                                 : 3)
-                                                .startDate(sprintStart)
-                                                .dueDate(sprintEnd)
+                                                .startDate(window.startDate())
+                                                .endDate(window.endDate())
+                                                .dueDate(window.dueDate())
                                                 .skillTagsRequired(taskDto.getSkillTagsRequired())
                                                 .aiGenerated(true)
                                                 .reporter(creator)
@@ -513,6 +510,93 @@ public class WorkspaceAiService {
                                         id, wm.getUser().getFullName(), String.join(", ", skills)));
                 }
                 return sb.toString().isBlank() ? "(chưa chọn thành viên)" : sb.toString();
+        }
+
+        private record TaskScheduleWindow(LocalDate startDate, LocalDate endDate, LocalDate dueDate) {}
+
+        private List<TaskScheduleWindow> buildTaskScheduleWindows(
+                        LocalDate sprintStart,
+                        LocalDate sprintEnd,
+                        List<GenerateProjectPlanResponse.TaskPlanDto> taskDtos) {
+                if (taskDtos == null || taskDtos.isEmpty()) {
+                        return List.of();
+                }
+
+                long sprintDays = Math.max(1, java.time.temporal.ChronoUnit.DAYS.between(sprintStart, sprintEnd) + 1);
+                int totalPoints = taskDtos.stream()
+                                .mapToInt(task -> Math.max(task.getStoryPoints(), 1))
+                                .sum();
+
+                List<Integer> durations = new ArrayList<>();
+                int assignedDays = 0;
+                for (int i = 0; i < taskDtos.size(); i++) {
+                        int remainingTasks = taskDtos.size() - i;
+                        long remainingDays = sprintDays - assignedDays;
+                        int storyPoints = Math.max(taskDtos.get(i).getStoryPoints(), 1);
+                        int suggested = (int) Math.round((storyPoints * 1.0 / Math.max(totalPoints, 1)) * sprintDays);
+                        int minDaysForRest = Math.max(0, remainingTasks - 1);
+                        int maxForCurrent = (int) Math.max(1, remainingDays - minDaysForRest);
+                        int duration = Math.max(1, Math.min(Math.max(suggested, 1), maxForCurrent));
+                        durations.add(duration);
+                        assignedDays += duration;
+                }
+
+                if (assignedDays < sprintDays && !durations.isEmpty()) {
+                        durations.set(durations.size() - 1, durations.get(durations.size() - 1) + (int) (sprintDays - assignedDays));
+                }
+
+                List<TaskScheduleWindow> windows = new ArrayList<>();
+                LocalDate cursor = sprintStart;
+                for (Integer duration : durations) {
+                        LocalDate startDate = cursor;
+                        LocalDate endDate = startDate.plusDays(Math.max(duration - 1, 0));
+                        if (endDate.isAfter(sprintEnd)) {
+                                endDate = sprintEnd;
+                        }
+                        windows.add(new TaskScheduleWindow(startDate, endDate, endDate));
+                        cursor = endDate.plusDays(1);
+                        if (cursor.isAfter(sprintEnd)) {
+                                cursor = sprintEnd;
+                        }
+                }
+                return windows;
+        }
+
+        private User resolveSuggestedAssignee(
+                        GenerateProjectPlanResponse.TaskPlanDto taskDto,
+                        UUID creatorId,
+                        User creator,
+                        Map<UUID, User> memberUserMap,
+                        Map<UUID, WorkspaceMember> workspaceMemberMap) {
+                if (taskDto.getSuggestedAssigneeId() != null && !taskDto.getSuggestedAssigneeId().isBlank()) {
+                        try {
+                                UUID assigneeId = UUID.fromString(taskDto.getSuggestedAssigneeId());
+                                User assignee = memberUserMap.get(assigneeId);
+                                if (assignee != null) {
+                                        return assignee;
+                                }
+                                if (assigneeId.equals(creatorId)) {
+                                        return creator;
+                                }
+                        } catch (IllegalArgumentException ignored) {
+                                /* fall through */
+                        }
+                }
+
+                List<String> requiredSkills = taskDto.getSkillTagsRequired() != null ? taskDto.getSkillTagsRequired() : List.of();
+                if (requiredSkills.isEmpty()) {
+                        return null;
+                }
+
+                return workspaceMemberMap.values().stream()
+                                .filter(wm -> memberUserMap.containsKey(wm.getUser().getId()))
+                                .filter(wm -> wm.getSkillTags() != null && !wm.getSkillTags().isEmpty())
+                                .filter(wm -> wm.getSkillTags().stream().map(String::toLowerCase)
+                                                .anyMatch(skill -> requiredSkills.stream().map(String::toLowerCase).anyMatch(skill::equals)))
+                                .sorted(java.util.Comparator.comparingInt(WorkspaceMember::getActiveTaskCount))
+                                .map(WorkspaceMember::getUser)
+                                .findFirst()
+                                .orElse(null);
         }
 
         private String resolveUniqueProjectKey(String base) {

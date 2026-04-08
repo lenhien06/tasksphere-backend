@@ -1,6 +1,7 @@
 package com.zone.tasksphere.service.impl;
 
 import com.zone.tasksphere.entity.Project;
+import com.zone.tasksphere.entity.Sprint;
 import com.zone.tasksphere.entity.Task;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.ZoneOffset;
+import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -22,7 +24,7 @@ public class ExcelExportService {
         "Due Date", "Created At", "Updated At"
     };
 
-    public byte[] exportTasksToExcel(List<Task> tasks, Project project) {
+    public byte[] exportTasksToExcel(List<Task> tasks, Project project, List<Sprint> sprints) {
         try (Workbook wb = new XSSFWorkbook();
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
 
@@ -91,6 +93,46 @@ public class ExcelExportService {
             int[] columnWidths = { 4200, 14000, 4200, 5200, 4800, 7200, 7200, 7200, 4200, 4200, 6200, 6200 };
             for (int i = 0; i < HEADERS.length; i++) {
                 sheet.setColumnWidth(i, columnWidths[i]);
+            }
+
+            Sheet sprintSheet = wb.createSheet("Sprints");
+            sprintSheet.createFreezePane(0, 1);
+            String[] sprintHeaders = { "Sprint", "Status", "Goal", "Start Date", "End Date", "Velocity", "Task Count" };
+            Row sprintHeaderRow = sprintSheet.createRow(0);
+            sprintHeaderRow.setHeightInPoints(22);
+            for (int i = 0; i < sprintHeaders.length; i++) {
+                Cell cell = sprintHeaderRow.createCell(i);
+                cell.setCellValue(sprintHeaders[i]);
+                cell.setCellStyle(headerStyle);
+            }
+
+            List<Sprint> orderedSprints = sprints == null ? List.of() : sprints.stream()
+                    .sorted(Comparator.comparing(Sprint::getStartDate, Comparator.nullsLast(Comparator.naturalOrder())))
+                    .toList();
+            int sprintRowNum = 1;
+            for (Sprint sprint : orderedSprints) {
+                Row row = sprintSheet.createRow(sprintRowNum++);
+                createTextCell(row, 0, sprint.getName(), textStyle);
+                createTextCell(row, 1, sprint.getStatus() != null ? sprint.getStatus().name() : "", textStyle);
+                createTextCell(row, 2, sprint.getGoal(), textStyle);
+                createTextCell(row, 3, sprint.getStartDate() != null ? sprint.getStartDate().toString() : "", textStyle);
+                createTextCell(row, 4, sprint.getEndDate() != null ? sprint.getEndDate().toString() : "", textStyle);
+
+                Cell velocityCell = row.createCell(5);
+                velocityCell.setCellValue(sprint.getVelocity() != null ? sprint.getVelocity() : 0);
+                velocityCell.setCellStyle(numberStyle);
+
+                long sprintTaskCount = tasks.stream()
+                        .filter(task -> task.getSprint() != null && sprint.getId().equals(task.getSprint().getId()))
+                        .count();
+                Cell countCell = row.createCell(6);
+                countCell.setCellValue(sprintTaskCount);
+                countCell.setCellStyle(numberStyle);
+            }
+
+            int[] sprintColumnWidths = { 9000, 4200, 12000, 4200, 4200, 4200, 4200 };
+            for (int i = 0; i < sprintHeaders.length; i++) {
+                sprintSheet.setColumnWidth(i, sprintColumnWidths[i]);
             }
 
             wb.write(out);

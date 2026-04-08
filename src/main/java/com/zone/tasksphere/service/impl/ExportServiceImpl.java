@@ -180,7 +180,11 @@ public class ExportServiceImpl implements ExportService {
             String ext;
 
             if (job.getFormat() == ExportFormat.EXCEL) {
-                fileBytes = excelExportService.exportTasksToExcel(tasks, job.getProject());
+                fileBytes = excelExportService.exportTasksToExcel(
+                    tasks,
+                    job.getProject(),
+                    sprintRepository.findByProject_IdAndDeletedAtIsNull(job.getProject().getId())
+                );
                 ext = "xlsx";
                 contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
             } else {
@@ -272,7 +276,11 @@ public class ExportServiceImpl implements ExportService {
         String contentType;
 
         if (format == ExportFormat.EXCEL) {
-            fileBytes = excelExportService.exportTasksToExcel(tasks, project);
+            fileBytes = excelExportService.exportTasksToExcel(
+                tasks,
+                project,
+                sprintRepository.findByProject_IdAndDeletedAtIsNull(project.getId())
+            );
             fileName = "tasks-" + project.getProjectKey() + "-" + LocalDate.now() + ".xlsx";
             contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         } else {
