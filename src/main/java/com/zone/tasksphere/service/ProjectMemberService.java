@@ -43,6 +43,7 @@ import com.zone.tasksphere.repository.ProjectInviteRepository;
 import com.zone.tasksphere.repository.ProjectMemberRepository;
 import com.zone.tasksphere.repository.ProjectRepository;
 import com.zone.tasksphere.repository.UserRepository;
+import com.zone.tasksphere.utils.SkillTaxonomy;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -699,7 +700,7 @@ public class ProjectMemberService {
         if (skillTags == null) {
             return Collections.emptyList();
         }
-        return skillTags.stream()
+        return SkillTaxonomy.canonicalizeSkillTags(skillTags).stream()
                 .map(tag -> tag == null ? "" : tag.trim())
                 .filter(tag -> !tag.isBlank())
                 .distinct()

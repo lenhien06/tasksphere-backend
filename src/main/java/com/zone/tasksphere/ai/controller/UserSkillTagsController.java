@@ -3,6 +3,7 @@ package com.zone.tasksphere.ai.controller;
 import com.zone.tasksphere.entity.User;
 import com.zone.tasksphere.repository.UserRepository;
 import com.zone.tasksphere.security.CustomUserDetail;
+import com.zone.tasksphere.utils.SkillTaxonomy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -41,7 +42,7 @@ public class UserSkillTagsController {
 
         List<String> sanitized;
         try {
-            sanitized = rawTags.stream()
+            sanitized = SkillTaxonomy.canonicalizeSkillTags(rawTags).stream()
                     .map(String::trim)
                     .filter(t -> !t.isBlank())
                     .distinct()

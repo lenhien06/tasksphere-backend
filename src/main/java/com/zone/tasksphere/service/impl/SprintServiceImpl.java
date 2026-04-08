@@ -264,8 +264,11 @@ public class SprintServiceImpl implements SprintService {
         // SPR_003: Không được có sprint ACTIVE khác
         sprintRepository.findByProject_IdAndStatusAndDeletedAtIsNull(projectId, SprintStatus.ACTIVE)
                 .ifPresent(active -> {
-                    throw new BusinessRuleException(
-                            "Đã có sprint đang chạy. Hoàn thành trước khi bắt đầu sprint mới.");
+                    throw new StructuredApiException(
+                            org.springframework.http.HttpStatus.CONFLICT,
+                            "SPR_003",
+                            "Đã có sprint đang chạy. Hoàn thành trước khi bắt đầu sprint mới.",
+                            Map.of("activeSprintId", active.getId(), "activeSprintName", active.getName()));
                 });
 
         sprint.setStatus(SprintStatus.ACTIVE);
@@ -394,6 +397,23 @@ public class SprintServiceImpl implements SprintService {
                         .completionRate(completionRate)
                         .build())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public void autoCloseExpiredSprints() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<Sprint> expiredSprints = sprintRepository
+                .findByStatusAndEndDateBeforeAndDeletedAtIsNull(SprintStatus.ACTIVE, today);
+
+        for (Sprint sprint : expiredSprints) {
+            try {
+                User actor = resolveSprintAutomationActor(sprint);
+                completeSprintInternal(sprint, "backlog", null, actor.getId(), true);
+            } catch (Exception ex) {
+                log.error("Failed to auto-close sprint {}: {}", sprint.getId(), ex.getMessage(), ex);
+            }
+        }
     }
 
     // ════════════════════════════════════════
@@ -693,6 +713,102 @@ public class SprintServiceImpl implements SprintService {
     // ════════════════════════════════════════
     // PRIVATE HELPERS
     // ════════════════════════════════════════
+
+    private SprintCompletedResponse completeSprintInternal(Sprint sprint, String rawAction, UUID nextSprintId,
+            UUID actorId, boolean autoTriggered) {
+        UUID sprintId = sprint.getId();
+        UUID projectId = sprint.getProject().getId();
+
+        List<Task> unfinishedTasks = sprintRepository.findUnfinishedTasksBySprintId(sprintId);
+        long totalTasks = sprintRepository.countTasksBySprintId(sprintId);
+        long doneTasks = sprintRepository.countDoneTasksBySprintId(sprintId);
+        long cancelledTasks = sprint.getTasks() != null
+                ? sprint.getTasks().stream()
+                .filter(t -> t.getDeletedAt() == null && t.getTaskStatus() == TaskStatus.CANCELLED)
+                .count()
+                : 0;
+
+        long movedToBacklog = 0;
+        String action = rawAction == null ? "backlog" : rawAction.toLowerCase().trim();
+
+        if (!unfinishedTasks.isEmpty()) {
+            List<UUID> unfinishedIds = unfinishedTasks.stream().map(Task::getId).toList();
+
+            if ("backlog".equals(action)) {
+                movedToBacklog = taskRepository.batchMoveToBacklog(unfinishedIds, projectId);
+            } else if ("nextsprint".equals(action)) {
+                if (nextSprintId == null) {
+                    throw new BadRequestException("nextSprintId lÃ  báº¯t buá»™c khi action = nextSprint");
+                }
+                Sprint nextSprint = sprintRepository.findByIdAndProject_IdAndDeletedAtIsNull(nextSprintId, projectId)
+                        .orElseThrow(() -> new NotFoundException(
+                                "Sprint tiáº¿p theo khÃ´ng tá»“n táº¡i hoáº·c khÃ´ng thuá»™c dá»± Ã¡n"));
+                if (nextSprint.getStatus() != SprintStatus.PLANNED) {
+                    throw new BusinessRuleException("Sprint tiáº¿p theo pháº£i á»Ÿ tráº¡ng thÃ¡i PLANNED");
+                }
+                taskRepository.batchAssignToSprint(unfinishedIds, projectId, nextSprintId);
+            } else {
+                throw new BadRequestException("unfinishedTasksAction pháº£i lÃ  'backlog' hoáº·c 'nextSprint'");
+            }
+        }
+
+        Integer velocity = sprintRepository.calculateVelocity(sprintId);
+        sprint.setStatus(SprintStatus.COMPLETED);
+        sprint.setCompletedAt(Instant.now());
+        sprint.setVelocity(velocity);
+        sprint = sprintRepository.save(sprint);
+        final Sprint completedSprint = sprint;
+
+        logActivity(projectId, actorId, EntityType.SPRINT, completedSprint.getId(),
+                ActionType.STATUS_CHANGED, SprintStatus.ACTIVE.name(), SprintStatus.COMPLETED.name());
+
+        User actor = userRepository.findById(actorId).orElseGet(() -> resolveSprintAutomationActor(completedSprint));
+        List<User> members = projectMemberRepository.findByProjectId(projectId).stream()
+                .map(ProjectMember::getUser)
+                .toList();
+        notificationService.sendSprintCompleted(completedSprint, members, actor);
+
+        final long movedBacklogCount = movedToBacklog;
+        if (autoTriggered && movedBacklogCount > 0) {
+            projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(projectId, ProjectRole.PROJECT_MANAGER)
+                    .map(ProjectMember::getUser)
+                    .ifPresent(pm -> notificationService.createNotification(
+                            pm,
+                            NotificationType.SPRINT_COMPLETED,
+                            "Sprint quá hạn đã được tự động đóng",
+                            String.format("Sprint '%s' đã quá hạn và được tự động đóng. %d task chưa xong đã được chuyển về Backlog.",
+                                    completedSprint.getName(), movedBacklogCount),
+                            EntityType.SPRINT.name(),
+                            completedSprint.getId()));
+        }
+
+        double completionRate = totalTasks > 0
+                ? Math.round(doneTasks * 1000.0 / totalTasks) / 10.0
+                : 0.0;
+
+        return SprintCompletedResponse.builder()
+                .sprintId(completedSprint.getId())
+                .name(completedSprint.getName())
+                .status(completedSprint.getStatus().name())
+                .velocity(velocity)
+                .completedAt(completedSprint.getCompletedAt())
+                .report(SprintCompletedResponse.SprintReport.builder()
+                        .totalTasks(totalTasks)
+                        .doneTasks(doneTasks)
+                        .cancelledTasks(cancelledTasks)
+                        .movedToBacklog(movedToBacklog)
+                        .velocity(velocity)
+                        .completionRate(completionRate)
+                        .build())
+                .build();
+    }
+
+    private User resolveSprintAutomationActor(Sprint sprint) {
+        return projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(
+                sprint.getProject().getId(), ProjectRole.PROJECT_MANAGER)
+                .map(ProjectMember::getUser)
+                .orElseGet(() -> sprint.getProject().getOwner());
+    }
 
     private void requirePM(UUID projectId, UUID userId) {
         ProjectMember member = projectMemberRepository.findByProjectIdAndUserId(projectId, userId)

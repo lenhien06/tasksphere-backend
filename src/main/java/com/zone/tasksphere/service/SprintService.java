@@ -22,6 +22,8 @@ public interface SprintService {
 
     SprintCompletedResponse completeSprint(UUID sprintId, CompleteSprintRequest request, UUID currentUserId);
 
+    void autoCloseExpiredSprints();
+
     // ── Module 3: Backlog ────────────────────────────────────────────
     PageResponse<TaskResponse> getBacklog(UUID projectId, TaskFilterParams params,
                                           org.springframework.data.domain.Pageable pageable,

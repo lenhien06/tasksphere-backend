@@ -37,12 +37,11 @@ public interface SprintRepository extends JpaRepository<Sprint, UUID> {
     /** Kiểm tra tên unique khi update (exclude chính nó) */
     boolean existsByProject_IdAndNameAndIdNotAndDeletedAtIsNull(UUID projectId, String name, UUID excludeId);
 
-    /** Kiểm tra date overlap với sprint khác trong project (trừ COMPLETED) */
+    /** Kiểm tra date overlap với sprint khác trong project */
     @Query("""
         SELECT COUNT(s) > 0 FROM Sprint s
         WHERE s.project.id = :projectId
           AND s.deletedAt IS NULL
-          AND s.status != com.zone.tasksphere.entity.enums.SprintStatus.COMPLETED
           AND NOT (s.endDate < :startDate OR s.startDate > :endDate)
     """)
     boolean existsOverlappingDates(
@@ -56,7 +55,6 @@ public interface SprintRepository extends JpaRepository<Sprint, UUID> {
         WHERE s.project.id = :projectId
           AND s.id != :excludeId
           AND s.deletedAt IS NULL
-          AND s.status != com.zone.tasksphere.entity.enums.SprintStatus.COMPLETED
           AND NOT (s.endDate < :startDate OR s.startDate > :endDate)
     """)
     boolean existsOverlappingDatesExclude(
@@ -85,6 +83,8 @@ public interface SprintRepository extends JpaRepository<Sprint, UUID> {
 
     /** Kiểm tra sprint ACTIVE đang tồn tại trong project (SPR_003) */
     Optional<Sprint> findByProject_IdAndStatusAndDeletedAtIsNull(UUID projectId, SprintStatus status);
+
+    List<Sprint> findByStatusAndEndDateBeforeAndDeletedAtIsNull(SprintStatus status, LocalDate date);
 
     /** Lấy task chưa hoàn thành trong sprint */
     @Query("""
@@ -117,7 +117,6 @@ public interface SprintRepository extends JpaRepository<Sprint, UUID> {
         SELECT s FROM Sprint s
         WHERE s.project.id = :projectId
           AND s.deletedAt IS NULL
-          AND s.status != com.zone.tasksphere.entity.enums.SprintStatus.COMPLETED
           AND NOT (s.endDate < :startDate OR s.startDate > :endDate)
         ORDER BY s.startDate ASC
     """)
@@ -132,7 +131,6 @@ public interface SprintRepository extends JpaRepository<Sprint, UUID> {
         WHERE s.project.id = :projectId
           AND s.id != :excludeId
           AND s.deletedAt IS NULL
-          AND s.status != com.zone.tasksphere.entity.enums.SprintStatus.COMPLETED
           AND NOT (s.endDate < :startDate OR s.startDate > :endDate)
         ORDER BY s.startDate ASC
     """)

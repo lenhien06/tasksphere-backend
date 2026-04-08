@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 /**
- * Seeder tái sử dụng để tạo 4 cột Kanban mặc định cho một Project.
+ * Seeder tái sử dụng để tạo 5 cột Kanban mặc định cho một Project.
  * Được gọi bởi:
  *   - ColumnMigrationRunner (startup — migrate data cũ)
  *   - TaskServiceImpl (safety guard — edge case)
@@ -24,12 +24,13 @@ public class DefaultColumnSeeder {
 
     private final ProjectStatusColumnRepository columnRepository;
 
-    /** 4 cột mặc định — khớp với logic đang có trong ProjectService.createProject() */
+    /** 5 cột mặc định — khớp với logic đang có trong ProjectService.createProject() */
     private static final List<DefaultColumnDef> DEFAULT_COLUMNS = List.of(
         new DefaultColumnDef("To Do",       "#D9D9D9", 1, true,  TaskStatus.TODO),
         new DefaultColumnDef("In Progress", "#1677FF", 2, false, TaskStatus.IN_PROGRESS),
-        new DefaultColumnDef("In Review",   "#FAAD14", 3, false, TaskStatus.IN_REVIEW),
-        new DefaultColumnDef("Done",        "#52C41A", 4, false, TaskStatus.DONE)
+        new DefaultColumnDef("Ready for Test", "#FAAD14", 3, false, TaskStatus.READY_FOR_TEST),
+        new DefaultColumnDef("Testing",     "#722ED1", 4, false, TaskStatus.TESTING),
+        new DefaultColumnDef("Done",        "#52C41A", 5, false, TaskStatus.DONE)
     );
 
     /**

@@ -34,6 +34,7 @@ import com.zone.tasksphere.service.NotificationService;
 import com.zone.tasksphere.service.UserProfileService;
 import com.zone.tasksphere.service.WebSocketService;
 import com.zone.tasksphere.service.WorkspaceService;
+import com.zone.tasksphere.utils.SkillTaxonomy;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -639,7 +640,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         if (skillTags == null) {
             return Collections.emptyList();
         }
-        return skillTags.stream()
+        return SkillTaxonomy.canonicalizeSkillTags(skillTags).stream()
                 .map(tag -> tag == null ? "" : tag.trim())
                 .filter(tag -> !tag.isBlank())
                 .distinct()

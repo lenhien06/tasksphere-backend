@@ -22,6 +22,7 @@ import com.zone.tasksphere.entity.enums.TaskPriority;
 import com.zone.tasksphere.entity.enums.TaskStatus;
 import com.zone.tasksphere.entity.enums.TaskType;
 import com.zone.tasksphere.entity.enums.UserStatus;
+import com.zone.tasksphere.exception.BusinessRuleException;
 import com.zone.tasksphere.exception.StructuredApiException;
 import com.zone.tasksphere.mapper.TaskMapper;
 import com.zone.tasksphere.repository.ChecklistItemRepository;
@@ -102,17 +103,20 @@ class TaskServiceImplTest {
     @Test
     void updateStatus_rejectsDoneWhenBlockingTaskIsNotDone() {
         Project project = project();
-        User actor = user("member@tasksphere.local");
+        User actor = user("qa-member@tasksphere.local");
         Task blocker = task(project, actor, "TS-1", "Task A", TaskStatus.IN_PROGRESS);
-        Task blocked = task(project, actor, "TS-2", "Task B", TaskStatus.TODO);
+        Task blocked = task(project, actor, "TS-2", "Task B", TaskStatus.IN_REVIEW);
 
         UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
         request.setStatus(TaskStatus.DONE);
 
+        ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
+        qaMember.setSkillTags(List.of("QA"));
+
         when(taskRepository.findByIdAndProjectId(blocked.getId(), project.getId())).thenReturn(Optional.of(blocked));
         when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
         when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
+                .thenReturn(Optional.of(qaMember));
         when(taskRepository.findUnfinishedSubtasks(eq(blocked.getId()), any())).thenReturn(List.of());
         when(dependencyRepository.findBlockingTasksByBlockedTaskId(blocked.getId())).thenReturn(List.of(blocker));
 
@@ -131,19 +135,21 @@ class TaskServiceImplTest {
     @Test
     void updateStatus_allowsDoneWhenBlockingTaskIsDone() {
         Project project = project();
-        User actor = user("member@tasksphere.local");
+        User actor = user("qa-member@tasksphere.local");
         Task blocker = task(project, actor, "TS-1", "Task A", TaskStatus.DONE);
-        Task blocked = task(project, actor, "TS-2", "Task B", TaskStatus.TODO);
+        Task blocked = task(project, actor, "TS-2", "Task B", TaskStatus.IN_REVIEW);
 
         UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
         request.setStatus(TaskStatus.DONE);
+        ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
+        qaMember.setSkillTags(List.of("QA"));
 
         stubObjectMapper();
 
         when(taskRepository.findByIdAndProjectId(blocked.getId(), project.getId())).thenReturn(Optional.of(blocked));
         when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
         when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
+                .thenReturn(Optional.of(qaMember));
         when(projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(project.getId(), ProjectRole.PROJECT_MANAGER))
                 .thenReturn(Optional.empty());
         when(taskRepository.findUnfinishedSubtasks(eq(blocked.getId()), any())).thenReturn(List.of());
@@ -157,7 +163,7 @@ class TaskServiceImplTest {
         TaskStatusChangedResponse response = service.updateStatus(project.getId(), blocked.getId(), request, actor.getId());
 
         assertThat(response.getId()).isEqualTo(blocked.getId());
-        assertThat(response.getOldStatus()).isEqualTo(TaskStatus.TODO);
+        assertThat(response.getOldStatus()).isEqualTo(TaskStatus.IN_REVIEW);
         assertThat(response.getNewStatus()).isEqualTo(TaskStatus.DONE);
         assertThat(blocked.getCompletedAt()).isNotNull();
         verify(taskRepository).save(blocked);
@@ -244,6 +250,8 @@ class TaskServiceImplTest {
         when(taskRepository.findByIdAndProjectId(movingTask.getId(), project.getId())).thenReturn(Optional.of(movingTask));
         when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
         when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId())).thenReturn(true);
+        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
         when(columnRepository.findById(targetColumn.getId())).thenReturn(Optional.of(targetColumn));
         when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), sourceColumn.getId()))
                 .thenReturn(List.of(movingTask, remainingTodo));
@@ -274,6 +282,62 @@ class TaskServiceImplTest {
             return saved.size() == 1 && saved.get(0).getId().equals(movingTask.getId());
         }));
         verify(webSocketService).sendToProject(eq(project.getId().toString()), eq("task.position_updated"), any());
+    }
+
+    @Test
+    void updateStatus_rejectsDoneWhenTaskSkipsReview() {
+        Project project = project();
+        User actor = user("member@tasksphere.local");
+        Task task = task(project, actor, "TS-6", "Skip review", TaskStatus.IN_PROGRESS);
+
+        UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
+        request.setStatus(TaskStatus.DONE);
+
+        when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
+        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
+
+        assertThatThrownBy(() -> service.updateStatus(project.getId(), task.getId(), request, actor.getId()))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("Ready for Test/Testing");
+
+        verify(taskRepository, never()).save(any(Task.class));
+    }
+
+    @Test
+    void updateStatus_allowsQaSkillMemberToMoveReviewTaskToDone() {
+        Project project = project();
+        User actor = user("qa@tasksphere.local");
+        Task task = task(project, actor, "TS-7", "Reviewed task", TaskStatus.IN_REVIEW);
+
+        UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
+        request.setStatus(TaskStatus.DONE);
+
+        ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
+        qaMember.setSkillTags(List.of("QA", "Manual Testing"));
+
+        stubObjectMapper();
+
+        when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
+        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                .thenReturn(Optional.of(qaMember));
+        when(projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(project.getId(), ProjectRole.PROJECT_MANAGER))
+                .thenReturn(Optional.empty());
+        when(taskRepository.findUnfinishedSubtasks(eq(task.getId()), any())).thenReturn(List.of());
+        when(dependencyRepository.findBlockingTasksByBlockedTaskId(task.getId())).thenReturn(List.of());
+        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
+            Task saved = invocation.getArgument(0);
+            saved.setUpdatedAt(Instant.parse("2026-04-08T02:00:00Z"));
+            return saved;
+        });
+
+        TaskStatusChangedResponse response = service.updateStatus(project.getId(), task.getId(), request, actor.getId());
+
+        assertThat(response.getNewStatus()).isEqualTo(TaskStatus.DONE);
+        assertThat(task.getCompletedAt()).isNotNull();
+        verify(taskRepository).save(task);
     }
 
     @Test

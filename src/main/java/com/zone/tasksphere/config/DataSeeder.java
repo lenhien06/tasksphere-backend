@@ -263,8 +263,8 @@ public class DataSeeder implements CommandLineRunner {
             if (projectStatusColumnRepository.existsByProjectAndName(p, "To Do")) continue;
             projectStatusColumnRepository.save(col(p, "To Do",       "#D9D9D9", 1, TaskStatus.TODO));
             projectStatusColumnRepository.save(col(p, "In Progress", "#1677FF", 2, TaskStatus.IN_PROGRESS));
-            projectStatusColumnRepository.save(col(p, "In Review",   "#FA8C16", 3, TaskStatus.IN_PROGRESS));
-            projectStatusColumnRepository.save(col(p, "Testing",     "#722ED1", 4, TaskStatus.IN_PROGRESS));
+            projectStatusColumnRepository.save(col(p, "Ready for Test", "#FA8C16", 3, TaskStatus.READY_FOR_TEST));
+            projectStatusColumnRepository.save(col(p, "Testing",     "#722ED1", 4, TaskStatus.TESTING));
             projectStatusColumnRepository.save(col(p, "Done",        "#52C41A", 5, TaskStatus.DONE));
         }
     }

@@ -21,6 +21,7 @@ import com.zone.tasksphere.service.TaskService;
 import com.zone.tasksphere.specification.TaskSpecification;
 import com.zone.tasksphere.utils.TaskCodeGenerator;
 import com.zone.tasksphere.utils.TaskFilterSupport;
+import com.zone.tasksphere.utils.SkillTaxonomy;
 import com.zone.tasksphere.repository.TaskDependencyRepository;
 import com.zone.tasksphere.repository.ChecklistItemRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -287,6 +288,7 @@ public class TaskServiceImpl implements TaskService {
             TaskStatus oldStatusForColumnChange = task.getTaskStatus();
             task.setStatusColumn(newCol);
             if (newCol.getMappedStatus() != null) {
+                enforceQaWorkflowTransition(oldStatusForColumnChange, newCol.getMappedStatus(), actorMember, currentUser);
                 task.setTaskStatus(newCol.getMappedStatus());
                 syncCompletedAt(task, oldStatusForColumnChange, newCol.getMappedStatus());
             }
@@ -394,6 +396,8 @@ public class TaskServiceImpl implements TaskService {
         TaskStatus oldStatus = task.getTaskStatus();
         TaskStatus newStatus = request.getStatus();
 
+        enforceQaWorkflowTransition(oldStatus, newStatus, actorMember, currentUser);
+
         // BR-18: Kiểm tra sub-tasks khi chuyển sang DONE
         if (newStatus == TaskStatus.DONE) {
             List<Task> pendingChildren = taskRepository.findUnfinishedSubtasks(
@@ -477,6 +481,15 @@ public class TaskServiceImpl implements TaskService {
         validateMembership(projectId, currentUserId);
         Task task = getTaskInProject(taskId, projectId);
         User currentUser = getUser(currentUserId);
+        ProjectMember actorMember = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
+            .orElse(null);
+        boolean isAdmin = currentUser.getSystemRole() == SystemRole.ADMIN;
+        if (actorMember == null && !isAdmin) {
+            throw new Forbidden("Bạn không phải thành viên dự án này");
+        }
+        if (actorMember != null && actorMember.getProjectRole() == ProjectRole.VIEWER) {
+            throw new Forbidden("VIEWER không được kéo thả task");
+        }
         int oldPosition = task.getTaskPosition();
         UUID oldColumnId = task.getStatusColumn() != null ? task.getStatusColumn().getId() : null;
         String oldColumnName = task.getStatusColumn() != null ? task.getStatusColumn().getName() : null;
@@ -513,6 +526,7 @@ public class TaskServiceImpl implements TaskService {
         if (newColumn.getMappedStatus() != null) {
             TaskStatus currentStatusBeforeMove = task.getTaskStatus();
             TaskStatus mapped = newColumn.getMappedStatus();
+            enforceQaWorkflowTransition(currentStatusBeforeMove, mapped, actorMember, currentUser);
             task.setTaskStatus(mapped);
             syncCompletedAt(task, currentStatusBeforeMove, mapped);
             // BR-AI-06: Decrement active_task_count when task dragged to terminal column
@@ -1579,6 +1593,54 @@ public class TaskServiceImpl implements TaskService {
                     "completedAt", Instant.now().toString()
             ));
         }
+    }
+
+    private void enforceQaWorkflowTransition(TaskStatus oldStatus, TaskStatus newStatus,
+                                             ProjectMember actorMember, User currentUser) {
+        if (oldStatus == null || newStatus == null || oldStatus == newStatus) {
+            return;
+        }
+
+        if (newStatus == TaskStatus.DONE && !canTransitionToDoneFrom(oldStatus)) {
+            throw new BusinessRuleException("Task phải qua bước Ready for Test/Testing trước khi chuyển sang Done");
+        }
+
+        if (newStatus == TaskStatus.DONE && !canPerformTestingActions(actorMember, currentUser)) {
+            throw new Forbidden("Chỉ PM/Admin hoặc thành viên có skill QA/Testing mới được chuyển task sang Done");
+        }
+
+        if (isQaReviewStage(oldStatus)
+                && (newStatus == TaskStatus.IN_PROGRESS || newStatus == TaskStatus.TODO)
+                && !canPerformTestingActions(actorMember, currentUser)) {
+            throw new Forbidden("Chỉ PM/Admin hoặc thành viên có skill QA/Testing mới được trả task từ review về xử lý");
+        }
+    }
+
+    private boolean canPerformTestingActions(ProjectMember actorMember, User currentUser) {
+        if (currentUser != null && currentUser.getSystemRole() == SystemRole.ADMIN) {
+            return true;
+        }
+        if (actorMember == null) {
+            return false;
+        }
+        if (actorMember.getProjectRole() == ProjectRole.PROJECT_MANAGER) {
+            return true;
+        }
+        return hasTestingSkill(resolveEffectiveSkillTags(actorMember));
+    }
+
+    private boolean hasTestingSkill(List<String> skills) {
+        return SkillTaxonomy.hasCapability(skills, SkillTaxonomy.Capability.TESTING);
+    }
+
+    private boolean canTransitionToDoneFrom(TaskStatus status) {
+        return status == TaskStatus.TESTING || status == TaskStatus.IN_REVIEW;
+    }
+
+    private boolean isQaReviewStage(TaskStatus status) {
+        return status == TaskStatus.READY_FOR_TEST
+                || status == TaskStatus.TESTING
+                || status == TaskStatus.IN_REVIEW;
     }
 
     private String toJson(Object payload) {
