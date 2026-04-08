@@ -12,4 +12,7 @@ public class AssignSprintRequest {
     /** null = chuyển về backlog */
     @Schema(description = "Sprint id", example = "550e8400-e29b-41d4-a716-446655440000")
     private UUID sprintId;
+
+    @Schema(description = "Confirm warning when adding task to an ACTIVE sprint", example = "true")
+    private Boolean confirmActiveSprintChange;
 }

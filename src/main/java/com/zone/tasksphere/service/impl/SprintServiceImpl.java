@@ -69,6 +69,8 @@ public class SprintServiceImpl implements SprintService {
             throw new BusinessRuleException("Thời gian trùng với sprint " + overlapping.get(0).getName());
         }
 
+        validateSprintDatesWithinProject(project, request.getStartDate(), request.getEndDate());
+
         Sprint sprint = Sprint.builder()
                 .project(project)
                 .name(request.getName())
@@ -119,6 +121,9 @@ public class SprintServiceImpl implements SprintService {
         LocalDate newEnd = request.getEndDate() != null ? request.getEndDate() : sprint.getEndDate();
 
         if (request.getStartDate() != null || request.getEndDate() != null) {
+            if (sprint.getStatus() == SprintStatus.ACTIVE) {
+                throw new BusinessRuleException("Không thể sửa ngày sprint sau khi sprint đã bắt đầu");
+            }
             if (!newEnd.isAfter(newStart)) {
                 throw new BadRequestException("Ngày kết thúc phải sau ngày bắt đầu");
             }
@@ -129,6 +134,8 @@ public class SprintServiceImpl implements SprintService {
             if (!overlapping.isEmpty()) {
                 throw new BusinessRuleException("Thời gian trùng với sprint " + overlapping.get(0).getName());
             }
+
+            validateSprintDatesWithinProject(sprint.getProject(), newStart, newEnd);
 
             sprint.setStartDate(newStart);
             sprint.setEndDate(newEnd);
@@ -442,6 +449,7 @@ public class SprintServiceImpl implements SprintService {
             if (sprint.getStatus() == SprintStatus.COMPLETED) {
                 throw new BusinessRuleException("Không thể thêm task vào sprint đã hoàn thành");
             }
+            requireActiveSprintConfirmation(sprint, request.getConfirmActiveSprintChange());
             task.setSprint(sprint);
         }
 
@@ -453,7 +461,11 @@ public class SprintServiceImpl implements SprintService {
             logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, task.getId(),
                     ActionType.SPRINT_CHANGED,
                     String.format("{\"sprintId\":\"%s\",\"sprintName\":\"%s\"}", oldSprintId, oldSprintName),
-                    String.format("{\"sprintId\":\"%s\",\"sprintName\":\"%s\"}", newSprintId, newSprintName));
+                    String.format(
+                            "{\"sprintId\":\"%s\",\"sprintName\":\"%s\",\"activeSprintScopeChange\":%s}",
+                            newSprintId,
+                            newSprintName,
+                            task.getSprint() != null && task.getSprint().getStatus() == SprintStatus.ACTIVE));
         }
         return taskMapper.toResponse(task);
     }
@@ -471,9 +483,18 @@ public class SprintServiceImpl implements SprintService {
                 throw new BusinessRuleException("Không thể thêm task vào sprint đã hoàn thành");
             }
 
+            requireActiveSprintConfirmation(sprint, request.getConfirmActiveSprintChange());
+
             // Gán taskIds thuộc project (bỏ qua id lạ)
             List<UUID> validIds = request.getTaskIds();
             int updated = taskRepository.batchAssignToSprint(validIds, projectId, request.getSprintId());
+
+            if (sprint.getStatus() == SprintStatus.ACTIVE && updated > 0) {
+                logActivity(projectId, currentUserId, EntityType.SPRINT, sprint.getId(),
+                        ActionType.UPDATED,
+                        null,
+                        String.format("{\"activeSprintScopeChange\":true,\"updatedCount\":%d}", updated));
+            }
 
             return BatchSprintResponse.builder()
                     .updatedCount(updated)
@@ -721,6 +742,33 @@ public class SprintServiceImpl implements SprintService {
                 .sum();
         int donePoints = Optional.ofNullable(sprintRepository.calculateVelocity(sprintId)).orElse(0);
         return unfinishedPoints + donePoints;
+    }
+
+    private void validateSprintDatesWithinProject(Project project, LocalDate sprintStart, LocalDate sprintEnd) {
+        LocalDate projectStart = project.getStartDate() != null
+                ? project.getStartDate().atZone(ZoneOffset.UTC).toLocalDate()
+                : null;
+        LocalDate projectEnd = project.getEndDate() != null
+                ? project.getEndDate().atZone(ZoneOffset.UTC).toLocalDate()
+                : null;
+
+        if (projectStart != null && sprintStart.isBefore(projectStart)) {
+            throw new BusinessRuleException("Ngày bắt đầu sprint không được trước ngày bắt đầu dự án");
+        }
+        if (projectEnd != null && sprintEnd.isAfter(projectEnd)) {
+            throw new BusinessRuleException("Ngày kết thúc sprint không được vượt quá ngày kết thúc dự án");
+        }
+    }
+
+    private void requireActiveSprintConfirmation(Sprint sprint, Boolean confirmActiveSprintChange) {
+        if (sprint.getStatus() != SprintStatus.ACTIVE || Boolean.TRUE.equals(confirmActiveSprintChange)) {
+            return;
+        }
+        throw new StructuredApiException(
+                org.springframework.http.HttpStatus.CONFLICT,
+                "SPR_ACTIVE_SCOPE_WARNING",
+                "Sprint đang hoạt động. Việc thêm task mới sẽ làm thay đổi phạm vi và sai lệch burndown chart.",
+                Map.of("sprintId", sprint.getId(), "sprintName", sprint.getName()));
     }
 
     private void logActivity(UUID projectId, UUID actorId, EntityType entityType,

@@ -510,7 +510,20 @@ public class TaskServiceImpl implements TaskService {
         syncWorkspaceMemberActiveTaskCount(task.getProject(), task.getAssignee() != null ? task.getAssignee().getId() : null);
 
         if (oldStatus != task.getTaskStatus()) {
+            logActivity(projectId, currentUserId, EntityType.TASK, taskId,
+                    ActionType.STATUS_CHANGED,
+                    toJson(Map.of("status", oldStatus.name())),
+                    toJson(Map.of("status", task.getTaskStatus().name())));
             notifyTaskStatusStakeholders(task, currentUser, oldStatus, task.getTaskStatus());
+            TaskStatusChangedResponse wsPayload = TaskStatusChangedResponse.builder()
+                    .id(task.getId())
+                    .taskCode(task.getTaskCode())
+                    .oldStatus(oldStatus)
+                    .newStatus(task.getTaskStatus())
+                    .updatedAt(task.getUpdatedAt())
+                    .columnId(task.getStatusColumn() != null ? task.getStatusColumn().getId() : null)
+                    .build();
+            webSocketService.sendToProject(task.getProject().getId().toString(), "task.status_changed", wsPayload);
         }
 
         logActivity(projectId, currentUserId, EntityType.TASK, taskId,
@@ -529,6 +542,7 @@ public class TaskServiceImpl implements TaskService {
 
         log.info("Task {} repositioned to column={} pos={}", task.getTaskCode(),
             newColumn.getName(), request.getNewPosition());
+        reportService.invalidateOverviewCache(projectId);
     }
 
     @Override
