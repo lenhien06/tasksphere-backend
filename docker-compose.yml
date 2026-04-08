@@ -75,6 +75,7 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: prod
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
     mem_limit: 700m
     memswap_limit: 1400m
 volumes:
