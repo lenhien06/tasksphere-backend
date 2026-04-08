@@ -484,12 +484,32 @@ public class TaskServiceImpl implements TaskService {
 
         ProjectStatusColumn newColumn = columnRepository.findById(request.getStatusColumnId())
             .orElseThrow(() -> new NotFoundException("Column not found"));
+        if (newColumn.getProject() == null || !projectId.equals(newColumn.getProject().getId())) {
+            throw new BadRequestException("Column does not belong to the current project");
+        }
+
+        UUID sourceColumnId = task.getStatusColumn() != null ? task.getStatusColumn().getId() : null;
+        List<Task> sourceTasks = sourceColumnId != null
+                ? new ArrayList<>(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(projectId, sourceColumnId))
+                : new ArrayList<>();
+        List<Task> targetTasks = sourceColumnId != null && sourceColumnId.equals(newColumn.getId())
+                ? sourceTasks
+                : new ArrayList<>(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(projectId, newColumn.getId()));
+
+        sourceTasks.removeIf(item -> item.getId().equals(taskId));
+        if (targetTasks != sourceTasks) {
+            targetTasks.removeIf(item -> item.getId().equals(taskId));
+        }
+
+        int boundedPosition = Math.max(0, request.getNewPosition());
+        if (boundedPosition > targetTasks.size()) {
+            boundedPosition = targetTasks.size();
+        }
 
         // Dịch chuyển các task khác trong cột để nhường chỗ
-        taskRepository.shiftPositionsDown(newColumn.getId(), request.getNewPosition(), taskId);
 
         task.setStatusColumn(newColumn);
-        task.setTaskPosition(request.getNewPosition());
+        task.setTaskPosition(boundedPosition);
         if (newColumn.getMappedStatus() != null) {
             TaskStatus currentStatusBeforeMove = task.getTaskStatus();
             TaskStatus mapped = newColumn.getMappedStatus();
@@ -506,7 +526,13 @@ public class TaskServiceImpl implements TaskService {
                         });
             }
         }
-        taskRepository.save(task);
+        targetTasks.add(boundedPosition, task);
+        reindexTasks(sourceTasks);
+        if (targetTasks != sourceTasks) {
+            reindexTasks(targetTasks);
+            taskRepository.saveAll(sourceTasks);
+        }
+        taskRepository.saveAll(targetTasks);
         syncWorkspaceMemberActiveTaskCount(task.getProject(), task.getAssignee() != null ? task.getAssignee().getId() : null);
 
         if (oldStatus != task.getTaskStatus()) {
@@ -529,7 +555,7 @@ public class TaskServiceImpl implements TaskService {
         logActivity(projectId, currentUserId, EntityType.TASK, taskId,
                 ActionType.POSITION_CHANGED,
                 toJson(mapOf("columnId", oldColumnId, "columnName", oldColumnName, "position", oldPosition)),
-                toJson(mapOf("columnId", newColumn.getId(), "columnName", newColumn.getName(), "position", request.getNewPosition())));
+                toJson(mapOf("columnId", newColumn.getId(), "columnName", newColumn.getName(), "position", boundedPosition)));
 
         // FIX: P5-BE-07 - Emit WebSocket event task.position_updated
         webSocketService.sendToProject(task.getProject().getId().toString(), "task.position_updated",
@@ -537,11 +563,11 @@ public class TaskServiceImpl implements TaskService {
                 "taskId", task.getId(),
                 "taskCode", task.getTaskCode(),
                 "columnId", newColumn.getId(),
-                "newPosition", request.getNewPosition()
+                "newPosition", boundedPosition
             ));
 
         log.info("Task {} repositioned to column={} pos={}", task.getTaskCode(),
-            newColumn.getName(), request.getNewPosition());
+            newColumn.getName(), boundedPosition);
         reportService.invalidateOverviewCache(projectId);
     }
 
@@ -1562,6 +1588,12 @@ public class TaskServiceImpl implements TaskService {
         } catch (JsonProcessingException e) {
             log.warn("Cannot serialize activity payload: {}", e.getMessage());
             return String.valueOf(payload);
+        }
+    }
+
+    private void reindexTasks(List<Task> tasks) {
+        for (int i = 0; i < tasks.size(); i++) {
+            tasks.get(i).setTaskPosition(i);
         }
     }
 

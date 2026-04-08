@@ -184,6 +184,8 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
     /** Số task trong cột (dùng để tính position mới) */
     long countByStatusColumnId(UUID columnId);
 
+    List<Task> findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(UUID projectId, UUID statusColumnId);
+
     // ── P4-BE-04: Burndown Chart ─────────────────────────────────────
 
     /**

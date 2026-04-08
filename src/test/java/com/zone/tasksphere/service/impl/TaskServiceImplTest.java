@@ -3,6 +3,7 @@ package com.zone.tasksphere.service.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zone.tasksphere.component.DefaultColumnSeeder;
+import com.zone.tasksphere.dto.request.UpdateTaskPositionRequest;
 import com.zone.tasksphere.dto.request.UpdateTaskStatusRequest;
 import com.zone.tasksphere.dto.response.TaskStatusChangedResponse;
 import com.zone.tasksphere.dto.response.TimelineViewResponse;
@@ -53,6 +54,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -209,6 +211,72 @@ class TaskServiceImplTest {
     }
 
     @Test
+    void updatePosition_movesTaskAcrossColumnsAndReindexesSafely() {
+        Project project = project();
+        User actor = user("member@tasksphere.local");
+        Task movingTask = task(project, actor, "TS-4", "Move me", TaskStatus.TODO);
+        Task remainingTodo = task(project, actor, "TS-5", "Stay put", TaskStatus.TODO);
+
+        ProjectStatusColumn sourceColumn = ProjectStatusColumn.builder()
+                .id(UUID.randomUUID())
+                .project(project)
+                .name("To Do")
+                .mappedStatus(TaskStatus.TODO)
+                .build();
+        ProjectStatusColumn targetColumn = ProjectStatusColumn.builder()
+                .id(UUID.randomUUID())
+                .project(project)
+                .name("In Progress")
+                .mappedStatus(TaskStatus.IN_PROGRESS)
+                .build();
+        movingTask.setStatusColumn(sourceColumn);
+        movingTask.setTaskPosition(0);
+        movingTask.setUpdatedAt(Instant.parse("2026-04-08T00:00:00Z"));
+        remainingTodo.setStatusColumn(sourceColumn);
+        remainingTodo.setTaskPosition(1);
+
+        UpdateTaskPositionRequest request = new UpdateTaskPositionRequest();
+        request.setStatusColumnId(targetColumn.getId());
+        request.setNewPosition(0);
+
+        stubObjectMapper();
+
+        when(taskRepository.findByIdAndProjectId(movingTask.getId(), project.getId())).thenReturn(Optional.of(movingTask));
+        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+        when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId())).thenReturn(true);
+        when(columnRepository.findById(targetColumn.getId())).thenReturn(Optional.of(targetColumn));
+        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), sourceColumn.getId()))
+                .thenReturn(List.of(movingTask, remainingTodo));
+        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), targetColumn.getId()))
+                .thenReturn(List.of());
+        when(taskRepository.saveAll(any())).thenAnswer(invocation -> {
+            List<Task> saved = invocation.getArgument(0);
+            saved.forEach(task -> {
+                if (task.getId().equals(movingTask.getId())) {
+                    task.setUpdatedAt(Instant.parse("2026-04-08T00:05:00Z"));
+                }
+            });
+            return saved;
+        });
+
+        service.updatePosition(project.getId(), movingTask.getId(), request, actor.getId());
+
+        assertThat(movingTask.getStatusColumn()).isEqualTo(targetColumn);
+        assertThat(movingTask.getTaskStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+        assertThat(movingTask.getTaskPosition()).isEqualTo(0);
+        assertThat(remainingTodo.getTaskPosition()).isEqualTo(0);
+        verify(taskRepository).saveAll(argThat(tasks -> {
+            List<Task> saved = toList(tasks);
+            return saved.size() == 1 && saved.get(0).getId().equals(remainingTodo.getId());
+        }));
+        verify(taskRepository).saveAll(argThat(tasks -> {
+            List<Task> saved = toList(tasks);
+            return saved.size() == 1 && saved.get(0).getId().equals(movingTask.getId());
+        }));
+        verify(webSocketService).sendToProject(eq(project.getId().toString()), eq("task.position_updated"), any());
+    }
+
+    @Test
     void getTimelineView_returnsTasksAndDependencies() {
         Project project = project();
         User actor = user("member@tasksphere.local");
@@ -318,5 +386,16 @@ class TaskServiceImplTest {
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private List<Task> toList(Iterable<Task> tasks) {
+        if (tasks instanceof List<?> list) {
+            @SuppressWarnings("unchecked")
+            List<Task> typed = (List<Task>) list;
+            return typed;
+        }
+        java.util.ArrayList<Task> collected = new java.util.ArrayList<>();
+        tasks.forEach(collected::add);
+        return collected;
     }
 }
