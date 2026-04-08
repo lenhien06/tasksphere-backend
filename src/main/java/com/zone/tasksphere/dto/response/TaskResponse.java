@@ -10,6 +10,7 @@ import lombok.Data;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 /** Light-weight response — dùng cho Kanban board và danh sách task */
@@ -61,6 +62,12 @@ public class TaskResponse {
     private int commentsCount;
     @Schema(description = "Attachments count", example = "10")
     private int attachmentsCount;
+    @Schema(description = "True when the task is currently blocked by unfinished dependencies", example = "false")
+    private boolean blockedByDependency;
+    @Schema(description = "Number of unfinished blocking dependencies", example = "1")
+    private int blockingDependencyCount;
+    @Schema(description = "Unfinished blocking tasks")
+    private List<DependencySummary> blockedBy;
 
     @Schema(description = "Created at", example = "2023-12-31T23:59:59Z")
     private Instant createdAt;
@@ -82,5 +89,19 @@ public static class UserSummary {
         private String fullName;
         @Schema(description = "Avatar url", example = "https://example.com/image.png")
         private String avatarUrl;
+    }
+
+    @Data
+    @Builder
+    @Schema(description = "Dependency summary")
+    public static class DependencySummary {
+        @Schema(description = "Task id", example = "550e8400-e29b-41d4-a716-446655440000")
+        private UUID taskId;
+        @Schema(description = "Task code", example = "TS-101")
+        private String taskCode;
+        @Schema(description = "Task title", example = "Prepare API contract")
+        private String title;
+        @Schema(description = "Task status", example = "IN_PROGRESS")
+        private TaskStatus taskStatus;
     }
 }

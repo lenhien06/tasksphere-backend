@@ -48,4 +48,7 @@ public class TaskFilterParams {
     /** FR-15/FR-27: Chỉ lấy tasks sắp đến hạn (dueDate trong 7 ngày tới, status NOT DONE/CANCELLED) */
     @Schema(description = "Due soon — dueDate in next 7 days, status != DONE/CANCELLED", example = "true")
     private Boolean dueSoon;
+
+    @Schema(description = "Only return tasks that belong to the active sprint", example = "true")
+    private Boolean activeSprintOnly;
 }

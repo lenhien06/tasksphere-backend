@@ -140,8 +140,10 @@ class TaskServiceImplTest {
     void updateStatus_allowsDoneWhenBlockingTaskIsDone() {
         Project project = project();
         User actor = user("qa-member@tasksphere.local");
+        User assignee = user("dev-owner@tasksphere.local");
         Task blocker = task(project, actor, "TS-1", "Task A", TaskStatus.DONE);
         Task blocked = task(project, actor, "TS-2", "Task B", TaskStatus.IN_REVIEW);
+        blocked.setAssignee(assignee);
 
         UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
         request.setStatus(TaskStatus.DONE);
@@ -363,7 +365,9 @@ class TaskServiceImplTest {
     void updateStatus_allowsQaSkillMemberToMoveReviewTaskToDone() {
         Project project = project();
         User actor = user("qa@tasksphere.local");
+        User assignee = user("feature-dev@tasksphere.local");
         Task task = task(project, actor, "TS-7", "Reviewed task", TaskStatus.IN_REVIEW);
+        task.setAssignee(assignee);
 
         UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
         request.setStatus(TaskStatus.DONE);
@@ -391,6 +395,74 @@ class TaskServiceImplTest {
         assertThat(response.getNewStatus()).isEqualTo(TaskStatus.DONE);
         assertThat(task.getCompletedAt()).isNotNull();
         verify(taskRepository).save(task);
+    }
+
+    @Test
+    void updateStatus_rejectsDoneWhenTesterIsAlsoTheAssignee() {
+        Project project = project();
+        User actor = user("qa-dev@tasksphere.local");
+        Task task = task(project, actor, "TS-11", "Self review", TaskStatus.TESTING);
+
+        UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
+        request.setStatus(TaskStatus.DONE);
+
+        ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
+        qaMember.setSkillTags(List.of("QA", "Testing"));
+
+        when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
+        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                .thenReturn(Optional.of(qaMember));
+
+        assertThatThrownBy(() -> service.updateStatus(project.getId(), task.getId(), request, actor.getId()))
+                .isInstanceOf(com.zone.tasksphere.exception.Forbidden.class)
+                .hasMessageContaining("Tester khac")
+                .hasMessageContaining("khach quan");
+
+        verify(taskRepository, never()).save(any(Task.class));
+    }
+
+    @Test
+    void updatePosition_rejectsMoveBackFromDoneWithoutQaSkill() {
+        Project project = project();
+        User actor = user("member@tasksphere.local");
+        Task task = task(project, actor, "TS-12", "Bug found", TaskStatus.DONE);
+
+        ProjectStatusColumn doneColumn = ProjectStatusColumn.builder()
+                .id(UUID.randomUUID())
+                .project(project)
+                .name("Done")
+                .mappedStatus(TaskStatus.DONE)
+                .build();
+        ProjectStatusColumn inProgressColumn = ProjectStatusColumn.builder()
+                .id(UUID.randomUUID())
+                .project(project)
+                .name("In Progress")
+                .mappedStatus(TaskStatus.IN_PROGRESS)
+                .build();
+        task.setStatusColumn(doneColumn);
+        task.setTaskPosition(0);
+
+        UpdateTaskPositionRequest request = new UpdateTaskPositionRequest();
+        request.setStatusColumnId(inProgressColumn.getId());
+        request.setNewPosition(0);
+
+        when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
+        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+        when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId())).thenReturn(true);
+        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
+        when(columnRepository.findById(inProgressColumn.getId())).thenReturn(Optional.of(inProgressColumn));
+        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), doneColumn.getId()))
+                .thenReturn(List.of(task));
+        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), inProgressColumn.getId()))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.updatePosition(project.getId(), task.getId(), request, actor.getId()))
+                .isInstanceOf(com.zone.tasksphere.exception.Forbidden.class)
+                .hasMessageContaining("QA/Testing");
+
+        verify(taskRepository, never()).saveAll(any());
     }
 
     @Test

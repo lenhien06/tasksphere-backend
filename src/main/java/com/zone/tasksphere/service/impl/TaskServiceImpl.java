@@ -223,8 +223,17 @@ public class TaskServiceImpl implements TaskService {
         normalizedParams.setProjectId(projectId);
         Specification<Task> spec = TaskSpecification.buildFilter(normalizedParams);
         Page<Task> page = taskRepository.findAll(spec, pageable);
-
-        return PageResponse.fromPage(page.map(taskMapper::toResponse));
+        List<TaskResponse> responses = enrichTaskResponsesWithDependencyState(projectId, page.getContent());
+        return PageResponse.<TaskResponse>builder()
+                .content(responses)
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .size(page.getSize())
+                .number(page.getNumber())
+                .first(page.isFirst())
+                .last(page.isLast())
+                .empty(page.isEmpty())
+                .build();
     }
 
     // ════════════════════════════════════════
@@ -236,6 +245,43 @@ public class TaskServiceImpl implements TaskService {
         validateMembership(projectId, currentUserId);
         Task task = getTaskInProject(taskId, projectId);
         return enrichTaskDetailResponse(task, currentUserId);
+    }
+
+    private List<TaskResponse> enrichTaskResponsesWithDependencyState(UUID projectId, List<Task> tasks) {
+        if (tasks.isEmpty()) {
+            return List.of();
+        }
+
+        Set<UUID> taskIds = tasks.stream().map(Task::getId).collect(java.util.stream.Collectors.toSet());
+        Map<UUID, List<TaskResponse.DependencySummary>> activeBlockersByTaskId = new HashMap<>();
+
+        for (TaskDependency edge : dependencyRepository.findBlockingEdgesByProjectId(projectId)) {
+            Task blocked = edge.getBlockedTask();
+            Task blocker = edge.getBlockingTask();
+            if (blocked == null || blocker == null || !taskIds.contains(blocked.getId())) {
+                continue;
+            }
+            if (blocker.getTaskStatus() == TaskStatus.DONE || blocker.getTaskStatus() == TaskStatus.CANCELLED) {
+                continue;
+            }
+            activeBlockersByTaskId
+                    .computeIfAbsent(blocked.getId(), ignored -> new ArrayList<>())
+                    .add(TaskResponse.DependencySummary.builder()
+                            .taskId(blocker.getId())
+                            .taskCode(blocker.getTaskCode())
+                            .title(blocker.getTitle())
+                            .taskStatus(blocker.getTaskStatus())
+                            .build());
+        }
+
+        return tasks.stream().map(task -> {
+            TaskResponse response = taskMapper.toResponse(task);
+            List<TaskResponse.DependencySummary> activeBlockers = activeBlockersByTaskId.getOrDefault(task.getId(), List.of());
+            response.setBlockedBy(activeBlockers);
+            response.setBlockedByDependency(!activeBlockers.isEmpty());
+            response.setBlockingDependencyCount(activeBlockers.size());
+            return response;
+        }).toList();
     }
 
     private List<TaskDetailResponse.TaskLinkSummary> buildLinkSummaries(UUID taskId) {
@@ -312,7 +358,7 @@ public class TaskServiceImpl implements TaskService {
             TaskStatus oldStatusForColumnChange = task.getTaskStatus();
             task.setStatusColumn(newCol);
             if (newCol.getMappedStatus() != null) {
-                enforceQaWorkflowTransition(oldStatusForColumnChange, newCol.getMappedStatus(), actorMember, currentUser);
+                enforceQaWorkflowTransition(task, oldStatusForColumnChange, newCol.getMappedStatus(), actorMember, currentUser);
                 task.setTaskStatus(newCol.getMappedStatus());
                 syncCompletedAt(task, oldStatusForColumnChange, newCol.getMappedStatus());
             }
@@ -420,13 +466,12 @@ public class TaskServiceImpl implements TaskService {
         TaskStatus oldStatus = task.getTaskStatus();
         TaskStatus newStatus = request.getStatus();
 
-        enforceQaWorkflowTransition(oldStatus, newStatus, actorMember, currentUser);
-
-        // BR-18: Kiểm tra sub-tasks khi chuyển sang DONE
         if (newStatus == TaskStatus.DONE) {
             assertAllDescendantSubtasksDone(taskId);
             assertNoUnfinishedBlockingDependencies(taskId);
         }
+
+        enforceQaWorkflowTransition(task, oldStatus, newStatus, actorMember, currentUser);
 
         task.setTaskStatus(newStatus);
         syncCompletedAt(task, oldStatus, newStatus);
@@ -537,13 +582,19 @@ public class TaskServiceImpl implements TaskService {
         if (newColumn.getMappedStatus() != null) {
             TaskStatus currentStatusBeforeMove = task.getTaskStatus();
             TaskStatus mapped = newColumn.getMappedStatus();
-            enforceQaWorkflowTransition(currentStatusBeforeMove, mapped, actorMember, currentUser);
             if (mapped == TaskStatus.DONE) {
                 assertAllDescendantSubtasksDone(taskId);
                 assertNoUnfinishedBlockingDependencies(taskId);
             }
+            enforceQaWorkflowTransition(task, currentStatusBeforeMove, mapped, actorMember, currentUser);
             task.setTaskStatus(mapped);
             syncCompletedAt(task, currentStatusBeforeMove, mapped);
+            if (mapped == TaskStatus.TESTING && request.getTransitionEvidence() != null && !request.getTransitionEvidence().isBlank()) {
+                logActivity(projectId, currentUserId, EntityType.TASK, taskId,
+                        ActionType.UPDATED,
+                        null,
+                        toJson(mapOf("testingHandoffEvidence", request.getTransitionEvidence().trim())));
+            }
             // BR-AI-06: Decrement active_task_count when task dragged to terminal column
             boolean enteringTerminal = (mapped == TaskStatus.DONE || mapped == TaskStatus.CANCELLED)
                     && currentStatusBeforeMove != TaskStatus.DONE && currentStatusBeforeMove != TaskStatus.CANCELLED;
@@ -1765,7 +1816,7 @@ public class TaskServiceImpl implements TaskService {
         }
     }
 
-    private void enforceQaWorkflowTransition(TaskStatus oldStatus, TaskStatus newStatus,
+    private void enforceQaWorkflowTransition(Task task, TaskStatus oldStatus, TaskStatus newStatus,
                                              ProjectMember actorMember, User currentUser) {
         if (oldStatus == null || newStatus == null || oldStatus == newStatus) {
             return;
@@ -1779,7 +1830,15 @@ public class TaskServiceImpl implements TaskService {
             throw new Forbidden("Chỉ PM/Admin hoặc thành viên có skill QA/Testing mới được chuyển task sang Done");
         }
 
-        if (isQaReviewStage(oldStatus)
+        if (newStatus == TaskStatus.DONE
+                && task != null
+                && task.getAssignee() != null
+                && currentUser != null
+                && task.getAssignee().getId().equals(currentUser.getId())) {
+            throw new Forbidden("Nghiep vu yeu cau mot Tester khac chuyen mon nghiem thu de dam bao khach quan.");
+        }
+
+        if (isQaControlledStage(oldStatus)
                 && (newStatus == TaskStatus.IN_PROGRESS || newStatus == TaskStatus.TODO)
                 && !canPerformTestingActions(actorMember, currentUser)) {
             throw new Forbidden("Chỉ PM/Admin hoặc thành viên có skill QA/Testing mới được trả task từ review về xử lý");
@@ -1807,10 +1866,11 @@ public class TaskServiceImpl implements TaskService {
         return status == TaskStatus.TESTING || status == TaskStatus.IN_REVIEW;
     }
 
-    private boolean isQaReviewStage(TaskStatus status) {
+    private boolean isQaControlledStage(TaskStatus status) {
         return status == TaskStatus.READY_FOR_TEST
                 || status == TaskStatus.TESTING
-                || status == TaskStatus.IN_REVIEW;
+                || status == TaskStatus.IN_REVIEW
+                || status == TaskStatus.DONE;
     }
 
     private String toJson(Object payload) {

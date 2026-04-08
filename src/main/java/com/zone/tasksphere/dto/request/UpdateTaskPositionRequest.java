@@ -19,4 +19,7 @@ public class UpdateTaskPositionRequest {
     @Min(value = 0, message = "Position không được âm")
     @Schema(description = "New position", example = "1")
     private int newPosition;
+
+    @Schema(description = "Optional handoff note when moving a task into testing", example = "PR: https://github.com/org/repo/pull/42")
+    private String transitionEvidence;
 }

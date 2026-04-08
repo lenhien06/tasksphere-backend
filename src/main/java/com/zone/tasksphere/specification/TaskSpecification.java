@@ -74,6 +74,11 @@ public class TaskSpecification {
                 predicates.add(cb.equal(root.get("sprint").get("id"), params.getSprintId()));
             }
 
+            if (Boolean.TRUE.equals(params.getActiveSprintOnly())) {
+                predicates.add(cb.isNotNull(root.get("sprint")));
+                predicates.add(cb.equal(root.get("sprint").get("status"), com.zone.tasksphere.entity.enums.SprintStatus.ACTIVE));
+            }
+
             if (params.getPriorities() != null && !params.getPriorities().isEmpty()) {
                 predicates.add(root.get("priority").in(params.getPriorities()));
             } else if (params.getPriority() != null) {

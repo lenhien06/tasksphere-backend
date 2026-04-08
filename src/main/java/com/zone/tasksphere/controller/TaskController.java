@@ -185,6 +185,7 @@ public class TaskController {
             @RequestParam(required = false) TaskType type,
             @RequestParam(required = false) Boolean overdue,
             @RequestParam(required = false) Boolean dueSoon,
+            @RequestParam(required = false) Boolean activeSprintOnly,
             @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) String sortBy,
             @RequestParam(required = false, defaultValue = "asc") String order,
@@ -200,6 +201,7 @@ public class TaskController {
         params.setType(type);
         params.setOverdue(overdue);
         params.setDueSoon(dueSoon);
+        params.setActiveSprintOnly(activeSprintOnly);
 
         Pageable effectivePageable = buildPageable(pageable, dueSoon, limit, sortBy, order);
         PageResponse<TaskResponse> response =
