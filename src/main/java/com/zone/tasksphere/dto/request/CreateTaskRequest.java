@@ -9,6 +9,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -49,9 +50,15 @@ public class CreateTaskRequest {
     @Schema(description = "Estimated hours", example = "10.5")
     private BigDecimal estimatedHours;
 
+    @Schema(description = "Required skills for AI assignee suggestion", example = "[\"Java\", \"React\"]")
+    private List<String> skillTagsRequired;
+
     /** null = backlog */
     @Schema(description = "Sprint id", example = "550e8400-e29b-41d4-a716-446655440000")
     private UUID sprintId;
+
+    @Schema(description = "Confirm adding task into an ACTIVE sprint", example = "true")
+    private Boolean confirmActiveSprintChange;
 
     /** null = root task; có → sub-task (BR-15 max depth=3) */
     @Schema(description = "Parent task id", example = "550e8400-e29b-41d4-a716-446655440000")

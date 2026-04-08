@@ -112,6 +112,7 @@ public class TaskServiceImpl implements TaskService {
             if (sprint.getStatus() == SprintStatus.COMPLETED) {
                 throw new BusinessRuleException("Không thể thêm task vào sprint đã hoàn thành");
             }
+            requireActiveSprintConfirmation(sprint, request.getConfirmActiveSprintChange());
         }
 
         // Validate sub-task depth (BR-15: max depth = 3)
@@ -153,6 +154,7 @@ public class TaskServiceImpl implements TaskService {
             .completedAt(statusColumn.getMappedStatus() == TaskStatus.DONE ? Instant.now() : null)
             .storyPoints(request.getStoryPoints())
             .estimatedHours(request.getEstimatedHours())
+            .skillTagsRequired(request.getSkillTagsRequired())
             .startDate(request.getStartDate())
             .dueDate(request.getDueDate())
             .taskPosition(position)
@@ -176,6 +178,18 @@ public class TaskServiceImpl implements TaskService {
                     "type", task.getType() != null ? task.getType().name() : null,
                     "priority", task.getPriority() != null ? task.getPriority().name() : null
             )));
+
+        if (sprint != null && sprint.getStatus() == SprintStatus.ACTIVE) {
+            logActivity(project.getId(), currentUserId, EntityType.SPRINT, sprint.getId(),
+                ActionType.UPDATED, null, toJson(mapOf(
+                    "activeSprintScopeChange", true,
+                    "taskId", task.getId(),
+                    "taskCode", task.getTaskCode(),
+                    "taskTitle", task.getTitle(),
+                    "actorName", currentUser.getFullName(),
+                    "message", String.format("PM %s da them Task %s vao luc Sprint dang chay.", currentUser.getFullName(), task.getTitle())
+                )));
+        }
 
         // Gửi notification nếu có assignee khác reporter
         if (assignee != null && !assignee.getId().equals(currentUserId)) {
@@ -1541,6 +1555,17 @@ public class TaskServiceImpl implements TaskService {
                 List<ProjectStatusColumn> seeded = defaultColumnSeeder.seedForProject(project);
                 return seeded.get(0);
             });
+    }
+
+    private void requireActiveSprintConfirmation(Sprint sprint, Boolean confirmActiveSprintChange) {
+        if (sprint.getStatus() != SprintStatus.ACTIVE || Boolean.TRUE.equals(confirmActiveSprintChange)) {
+            return;
+        }
+        throw new StructuredApiException(
+                HttpStatus.CONFLICT,
+                "SPR_ACTIVE_SCOPE_WARNING",
+                "Sprint dang hoat dong. Viec them task moi se lam thay doi pham vi va sai lech burndown chart.",
+                Map.of("sprintId", sprint.getId(), "sprintName", sprint.getName()));
     }
 
     private void logActivity(UUID projectId, UUID actorId, EntityType entityType,
