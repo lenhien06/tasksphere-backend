@@ -408,11 +408,6 @@ public class ProjectService {
         }
 
         // FR-13: confirmName phải khớp chính xác tên dự án
-        if (project.getDeletedAt() == null || project.getStatus() != ProjectStatus.ARCHIVED) {
-            throw new com.zone.tasksphere.exception.BadRequestException(
-                    "Archive the project before permanently deleting it");
-        }
-
         if (confirmName == null || confirmName.trim().isEmpty()) {
             throw new com.zone.tasksphere.exception.BadRequestException("Tên xác nhận không được để trống");
         }
@@ -580,6 +575,11 @@ public class ProjectService {
         boolean isOwner = project.getOwner() != null && project.getOwner().getId().equals(actorId);
         if (!isOwner && !isAdmin) {
             throw new com.zone.tasksphere.exception.Forbidden("Chỉ Owner hoặc Admin mới được xóa vĩnh viễn dự án");
+        }
+
+        if (project.getDeletedAt() == null || project.getStatus() != ProjectStatus.ARCHIVED) {
+            throw new com.zone.tasksphere.exception.BadRequestException(
+                    "Archive the project before permanently deleting it");
         }
 
         if (confirmName == null || confirmName.trim().isEmpty()) {
