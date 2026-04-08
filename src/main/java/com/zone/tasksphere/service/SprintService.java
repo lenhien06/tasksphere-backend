@@ -36,5 +36,9 @@ public interface SprintService {
     // ── Module 4: Sprint Reports ─────────────────────────────────────
     BurndownResponse getBurndown(UUID sprintId, UUID currentUserId);
 
+    BurnupReportResponse getBurnup(UUID sprintId, UUID currentUserId);
+
     VelocityReportResponse getVelocityReport(UUID projectId, int limit, UUID currentUserId);
+
+    VelocityForecastResponse getVelocityForecast(UUID projectId, int limit, UUID currentUserId);
 }

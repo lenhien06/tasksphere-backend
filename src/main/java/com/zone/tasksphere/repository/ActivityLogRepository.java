@@ -14,6 +14,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import com.zone.tasksphere.entity.enums.ActionType;
+import com.zone.tasksphere.entity.enums.EntityType;
+
 @Repository
 public interface ActivityLogRepository extends JpaRepository<ActivityLog, UUID>, JpaSpecificationExecutor<ActivityLog> {
     Page<ActivityLog> findByProjectId(UUID projectId, Pageable pageable);
@@ -53,6 +56,22 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLog, UUID>,
     """, nativeQuery = true)
     List<Object[]> findDonePointsByDate(
             @Param("sprintId") UUID sprintId,
+            @Param("startDate") Instant startDate,
+            @Param("endDate") Instant endDate);
+
+    @Query("""
+        SELECT a FROM ActivityLog a
+        WHERE a.projectId = :projectId
+          AND a.entityType = :entityType
+          AND a.action = :action
+          AND a.createdAt >= :startDate
+          AND a.createdAt < :endDate
+        ORDER BY a.createdAt ASC
+    """)
+    List<ActivityLog> findByProjectIdAndEntityTypeAndActionBetween(
+            @Param("projectId") UUID projectId,
+            @Param("entityType") EntityType entityType,
+            @Param("action") ActionType action,
             @Param("startDate") Instant startDate,
             @Param("endDate") Instant endDate);
 

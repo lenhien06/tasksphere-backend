@@ -1,5 +1,7 @@
 package com.zone.tasksphere.service.impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zone.tasksphere.dto.request.*;
 import com.zone.tasksphere.dto.response.*;
 import com.zone.tasksphere.entity.*;
@@ -26,6 +28,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 @Service
@@ -38,10 +41,13 @@ public class SprintServiceImpl implements SprintService {
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final TaskRepository taskRepository;
+    private final ActivityLogRepository activityLogRepository;
+    private final SprintTaskSnapshotRepository sprintTaskSnapshotRepository;
     private final UserRepository userRepository;
     private final ActivityLogService activityLogService;
     private final NotificationService notificationService;
     private final TaskMapper taskMapper;
+    private final ObjectMapper objectMapper;
 
     // ════════════════════════════════════════
     // MODULE 1: Sprint CRUD
@@ -274,6 +280,7 @@ public class SprintServiceImpl implements SprintService {
         sprint.setStatus(SprintStatus.ACTIVE);
         sprint.setStartedAt(Instant.now());
         sprint = sprintRepository.save(sprint);
+        captureSprintSnapshot(sprint);
 
         logActivity(projectId, currentUserId, EntityType.SPRINT, sprint.getId(),
                 ActionType.STATUS_CHANGED, SprintStatus.PLANNED.name(), SprintStatus.ACTIVE.name());
@@ -356,7 +363,7 @@ public class SprintServiceImpl implements SprintService {
         }
 
         // BR-22: Tính velocity = SUM storyPoints task DONE
-        Integer velocity = sprintRepository.calculateVelocity(sprintId);
+        Integer velocity = calculateCompletedPoints(sprint);
 
         sprint.setStatus(SprintStatus.COMPLETED);
         sprint.setCompletedAt(Instant.now());
@@ -554,11 +561,7 @@ public class SprintServiceImpl implements SprintService {
             throw new BadRequestException("Sprint chưa có ngày bắt đầu/kết thúc");
         }
 
-        // Tổng story points trong sprint
-        int totalPoints = Optional.ofNullable(sprintRepository.calculateVelocity(sprintId))
-                .orElse(0);
-        // Tính tổng bao gồm cả task chưa DONE
-        totalPoints = getTotalStoryPoints(sprintId);
+        int totalPoints = getCommittedPoints(sprint);
 
         // Tính Ideal Line
         List<BurndownResponse.DataPoint> idealLine = new ArrayList<>();
@@ -669,13 +672,14 @@ public class SprintServiceImpl implements SprintService {
                 .map(s -> {
                     long totalTasks = sprintRepository.countTasksBySprintId(s.getId());
                     long doneTasks = sprintRepository.countDoneTasksBySprintId(s.getId());
+                    int completedPoints = calculateCompletedPoints(s);
                     return VelocityReportResponse.SprintVelocity.builder()
                             .sprintId(s.getId())
                             .sprintName(s.getName())
                             .completedAt(s.getCompletedAt() != null
                                     ? s.getCompletedAt().atZone(ZoneOffset.UTC).toLocalDate()
                                     : null)
-                            .velocity(s.getVelocity() != null ? s.getVelocity() : 0)
+                            .velocity(completedPoints)
                             .totalTasks(totalTasks)
                             .doneTasks(doneTasks)
                             .build();
@@ -707,6 +711,182 @@ public class SprintServiceImpl implements SprintService {
                 .sprints(sprintVelocities)
                 .averageVelocity(avgVelocity)
                 .trend(trend)
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public BurnupReportResponse getBurnup(UUID sprintId, UUID currentUserId) {
+        Sprint sprint = sprintRepository.findById(sprintId)
+                .orElseThrow(() -> new NotFoundException("Sprint không tồn tại"));
+
+        if (!projectMemberRepository.existsByProjectIdAndUserId(sprint.getProject().getId(), currentUserId)) {
+            throw new Forbidden("Bạn không phải thành viên dự án này");
+        }
+
+        LocalDate start = sprint.getStartDate();
+        LocalDate end = sprint.getEndDate();
+        if (start == null || end == null) {
+            throw new BadRequestException("Sprint chưa có ngày bắt đầu/kết thúc");
+        }
+
+        LocalDate seriesEnd = sprint.getStatus() == SprintStatus.COMPLETED
+                ? end
+                : LocalDate.now().isBefore(end) ? LocalDate.now() : end;
+
+        if (seriesEnd.isBefore(start)) {
+            seriesEnd = start;
+        }
+
+        Map<UUID, Integer> taskPointLookup = buildTaskPointLookup(sprint);
+        int initialScope = getCommittedPoints(sprint);
+
+        Instant rangeStart = start.atStartOfDay().toInstant(ZoneOffset.UTC);
+        Instant rangeEndExclusive = end.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+
+        Map<LocalDate, Integer> createdScopeChanges = new HashMap<>();
+        for (Task task : taskRepository.findBySprintIdAndDeletedAtIsNull(sprintId)) {
+            if (task.getCreatedAt() == null || task.getStoryPoints() == null || task.getStoryPoints() <= 0) {
+                continue;
+            }
+            LocalDate createdDate = task.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate();
+            if (createdDate.isAfter(start) && !createdDate.isAfter(seriesEnd)) {
+                boolean existedAtStart = sprintTaskSnapshotRepository.findBySprintId(sprintId).stream()
+                        .anyMatch(snapshot -> snapshot.getTask().getId().equals(task.getId()));
+                if (!existedAtStart) {
+                    createdScopeChanges.merge(createdDate, task.getStoryPoints(), Integer::sum);
+                }
+            }
+        }
+
+        Map<LocalDate, Integer> sprintScopeDeltas = new HashMap<>();
+        List<ActivityLog> sprintChangeLogs = activityLogRepository.findByProjectIdAndEntityTypeAndActionBetween(
+                sprint.getProject().getId(),
+                EntityType.TASK,
+                ActionType.SPRINT_CHANGED,
+                rangeStart,
+                rangeEndExclusive);
+
+        for (ActivityLog logEntry : sprintChangeLogs) {
+            LocalDate eventDate = logEntry.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate();
+            if (eventDate.isBefore(start) || eventDate.isAfter(seriesEnd)) {
+                continue;
+            }
+
+            UUID oldSprintId = readUuidField(logEntry.getOldValues(), "sprintId");
+            UUID newSprintId = readUuidField(logEntry.getNewValues(), "sprintId");
+            int storyPoints = taskPointLookup.getOrDefault(logEntry.getEntityId(), 0);
+            if (storyPoints <= 0) {
+                continue;
+            }
+
+            if (!Objects.equals(oldSprintId, sprintId) && Objects.equals(newSprintId, sprintId)) {
+                sprintScopeDeltas.merge(eventDate, storyPoints, Integer::sum);
+            } else if (Objects.equals(oldSprintId, sprintId) && !Objects.equals(newSprintId, sprintId)) {
+                sprintScopeDeltas.merge(eventDate, -storyPoints, Integer::sum);
+            }
+        }
+
+        Map<LocalDate, Integer> donePointsByDate = new HashMap<>();
+        for (Object[] row : taskRepository.findDonePointsByCompletedAt(sprintId, rangeStart, rangeEndExclusive)) {
+            LocalDate date = readSqlDate(row[0]);
+            int points = row[1] instanceof Number number ? number.intValue() : 0;
+            if (date != null) {
+                donePointsByDate.merge(date, points, Integer::sum);
+            }
+        }
+
+        List<BurnupReportResponse.DataPoint> data = new ArrayList<>();
+        int scopePoints = initialScope;
+        int completedPoints = 0;
+        long totalDays = ChronoUnit.DAYS.between(start, seriesEnd);
+        for (long i = 0; i <= totalDays; i++) {
+            LocalDate date = start.plusDays(i);
+            scopePoints += createdScopeChanges.getOrDefault(date, 0);
+            scopePoints += sprintScopeDeltas.getOrDefault(date, 0);
+            completedPoints += donePointsByDate.getOrDefault(date, 0);
+
+            data.add(BurnupReportResponse.DataPoint.builder()
+                    .date(date)
+                    .scopePoints(Math.max(scopePoints, 0))
+                    .completedPoints(Math.max(Math.min(completedPoints, Math.max(scopePoints, 0)), 0))
+                    .build());
+        }
+
+        int latestScope = data.isEmpty() ? initialScope : data.get(data.size() - 1).getScopePoints();
+        int latestCompleted = data.isEmpty() ? 0 : data.get(data.size() - 1).getCompletedPoints();
+
+        return BurnupReportResponse.builder()
+                .sprintId(sprint.getId())
+                .sprintName(sprint.getName())
+                .startDate(start)
+                .endDate(end)
+                .initialScopePoints(initialScope)
+                .latestScopePoints(latestScope)
+                .latestCompletedPoints(latestCompleted)
+                .data(data)
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public VelocityForecastResponse getVelocityForecast(UUID projectId, int limit, UUID currentUserId) {
+        requirePM(projectId, currentUserId);
+
+        int safeLimit = Math.min(Math.max(limit, 1), 10);
+        Pageable pageable = PageRequest.of(0, safeLimit);
+
+        List<Sprint> completedSprints = sprintRepository
+                .findByProject_IdAndStatusAndDeletedAtIsNullOrderByCompletedAtDesc(
+                        projectId, SprintStatus.COMPLETED, pageable);
+
+        List<Sprint> ordered = new ArrayList<>(completedSprints);
+        Collections.reverse(ordered);
+
+        List<VelocityForecastResponse.SprintVelocityPoint> sprintPoints = ordered.stream()
+                .map(sprint -> VelocityForecastResponse.SprintVelocityPoint.builder()
+                        .sprintId(sprint.getId())
+                        .sprintName(sprint.getName())
+                        .completedAt(sprint.getCompletedAt() != null
+                                ? sprint.getCompletedAt().atZone(ZoneOffset.UTC).toLocalDate()
+                                : null)
+                        .committedPoints(getCommittedPoints(sprint))
+                        .completedPoints(calculateCompletedPoints(sprint))
+                        .build())
+                .toList();
+
+        List<String> categories = sprintPoints.stream()
+                .map(VelocityForecastResponse.SprintVelocityPoint::getSprintName)
+                .toList();
+        List<Integer> committedSeries = sprintPoints.stream()
+                .map(VelocityForecastResponse.SprintVelocityPoint::getCommittedPoints)
+                .toList();
+        List<Integer> completedSeries = sprintPoints.stream()
+                .map(VelocityForecastResponse.SprintVelocityPoint::getCompletedPoints)
+                .toList();
+
+        double averageCompleted = completedSeries.isEmpty()
+                ? 0
+                : Math.round(completedSeries.stream().mapToInt(Integer::intValue).average().orElse(0) * 10.0) / 10.0;
+
+        String trend = "STABLE";
+        if (completedSeries.size() >= 2) {
+            int last = completedSeries.get(completedSeries.size() - 1);
+            int previous = completedSeries.get(completedSeries.size() - 2);
+            if (last > previous) {
+                trend = "UP";
+            } else if (last < previous) {
+                trend = "DOWN";
+            }
+        }
+
+        return VelocityForecastResponse.builder()
+                .categories(categories)
+                .committedSeries(committedSeries)
+                .completedSeries(completedSeries)
+                .averageCompleted(averageCompleted)
+                .trend(trend)
+                .sprints(sprintPoints)
                 .build();
     }
 
@@ -752,7 +932,7 @@ public class SprintServiceImpl implements SprintService {
             }
         }
 
-        Integer velocity = sprintRepository.calculateVelocity(sprintId);
+        Integer velocity = calculateCompletedPoints(sprint);
         sprint.setStatus(SprintStatus.COMPLETED);
         sprint.setCompletedAt(Instant.now());
         sprint.setVelocity(velocity);
@@ -858,6 +1038,90 @@ public class SprintServiceImpl implements SprintService {
                 .sum();
         int donePoints = Optional.ofNullable(sprintRepository.calculateVelocity(sprintId)).orElse(0);
         return unfinishedPoints + donePoints;
+    }
+
+    private void captureSprintSnapshot(Sprint sprint) {
+        if (sprintTaskSnapshotRepository.existsBySprintId(sprint.getId())) {
+            return;
+        }
+
+        List<Task> tasks = taskRepository.findBySprintIdAndDeletedAtIsNull(sprint.getId());
+        List<SprintTaskSnapshot> snapshots = tasks.stream()
+                .map(task -> SprintTaskSnapshot.builder()
+                        .sprint(sprint)
+                        .task(task)
+                        .storyPointsAtStart(task.getStoryPoints() != null ? task.getStoryPoints() : 0)
+                        .build())
+                .toList();
+        if (!snapshots.isEmpty()) {
+            sprintTaskSnapshotRepository.saveAll(snapshots);
+        }
+    }
+
+    private int calculateCompletedPoints(Sprint sprint) {
+        if (sprintTaskSnapshotRepository.existsBySprintId(sprint.getId())) {
+            return Optional.ofNullable(sprintTaskSnapshotRepository.calculateVelocityFromSnapshots(sprint.getId()))
+                    .orElse(0);
+        }
+        if (sprint.getVelocity() != null && sprint.getVelocity() > 0) {
+            return sprint.getVelocity();
+        }
+        return Optional.ofNullable(sprintRepository.calculateVelocity(sprint.getId())).orElse(0);
+    }
+
+    private int getCommittedPoints(Sprint sprint) {
+        if (sprintTaskSnapshotRepository.existsBySprintId(sprint.getId())) {
+            return Optional.ofNullable(sprintTaskSnapshotRepository.getTotalSnapshotPoints(sprint.getId()))
+                    .orElse(0);
+        }
+        int currentTotal = getTotalStoryPoints(sprint.getId());
+        int completed = calculateCompletedPoints(sprint);
+        return Math.max(currentTotal, completed);
+    }
+
+    private Map<UUID, Integer> buildTaskPointLookup(Sprint sprint) {
+        Map<UUID, Integer> taskPointLookup = new HashMap<>();
+        for (SprintTaskSnapshot snapshot : sprintTaskSnapshotRepository.findBySprintId(sprint.getId())) {
+            taskPointLookup.put(snapshot.getTask().getId(), snapshot.getStoryPointsAtStart() != null
+                    ? snapshot.getStoryPointsAtStart()
+                    : 0);
+        }
+
+        for (Task task : taskRepository.findBySprintIdAndDeletedAtIsNull(sprint.getId())) {
+            taskPointLookup.putIfAbsent(task.getId(), task.getStoryPoints() != null ? task.getStoryPoints() : 0);
+        }
+        return taskPointLookup;
+    }
+
+    private UUID readUuidField(String json, String field) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            Map<String, Object> payload = objectMapper.readValue(json, new TypeReference<>() {});
+            Object value = payload.get(field);
+            if (value == null) {
+                return null;
+            }
+            String text = String.valueOf(value).trim();
+            if (text.isBlank() || "null".equalsIgnoreCase(text)) {
+                return null;
+            }
+            return UUID.fromString(text);
+        } catch (Exception ex) {
+            log.debug("Unable to parse field '{}' from activity log payload", field, ex);
+            return null;
+        }
+    }
+
+    private LocalDate readSqlDate(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (raw instanceof java.sql.Date sqlDate) {
+            return sqlDate.toLocalDate();
+        }
+        return LocalDate.parse(raw.toString());
     }
 
     private void validateSprintDatesWithinProject(Project project, LocalDate sprintStart, LocalDate sprintEnd) {

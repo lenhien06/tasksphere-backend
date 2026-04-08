@@ -44,6 +44,14 @@ public class ReportController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    @Operation(summary = "Lấy dữ liệu Burnup Report của Sprint",
+               description = "Trả về phạm vi công việc và điểm hoàn thành tích lũy theo từng ngày trong sprint.")
+    @GetMapping("/sprints/{sprintId}/burnup")
+    public ResponseEntity<ApiResponse<BurnupReportResponse>> getBurnup(@PathVariable UUID sprintId) {
+        BurnupReportResponse response = sprintService.getBurnup(sprintId, getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
     @Operation(summary = "Lấy dữ liệu Velocity Chart của dự án",
                description = "Trả về velocity (story points hoàn thành) của N sprint gần nhất.")
     @GetMapping({"/projects/{projectId}/velocity", "/projects/{projectId}/reports/velocity"})
@@ -51,6 +59,16 @@ public class ReportController {
             @PathVariable UUID projectId,
             @RequestParam(defaultValue = "5") int limit) {
         VelocityReportResponse response = sprintService.getVelocityReport(projectId, limit, getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Lấy báo cáo committed vs completed qua nhiều sprint",
+               description = "Trả về 5 sprint gần nhất đã hoàn thành với committed story points và completed story points.")
+    @GetMapping("/projects/{projectId}/reports/velocity-forecast")
+    public ResponseEntity<ApiResponse<VelocityForecastResponse>> getVelocityForecast(
+            @PathVariable UUID projectId,
+            @RequestParam(defaultValue = "5") int limit) {
+        VelocityForecastResponse response = sprintService.getVelocityForecast(projectId, limit, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

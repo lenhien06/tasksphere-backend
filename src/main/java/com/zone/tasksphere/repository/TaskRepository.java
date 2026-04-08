@@ -306,6 +306,13 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
                         """)
         List<Task> findTimelineTasksByProjectId(@Param("projectId") UUID projectId);
 
+        @Query("""
+                            SELECT t FROM Task t
+                            WHERE t.sprint.id = :sprintId
+                              AND t.deletedAt IS NULL
+                        """)
+        List<Task> findBySprintIdAndDeletedAtIsNull(@Param("sprintId") UUID sprintId);
+
         /** Tìm sub-tasks trực tiếp của task cha (SQLRestriction tự lọc) */
         List<Task> findByParentTaskId(UUID parentTaskId);
 
