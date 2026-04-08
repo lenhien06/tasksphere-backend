@@ -463,10 +463,12 @@ class TaskServiceImplTest {
 
         Task blocker = task(project, assignee, "TS-1", "Task A", TaskStatus.DONE);
         blocker.setStartDate(LocalDate.of(2026, 3, 25));
+        blocker.setEndDate(LocalDate.of(2026, 3, 26));
         blocker.setDueDate(LocalDate.of(2026, 3, 26));
 
         Task blocked = task(project, assignee, "TS-2", "Task B", TaskStatus.IN_PROGRESS);
         blocked.setStartDate(LocalDate.of(2026, 3, 27));
+        blocked.setEndDate(LocalDate.of(2026, 3, 29));
         blocked.setDueDate(LocalDate.of(2026, 3, 30));
         TaskDependency edge = TaskDependency.builder()
                 .id(UUID.randomUUID())
@@ -496,6 +498,7 @@ class TaskServiceImplTest {
                 .filter(item -> item.getId().equals(blocked.getId()))
                 .findFirst()
                 .orElseThrow();
+        assertThat(blockedItem.getEndDate()).isEqualTo(LocalDate.of(2026, 3, 29));
         assertThat(blockedItem.getBlockedBy()).singleElement().satisfies(ref -> {
             assertThat(ref.getTaskId()).isEqualTo(blocker.getId());
             assertThat(ref.getLinkType()).isEqualTo("BLOCKED_BY");

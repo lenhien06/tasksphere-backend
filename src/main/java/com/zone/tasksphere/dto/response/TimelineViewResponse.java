@@ -42,6 +42,7 @@ public class TimelineViewResponse {
         private TaskPriority priority;
         private UserSummary assignee;
         private LocalDate startDate;
+        private LocalDate endDate;
         private LocalDate dueDate;
         private Integer storyPoints;
         private BigDecimal estimatedHours;
@@ -56,6 +57,8 @@ public class TimelineViewResponse {
     public static class TimelineDependencyEdge {
         private UUID linkId;
         private String linkType;
+        private UUID sourceTaskId;
+        private UUID targetTaskId;
         private UUID blockerTaskId;
         private String blockerTaskCode;
         private String blockerTitle;

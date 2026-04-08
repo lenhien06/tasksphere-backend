@@ -55,6 +55,7 @@ public class TaskMapper {
             .taskPosition(task.getTaskPosition())
             .storyPoints(task.getStoryPoints())
             .startDate(task.getStartDate())
+            .endDate(task.getEndDate())
             .dueDate(task.getDueDate())
             .overdue(isOverdue(task))
             .subtaskCount(subtaskCount)
@@ -97,6 +98,7 @@ public class TaskMapper {
             .estimatedHours(task.getEstimatedHours())
             .actualHours(task.getActualHours())
             .startDate(task.getStartDate())
+            .endDate(task.getEndDate())
             .dueDate(task.getDueDate())
             .overdue(isOverdue(task))
             .isRecurring(task.isRecurring())
@@ -166,6 +168,7 @@ public class TaskMapper {
         if (request.getType() != null) task.setType(request.getType());
         if (request.getPriority() != null) task.setPriority(request.getPriority());
         if (request.getStartDate() != null) task.setStartDate(request.getStartDate());
+        if (request.getEndDate() != null) task.setEndDate(request.getEndDate());
         if (request.getDueDate() != null) task.setDueDate(request.getDueDate());
         if (request.getStoryPoints() != null) task.setStoryPoints(request.getStoryPoints());
         if (request.getEstimatedHours() != null) task.setEstimatedHours(request.getEstimatedHours());

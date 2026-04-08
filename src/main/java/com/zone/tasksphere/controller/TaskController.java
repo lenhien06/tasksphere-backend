@@ -116,7 +116,7 @@ public class TaskController {
             Trả về toàn bộ task trong dự án cùng danh sách dependency blocker để FE render Timeline/Gantt.
 
             Response bao gồm:
-            - task metadata: id, taskCode, title, status, priority, assignee, startDate, dueDate, parentTaskId
+            - task metadata: id, taskCode, title, status, priority, assignee, startDate, endDate, dueDate, parentTaskId
             - blockedBy / blocking cho từng task
             - dependency edges chuẩn hoá ở cấp project
             """
@@ -125,6 +125,16 @@ public class TaskController {
     public ResponseEntity<ApiResponse<TimelineViewResponse>> getTimeline(
             @PathVariable UUID projectId) {
         TimelineViewResponse response = taskService.getTimelineView(projectId, getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Dời lịch thi công task trên Timeline/Gantt")
+    @PatchMapping("/{taskId}/timeline/shift")
+    public ResponseEntity<ApiResponse<ShiftTaskScheduleResponse>> shiftTimelineTask(
+            @PathVariable UUID projectId,
+            @PathVariable UUID taskId,
+            @Valid @RequestBody ShiftTaskScheduleRequest request) {
+        ShiftTaskScheduleResponse response = taskService.shiftTaskSchedule(projectId, taskId, request, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

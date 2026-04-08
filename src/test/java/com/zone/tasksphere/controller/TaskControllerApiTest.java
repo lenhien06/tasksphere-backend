@@ -108,6 +108,7 @@ class TaskControllerApiTest {
                                 .status(TaskStatus.DONE)
                                 .priority(TaskPriority.HIGH)
                                 .startDate(LocalDate.of(2026, 3, 25))
+                                .endDate(LocalDate.of(2026, 3, 26))
                                 .dueDate(LocalDate.of(2026, 3, 27))
                                 .blockedBy(List.of())
                                 .blocking(List.of(
@@ -127,6 +128,7 @@ class TaskControllerApiTest {
                                 .status(TaskStatus.IN_PROGRESS)
                                 .priority(TaskPriority.HIGH)
                                 .startDate(LocalDate.of(2026, 3, 27))
+                                .endDate(LocalDate.of(2026, 3, 29))
                                 .dueDate(LocalDate.of(2026, 3, 30))
                                 .parentTaskId(taskAId)
                                 .blockedBy(List.of(
@@ -145,6 +147,8 @@ class TaskControllerApiTest {
                         TimelineViewResponse.TimelineDependencyEdge.builder()
                                 .linkId(linkId)
                                 .linkType("BLOCKS")
+                                .sourceTaskId(taskAId)
+                                .targetTaskId(taskBId)
                                 .blockerTaskId(taskAId)
                                 .blockerTaskCode("TS-10")
                                 .blockerTitle("Design API contract")

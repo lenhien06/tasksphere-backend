@@ -102,6 +102,9 @@ public class Task extends BaseEntity {
     @Column(name = "start_date")
     private LocalDate startDate;
 
+    @Column(name = "end_date")
+    private LocalDate endDate;
+
     @Column(name = "completed_at")
     private java.time.Instant completedAt;
 

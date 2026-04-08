@@ -41,6 +41,9 @@ public class CreateTaskRequest {
     @Schema(description = "Start date", example = "2023-12-01")
     private LocalDate startDate;
 
+    @Schema(description = "Scheduled end date", example = "2023-12-05")
+    private LocalDate endDate;
+
     @Min(value = 1, message = "Story points phải từ 1 đến 100 (SRS: positive integer)")
     @Max(value = 100, message = "Story points tối đa 100")
     @Schema(description = "Story points 1–100 (optional, null = chưa gán)", example = "5")

@@ -39,7 +39,11 @@ public interface TaskDependencyRepository extends JpaRepository<TaskDependency, 
     /**
      * Tìm tất cả task đang bị taskId block (các task này phụ thuộc vào taskId).
      */
-    @Query("SELECT d.blockedTask.id FROM TaskDependency d WHERE d.blockingTask.id = :taskId")
+    @Query("""
+        SELECT d.blockedTask.id FROM TaskDependency d
+        WHERE d.blockingTask.id = :taskId
+          AND d.linkType = com.zone.tasksphere.entity.enums.DependencyType.BLOCKS
+    """)
     List<UUID> findDependentTaskIdsByTaskId(@Param("taskId") UUID taskId);
 
     /** Full list cho GET endpoint — blockedBy (task này bị block bởi ai) */

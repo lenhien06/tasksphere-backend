@@ -54,6 +54,8 @@ public class TaskDetailResponse {
     private BigDecimal actualHours;
     @Schema(description = "Start date", example = "2023-12-01")
     private LocalDate startDate;
+    @Schema(description = "Scheduled end date", example = "2023-12-05")
+    private LocalDate endDate;
     @Schema(description = "Due date", example = "2023-12-31T23:59:59Z")
     private LocalDate dueDate;
     @Schema(description = "Overdue", example = "true")

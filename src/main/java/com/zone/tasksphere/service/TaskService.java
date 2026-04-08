@@ -62,6 +62,9 @@ public interface TaskService {
 
     TimelineViewResponse getTimelineView(UUID projectId, UUID currentUserId);
 
+    ShiftTaskScheduleResponse shiftTaskSchedule(UUID projectId, UUID taskId,
+                                                ShiftTaskScheduleRequest request, UUID currentUserId);
+
     // ── Calendar: Update due date ─────────────────────────────────────
     TaskDetailResponse updateDueDate(UUID projectId, UUID taskId,
                                      UpdateTaskDueDateRequest request, UUID currentUserId);

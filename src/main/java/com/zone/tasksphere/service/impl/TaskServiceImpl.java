@@ -53,6 +53,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -144,6 +145,10 @@ public class TaskServiceImpl implements TaskService {
 
         // Sinh task code (thread-safe)
         String taskCode = taskCodeGenerator.generateTaskCode(project);
+        LocalDate scheduledStart = resolveRequestedStartDate(request.getStartDate(), sprint, null);
+        LocalDate scheduledEnd = resolveRequestedEndDate(request.getEndDate(), request.getDueDate(), scheduledStart, null);
+        validateScheduleWindow(scheduledStart, scheduledEnd);
+        validateScheduledWindowWithinSprint(sprint, scheduledStart, scheduledEnd);
 
         // Build và save entity
         Task task = Task.builder()
@@ -156,8 +161,11 @@ public class TaskServiceImpl implements TaskService {
             .completedAt(statusColumn.getMappedStatus() == TaskStatus.DONE ? Instant.now() : null)
             .storyPoints(request.getStoryPoints())
             .estimatedHours(request.getEstimatedHours())
+            .startDate(scheduledStart)
+            .endDate(scheduledEnd)
             .skillTagsRequired(request.getSkillTagsRequired())
-            .startDate(request.getStartDate())
+            .startDate(scheduledStart)
+            .endDate(scheduledEnd)
             .dueDate(request.getDueDate())
             .taskPosition(position)
             .depth(depth)
@@ -331,14 +339,14 @@ public class TaskServiceImpl implements TaskService {
         if (request.getDueDate() != null) {
             validateDueDateWithinSprint(effectiveSprint, request.getDueDate());
         }
-        if (request.getStartDate() != null) {
-            validateStartDateAgainstDependencies(task, request.getStartDate());
-            validateScheduledWindowWithinSprint(
-                    effectiveSprint,
-                    request.getStartDate(),
-                    request.getEstimatedHours() != null ? request.getEstimatedHours() : task.getEstimatedHours(),
-                    request.getStoryPoints() != null ? request.getStoryPoints() : task.getStoryPoints()
-            );
+
+        LocalDate requestedStart = resolveRequestedStartDate(request.getStartDate(), effectiveSprint, task);
+        LocalDate requestedEnd = resolveRequestedEndDate(request.getEndDate(), request.getDueDate(), requestedStart, task);
+        if (request.getStartDate() != null || request.getEndDate() != null) {
+            validateScheduleWindow(requestedStart, requestedEnd);
+            validateStartDateAgainstDependencies(task, requestedStart);
+            validateScheduledWindowWithinSprint(effectiveSprint, requestedStart, requestedEnd);
+            validateDependentSchedules(task, requestedEnd, Set.of(task.getId()), false);
         }
 
         taskMapper.updateEntityFromRequest(task, request);
@@ -623,6 +631,92 @@ public class TaskServiceImpl implements TaskService {
         return enrichTaskDetailResponse(task, currentUserId);
     }
 
+    @Override
+    @Transactional
+    public ShiftTaskScheduleResponse shiftTaskSchedule(UUID projectId, UUID taskId,
+                                                       ShiftTaskScheduleRequest request, UUID currentUserId) {
+        Task rootTask = getTaskInProject(taskId, projectId);
+        User currentUser = getUser(currentUserId);
+        ProjectMember actorMember = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
+                .orElse(null);
+        boolean isAdmin = currentUser.getSystemRole() == SystemRole.ADMIN;
+        if (actorMember == null && !isAdmin) {
+            throw new Forbidden("Bạn không phải thành viên dự án này");
+        }
+        if (actorMember != null && actorMember.getProjectRole() == ProjectRole.VIEWER) {
+            throw new Forbidden("VIEWER không được sửa task");
+        }
+        boolean isAssignee = rootTask.getAssignee() != null
+                && rootTask.getAssignee().getId().equals(currentUserId);
+        boolean isPM = actorMember != null && actorMember.getProjectRole() == ProjectRole.PROJECT_MANAGER;
+        if (!isAssignee && !isPM && !isAdmin) {
+            throw new Forbidden("MEMBER chỉ được sửa task mà mình là Assignee");
+        }
+
+        int shiftDays = request.getShiftDays();
+        boolean autoShiftDependents = Boolean.TRUE.equals(request.getAutoShiftDependents());
+        if (shiftDays == 0) {
+            return ShiftTaskScheduleResponse.builder()
+                    .taskId(taskId)
+                    .shiftDays(0)
+                    .autoShiftDependents(autoShiftDependents)
+                    .updatedTaskIds(List.of(taskId))
+                    .affectedTasks(1)
+                    .build();
+        }
+
+        LinkedHashSet<UUID> shiftedTaskIds = new LinkedHashSet<>();
+        shiftedTaskIds.add(taskId);
+        if (autoShiftDependents) {
+            collectDependentTaskIds(taskId, shiftedTaskIds);
+        }
+
+        List<Task> tasksToShift = taskRepository.findAllById(shiftedTaskIds);
+        Map<UUID, LocalDate> shiftedStarts = new HashMap<>();
+        Map<UUID, LocalDate> shiftedEnds = new HashMap<>();
+
+        for (Task task : tasksToShift) {
+            LocalDate currentStart = resolveTimelineStartDate(task);
+            LocalDate currentEnd = resolveTimelineEndDate(task, currentStart);
+            LocalDate nextStart = currentStart.plusDays(shiftDays);
+            LocalDate nextEnd = currentEnd.plusDays(shiftDays);
+
+            validateScheduleWindow(nextStart, nextEnd);
+            validateScheduledWindowWithinSprint(task.getSprint(), nextStart, nextEnd);
+
+            shiftedStarts.put(task.getId(), nextStart);
+            shiftedEnds.put(task.getId(), nextEnd);
+        }
+
+        for (Task task : tasksToShift) {
+            validateStartDateAgainstDependencies(task, shiftedStarts.get(task.getId()), shiftedTaskIds, shiftedEnds);
+            validateDependentSchedules(task, shiftedEnds.get(task.getId()), shiftedTaskIds, autoShiftDependents);
+        }
+
+        for (Task task : tasksToShift) {
+            task.setStartDate(shiftedStarts.get(task.getId()));
+            task.setEndDate(shiftedEnds.get(task.getId()));
+        }
+        taskRepository.saveAll(tasksToShift);
+        reportService.invalidateOverviewCache(projectId);
+
+        List<UUID> updatedTaskIds = new ArrayList<>(shiftedTaskIds);
+        logActivity(projectId, currentUserId, EntityType.TASK, taskId,
+                ActionType.UPDATED, null, toJson(Map.of(
+                        "shiftDays", shiftDays,
+                        "autoShiftDependents", autoShiftDependents,
+                        "updatedTaskIds", updatedTaskIds
+                )));
+
+        return ShiftTaskScheduleResponse.builder()
+                .taskId(taskId)
+                .shiftDays(shiftDays)
+                .autoShiftDependents(autoShiftDependents)
+                .updatedTaskIds(updatedTaskIds)
+                .affectedTasks(updatedTaskIds.size())
+                .build();
+    }
+
     // ════════════════════════════════════════
     // P3-BE-04: DELETE TASK (soft delete)
     // ════════════════════════════════════════
@@ -718,6 +812,10 @@ public class TaskServiceImpl implements TaskService {
         }
         String taskCode = taskCodeGenerator.generateTaskCode(parentTask.getProject());
         int position = (int) taskRepository.countByStatusColumnId(statusColumn.getId());
+        LocalDate scheduledStart = resolveRequestedStartDate(request.getStartDate(), parentTask.getSprint(), null);
+        LocalDate scheduledEnd = resolveRequestedEndDate(request.getEndDate(), request.getDueDate(), scheduledStart, null);
+        validateScheduleWindow(scheduledStart, scheduledEnd);
+        validateScheduledWindowWithinSprint(parentTask.getSprint(), scheduledStart, scheduledEnd);
 
         Task subTask = Task.builder()
             .taskCode(taskCode)
@@ -727,11 +825,12 @@ public class TaskServiceImpl implements TaskService {
             .priority(parentTask.getPriority() != null ? parentTask.getPriority() : TaskPriority.MEDIUM)
             .taskStatus(statusColumn.getMappedStatus() != null ? statusColumn.getMappedStatus() : TaskStatus.TODO)
             .completedAt(statusColumn.getMappedStatus() == TaskStatus.DONE ? Instant.now() : null)
-            .storyPoints(0)
-            .estimatedHours(null)
+            .storyPoints(request.getStoryPoints())
+            .estimatedHours(request.getEstimatedHours())
             .skillTagsRequired(request.getSkillTagsRequired())
-            .startDate(request.getStartDate())
-            .dueDate(parentTask.getDueDate())
+            .startDate(scheduledStart)
+            .endDate(scheduledEnd)
+            .dueDate(request.getDueDate())
             .taskPosition(position)
             .depth(newDepth)
             .project(parentTask.getProject())
@@ -918,7 +1017,9 @@ public class TaskServiceImpl implements TaskService {
         List<Task> tasks = taskRepository.findAll(TaskSpecification.buildFilter(normalizedParams, false));
         tasks = tasks.stream()
                 .sorted(java.util.Comparator
-                        .comparing(Task::getStartDate, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                        .comparing(this::resolveTimelineStartDate, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                        .thenComparing(task -> resolveTimelineEndDate(task, resolveTimelineStartDate(task)),
+                                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
                         .thenComparing(Task::getDueDate, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
                         .thenComparingInt(Task::getTaskPosition)
                         .thenComparing(Task::getCreatedAt, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
@@ -960,6 +1061,8 @@ public class TaskServiceImpl implements TaskService {
             dependencies.add(TimelineViewResponse.TimelineDependencyEdge.builder()
                     .linkId(edge.getId())
                     .linkType(edge.getLinkType().name())
+                    .sourceTaskId(blocker.getId())
+                    .targetTaskId(blocked.getId())
                     .blockerTaskId(blocker.getId())
                     .blockerTaskCode(blocker.getTaskCode())
                     .blockerTitle(blocker.getTitle())
@@ -970,28 +1073,33 @@ public class TaskServiceImpl implements TaskService {
         }
 
         List<TimelineViewResponse.TimelineTaskItem> taskItems = tasks.stream()
-                .map(task -> TimelineViewResponse.TimelineTaskItem.builder()
-                        .id(task.getId())
-                        .taskCode(task.getTaskCode())
-                        .title(task.getTitle())
-                        .status(task.getTaskStatus())
-                        .priority(task.getPriority())
-                        .assignee(toTimelineUserSummary(task.getAssignee()))
-                        .startDate(task.getStartDate())
-                        .dueDate(task.getDueDate())
-                        .storyPoints(task.getStoryPoints())
-                        .estimatedHours(task.getEstimatedHours())
-                        .parentTaskId(task.getParentTask() != null ? task.getParentTask().getId() : null)
-                        .sprint(task.getSprint() != null ? TimelineViewResponse.SprintSummary.builder()
-                                .id(task.getSprint().getId())
-                                .name(task.getSprint().getName())
-                                .status(task.getSprint().getStatus())
-                                .startDate(task.getSprint().getStartDate())
-                                .endDate(task.getSprint().getEndDate())
-                                .build() : null)
-                        .blockedBy(blockedByMap.getOrDefault(task.getId(), List.of()))
-                        .blocking(blockingMap.getOrDefault(task.getId(), List.of()))
-                        .build())
+                .map(task -> {
+                    LocalDate timelineStart = resolveTimelineStartDate(task);
+                    LocalDate timelineEnd = resolveTimelineEndDate(task, timelineStart);
+                    return TimelineViewResponse.TimelineTaskItem.builder()
+                            .id(task.getId())
+                            .taskCode(task.getTaskCode())
+                            .title(task.getTitle())
+                            .status(task.getTaskStatus())
+                            .priority(task.getPriority())
+                            .assignee(toTimelineUserSummary(task.getAssignee()))
+                            .startDate(timelineStart)
+                            .endDate(timelineEnd)
+                            .dueDate(task.getDueDate())
+                            .storyPoints(task.getStoryPoints())
+                            .estimatedHours(task.getEstimatedHours())
+                            .parentTaskId(task.getParentTask() != null ? task.getParentTask().getId() : null)
+                            .sprint(task.getSprint() != null ? TimelineViewResponse.SprintSummary.builder()
+                                    .id(task.getSprint().getId())
+                                    .name(task.getSprint().getName())
+                                    .status(task.getSprint().getStatus())
+                                    .startDate(task.getSprint().getStartDate())
+                                    .endDate(task.getSprint().getEndDate())
+                                    .build() : null)
+                            .blockedBy(blockedByMap.getOrDefault(task.getId(), List.of()))
+                            .blocking(blockingMap.getOrDefault(task.getId(), List.of()))
+                            .build();
+                })
                 .toList();
 
         return TimelineViewResponse.builder()
@@ -1157,12 +1265,21 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private void validateStartDateAgainstDependencies(Task task, LocalDate newStartDate) {
+        validateStartDateAgainstDependencies(task, newStartDate, Collections.emptySet(), Collections.emptyMap());
+    }
+
+    private void validateStartDateAgainstDependencies(Task task, LocalDate newStartDate,
+                                                      Set<UUID> shiftedTaskIds,
+                                                      Map<UUID, LocalDate> shiftedEndDates) {
         if (newStartDate == null) {
             return;
         }
         List<Task> blockers = dependencyRepository.findBlockingTasksByBlockedTaskId(task.getId());
         for (Task blocker : blockers) {
-            if (blocker.getDueDate() != null && newStartDate.isBefore(blocker.getDueDate())) {
+            LocalDate blockerEnd = shiftedTaskIds.contains(blocker.getId())
+                    ? shiftedEndDates.get(blocker.getId())
+                    : resolveTimelineEndDate(blocker, resolveTimelineStartDate(blocker));
+            if (blockerEnd != null && newStartDate.isBefore(blockerEnd)) {
                 throw new BadRequestException("Lỗi: Ngày bắt đầu không được sớm hơn ngày kết thúc của task phụ thuộc");
             }
         }
@@ -1171,8 +1288,7 @@ public class TaskServiceImpl implements TaskService {
     private void validateScheduledWindowWithinSprint(
             Sprint sprint,
             LocalDate scheduledStart,
-            BigDecimal estimatedHours,
-            Integer storyPoints
+            LocalDate scheduledEnd
     ) {
         if (sprint == null || scheduledStart == null) {
             return;
@@ -1183,8 +1299,7 @@ public class TaskServiceImpl implements TaskService {
         if (sprint.getStartDate() != null && scheduledStart.isBefore(sprint.getStartDate())) {
             throw new BadRequestException("Lỗi: Lịch thi công không được nằm ngoài phạm vi thời gian của Sprint");
         }
-        LocalDate scheduledEnd = scheduledStart.plusDays(Math.max(computeScheduledDurationDays(estimatedHours, storyPoints) - 1L, 0L));
-        if (sprint.getEndDate() != null && scheduledEnd.isAfter(sprint.getEndDate())) {
+        if (scheduledEnd != null && sprint.getEndDate() != null && scheduledEnd.isAfter(sprint.getEndDate())) {
             throw new BadRequestException("Lỗi: Lịch thi công không được nằm ngoài phạm vi thời gian của Sprint");
         }
     }
@@ -1212,8 +1327,9 @@ public class TaskServiceImpl implements TaskService {
             return false;
         }
         return blockers.stream()
-                .filter(blocker -> blocker.getDueDate() != null)
-                .anyMatch(blocker -> task.getStartDate().isBefore(blocker.getDueDate()));
+                .map(blocker -> resolveTimelineEndDate(blocker, resolveTimelineStartDate(blocker)))
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(task.getStartDate()::isBefore);
     }
 
     private CalendarViewResponse.DependencySummary toCalendarDependencySummary(Task blocker) {
@@ -1726,9 +1842,104 @@ public class TaskServiceImpl implements TaskService {
         data.put("sprintName", task.getSprint() != null ? task.getSprint().getName() : null);
         data.put("columnId", task.getStatusColumn() != null ? task.getStatusColumn().getId() : null);
         data.put("startDate", task.getStartDate());
+        data.put("endDate", task.getEndDate());
         data.put("dueDate", task.getDueDate());
         data.put("storyPoints", task.getStoryPoints());
         return data;
+    }
+
+    private void collectDependentTaskIds(UUID taskId, Set<UUID> collected) {
+        for (UUID dependentId : dependencyRepository.findDependentTaskIdsByTaskId(taskId)) {
+            if (collected.add(dependentId)) {
+                collectDependentTaskIds(dependentId, collected);
+            }
+        }
+    }
+
+    private LocalDate resolveRequestedStartDate(LocalDate requestedStartDate, Sprint sprint, Task existingTask) {
+        if (requestedStartDate != null) {
+            return requestedStartDate;
+        }
+        if (existingTask != null && existingTask.getStartDate() != null) {
+            return existingTask.getStartDate();
+        }
+        if (sprint != null && sprint.getStartDate() != null) {
+            return sprint.getStartDate();
+        }
+        if (existingTask != null && existingTask.getEndDate() != null) {
+            return existingTask.getEndDate();
+        }
+        return null;
+    }
+
+    private LocalDate resolveRequestedEndDate(LocalDate requestedEndDate, LocalDate requestedDueDate,
+                                              LocalDate resolvedStartDate, Task existingTask) {
+        if (requestedEndDate != null) {
+            return requestedEndDate;
+        }
+        if (existingTask != null && existingTask.getEndDate() != null) {
+            return existingTask.getEndDate();
+        }
+        if (requestedDueDate != null) {
+            return requestedDueDate;
+        }
+        if (existingTask != null && existingTask.getDueDate() != null) {
+            return existingTask.getDueDate();
+        }
+        return resolvedStartDate;
+    }
+
+    private LocalDate resolveTimelineStartDate(Task task) {
+        if (task.getStartDate() != null) {
+            return task.getStartDate();
+        }
+        if (task.getSprint() != null && task.getSprint().getStartDate() != null) {
+            return task.getSprint().getStartDate();
+        }
+        if (task.getEndDate() != null) {
+            return task.getEndDate();
+        }
+        if (task.getDueDate() != null) {
+            return task.getDueDate();
+        }
+        return LocalDate.now();
+    }
+
+    private LocalDate resolveTimelineEndDate(Task task, LocalDate resolvedStartDate) {
+        if (task.getEndDate() != null) {
+            return task.getEndDate();
+        }
+        if (task.getDueDate() != null) {
+            return task.getDueDate();
+        }
+        return resolvedStartDate;
+    }
+
+    private void validateScheduleWindow(LocalDate scheduledStart, LocalDate scheduledEnd) {
+        if (scheduledStart != null && scheduledEnd != null && scheduledEnd.isBefore(scheduledStart)) {
+            throw new BadRequestException("Lỗi: Ngày kết thúc không được sớm hơn ngày bắt đầu");
+        }
+    }
+
+    private void validateDependentSchedules(Task task, LocalDate nextEndDate,
+                                            Set<UUID> shiftedTaskIds,
+                                            boolean autoShiftDependents) {
+        if (nextEndDate == null) {
+            return;
+        }
+        List<Task> dependents = taskRepository.findAllById(dependencyRepository.findDependentTaskIdsByTaskId(task.getId()));
+        for (Task dependent : dependents) {
+            if (shiftedTaskIds.contains(dependent.getId())) {
+                continue;
+            }
+            LocalDate dependentStart = resolveTimelineStartDate(dependent);
+            if (dependentStart != null && dependentStart.isBefore(nextEndDate)) {
+                if (autoShiftDependents) {
+                    continue;
+                }
+                throw new BadRequestException("Cập nhật này sẽ làm dời lịch các công việc phụ thuộc. Hãy xác nhận dời dây chuyền.");
+            }
+        }
     }
 
     private void assertNoUnfinishedBlockingDependencies(UUID taskId) {
