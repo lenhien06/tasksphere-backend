@@ -46,8 +46,10 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -414,20 +416,7 @@ public class TaskServiceImpl implements TaskService {
 
         // BR-18: Kiểm tra sub-tasks khi chuyển sang DONE
         if (newStatus == TaskStatus.DONE) {
-            List<Task> pendingChildren = taskRepository.findUnfinishedSubtasks(
-                taskId, List.of(TaskStatus.DONE, TaskStatus.CANCELLED));
-            if (!pendingChildren.isEmpty()) {
-                List<Map<String, Object>> pendingList = pendingChildren.stream().map(st -> {
-                    Map<String, Object> m = new java.util.LinkedHashMap<>();
-                    m.put("id", st.getId().toString());
-                    m.put("taskCode", st.getTaskCode());
-                    m.put("title", st.getTitle());
-                    m.put("taskStatus", st.getTaskStatus().name());
-                    return m;
-                }).toList();
-                throw new com.zone.tasksphere.exception.SubtaskPendingException(pendingList);
-            }
-
+            assertAllDescendantSubtasksDone(taskId);
             assertNoUnfinishedBlockingDependencies(taskId);
         }
 
@@ -541,6 +530,10 @@ public class TaskServiceImpl implements TaskService {
             TaskStatus currentStatusBeforeMove = task.getTaskStatus();
             TaskStatus mapped = newColumn.getMappedStatus();
             enforceQaWorkflowTransition(currentStatusBeforeMove, mapped, actorMember, currentUser);
+            if (mapped == TaskStatus.DONE) {
+                assertAllDescendantSubtasksDone(taskId);
+                assertNoUnfinishedBlockingDependencies(taskId);
+            }
             task.setTaskStatus(mapped);
             syncCompletedAt(task, currentStatusBeforeMove, mapped);
             // BR-AI-06: Decrement active_task_count when task dragged to terminal column
@@ -730,14 +723,15 @@ public class TaskServiceImpl implements TaskService {
             .taskCode(taskCode)
             .title(request.getTitle())
             .description(request.getDescription())
-            .type(request.getType() != null ? request.getType() : TaskType.TASK)
-            .priority(request.getPriority() != null ? request.getPriority() : TaskPriority.MEDIUM)
+            .type(TaskType.SUB_TASK)
+            .priority(parentTask.getPriority() != null ? parentTask.getPriority() : TaskPriority.MEDIUM)
             .taskStatus(statusColumn.getMappedStatus() != null ? statusColumn.getMappedStatus() : TaskStatus.TODO)
             .completedAt(statusColumn.getMappedStatus() == TaskStatus.DONE ? Instant.now() : null)
-            .storyPoints(request.getStoryPoints())
-            .estimatedHours(request.getEstimatedHours())
+            .storyPoints(0)
+            .estimatedHours(null)
+            .skillTagsRequired(request.getSkillTagsRequired())
             .startDate(request.getStartDate())
-            .dueDate(request.getDueDate())
+            .dueDate(parentTask.getDueDate())
             .taskPosition(position)
             .depth(newDepth)
             .project(parentTask.getProject())
@@ -1555,6 +1549,41 @@ public class TaskServiceImpl implements TaskService {
                 List<ProjectStatusColumn> seeded = defaultColumnSeeder.seedForProject(project);
                 return seeded.get(0);
             });
+    }
+
+    private void assertAllDescendantSubtasksDone(UUID taskId) {
+        List<Map<String, Object>> pendingList = collectPendingDescendantSubtasks(taskId).stream()
+            .map(subTask -> {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("id", subTask.getId().toString());
+                item.put("taskCode", subTask.getTaskCode());
+                item.put("title", subTask.getTitle());
+                item.put("taskStatus", subTask.getTaskStatus() != null ? subTask.getTaskStatus().name() : null);
+                return item;
+            })
+            .toList();
+
+        if (!pendingList.isEmpty()) {
+            throw new com.zone.tasksphere.exception.SubtaskPendingException(pendingList);
+        }
+    }
+
+    private List<Task> collectPendingDescendantSubtasks(UUID taskId) {
+        List<Task> pending = new ArrayList<>();
+        Deque<Task> queue = new ArrayDeque<>(taskRepository.findByParentTaskId(taskId));
+
+        while (!queue.isEmpty()) {
+            Task current = queue.removeFirst();
+            if (current.getTaskStatus() != TaskStatus.DONE) {
+                pending.add(current);
+            }
+            List<Task> children = taskRepository.findByParentTaskId(current.getId());
+            if (children != null && !children.isEmpty()) {
+                queue.addAll(children);
+            }
+        }
+
+        return pending;
     }
 
     private void requireActiveSprintConfirmation(Sprint sprint, Boolean confirmActiveSprintChange) {

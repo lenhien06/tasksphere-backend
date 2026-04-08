@@ -5,11 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zone.tasksphere.component.DefaultColumnSeeder;
 import com.zone.tasksphere.dto.request.UpdateTaskPositionRequest;
 import com.zone.tasksphere.dto.request.UpdateTaskStatusRequest;
+import com.zone.tasksphere.dto.request.CreateTaskRequest;
+import com.zone.tasksphere.dto.response.SubTaskResponse;
 import com.zone.tasksphere.dto.response.TaskStatusChangedResponse;
 import com.zone.tasksphere.dto.response.TimelineViewResponse;
 import com.zone.tasksphere.entity.Project;
 import com.zone.tasksphere.entity.ProjectMember;
 import com.zone.tasksphere.entity.ProjectStatusColumn;
+import com.zone.tasksphere.entity.Sprint;
 import com.zone.tasksphere.entity.Task;
 import com.zone.tasksphere.entity.TaskDependency;
 import com.zone.tasksphere.entity.User;
@@ -17,12 +20,14 @@ import com.zone.tasksphere.entity.enums.DependencyType;
 import com.zone.tasksphere.entity.enums.ProjectRole;
 import com.zone.tasksphere.entity.enums.ProjectStatus;
 import com.zone.tasksphere.entity.enums.ProjectVisibility;
+import com.zone.tasksphere.entity.enums.SprintStatus;
 import com.zone.tasksphere.entity.enums.SystemRole;
 import com.zone.tasksphere.entity.enums.TaskPriority;
 import com.zone.tasksphere.entity.enums.TaskStatus;
 import com.zone.tasksphere.entity.enums.TaskType;
 import com.zone.tasksphere.entity.enums.UserStatus;
 import com.zone.tasksphere.exception.BusinessRuleException;
+import com.zone.tasksphere.exception.SubtaskPendingException;
 import com.zone.tasksphere.exception.StructuredApiException;
 import com.zone.tasksphere.mapper.TaskMapper;
 import com.zone.tasksphere.repository.ChecklistItemRepository;
@@ -117,7 +122,6 @@ class TaskServiceImplTest {
         when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
         when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
                 .thenReturn(Optional.of(qaMember));
-        when(taskRepository.findUnfinishedSubtasks(eq(blocked.getId()), any())).thenReturn(List.of());
         when(dependencyRepository.findBlockingTasksByBlockedTaskId(blocked.getId())).thenReturn(List.of(blocker));
 
         assertThatThrownBy(() -> service.updateStatus(project.getId(), blocked.getId(), request, actor.getId()))
@@ -152,7 +156,6 @@ class TaskServiceImplTest {
                 .thenReturn(Optional.of(qaMember));
         when(projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(project.getId(), ProjectRole.PROJECT_MANAGER))
                 .thenReturn(Optional.empty());
-        when(taskRepository.findUnfinishedSubtasks(eq(blocked.getId()), any())).thenReturn(List.of());
         when(dependencyRepository.findBlockingTasksByBlockedTaskId(blocked.getId())).thenReturn(List.of(blocker));
         when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
             Task saved = invocation.getArgument(0);
@@ -285,6 +288,57 @@ class TaskServiceImplTest {
     }
 
     @Test
+    void updatePosition_rejectsDoneWhenDescendantSubtaskIsNotDone() {
+        Project project = project();
+        User actor = user("member@tasksphere.local");
+        Task parent = task(project, actor, "TS-6", "Parent", TaskStatus.IN_REVIEW);
+        Task child = task(project, actor, "TS-7", "Child", TaskStatus.DONE);
+        Task grandChild = task(project, actor, "TS-8", "Grandchild", TaskStatus.IN_PROGRESS);
+
+        ProjectStatusColumn sourceColumn = ProjectStatusColumn.builder()
+                .id(UUID.randomUUID())
+                .project(project)
+                .name("In Review")
+                .mappedStatus(TaskStatus.IN_REVIEW)
+                .build();
+        ProjectStatusColumn doneColumn = ProjectStatusColumn.builder()
+                .id(UUID.randomUUID())
+                .project(project)
+                .name("Done")
+                .mappedStatus(TaskStatus.DONE)
+                .build();
+
+        parent.setStatusColumn(sourceColumn);
+        parent.setTaskPosition(0);
+        child.setParentTask(parent);
+        grandChild.setParentTask(child);
+
+        UpdateTaskPositionRequest request = new UpdateTaskPositionRequest();
+        request.setStatusColumnId(doneColumn.getId());
+        request.setNewPosition(0);
+
+        when(taskRepository.findByIdAndProjectId(parent.getId(), project.getId())).thenReturn(Optional.of(parent));
+        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+        when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId())).thenReturn(true);
+        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                .thenReturn(Optional.of(member(project, actor, ProjectRole.PROJECT_MANAGER)));
+        when(columnRepository.findById(doneColumn.getId())).thenReturn(Optional.of(doneColumn));
+        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), sourceColumn.getId()))
+                .thenReturn(List.of(parent));
+        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), doneColumn.getId()))
+                .thenReturn(List.of());
+        when(taskRepository.findByParentTaskId(parent.getId())).thenReturn(List.of(child));
+        when(taskRepository.findByParentTaskId(child.getId())).thenReturn(List.of(grandChild));
+        when(taskRepository.findByParentTaskId(grandChild.getId())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.updatePosition(project.getId(), parent.getId(), request, actor.getId()))
+                .isInstanceOf(SubtaskPendingException.class)
+                .hasMessageContaining("sub-task");
+
+        verify(taskRepository, never()).saveAll(any());
+    }
+
+    @Test
     void updateStatus_rejectsDoneWhenTaskSkipsReview() {
         Project project = project();
         User actor = user("member@tasksphere.local");
@@ -325,7 +379,6 @@ class TaskServiceImplTest {
                 .thenReturn(Optional.of(qaMember));
         when(projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(project.getId(), ProjectRole.PROJECT_MANAGER))
                 .thenReturn(Optional.empty());
-        when(taskRepository.findUnfinishedSubtasks(eq(task.getId()), any())).thenReturn(List.of());
         when(dependencyRepository.findBlockingTasksByBlockedTaskId(task.getId())).thenReturn(List.of());
         when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
             Task saved = invocation.getArgument(0);
@@ -341,6 +394,68 @@ class TaskServiceImplTest {
     }
 
     @Test
+    void createSubTaskLight_inheritsParentSprintAndDueDateAndDoesNotCarryExtraPoints() {
+        Project project = project();
+        User actor = user("pm@tasksphere.local");
+        User assignee = user("dev@tasksphere.local");
+        Sprint sprint = Sprint.builder()
+                .id(UUID.randomUUID())
+                .project(project)
+                .name("Sprint 1")
+                .status(SprintStatus.ACTIVE)
+                .build();
+        Task parent = task(project, actor, "TS-9", "Parent Task", TaskStatus.IN_PROGRESS);
+        parent.setPriority(TaskPriority.CRITICAL);
+        parent.setSprint(sprint);
+        parent.setDueDate(LocalDate.of(2026, 4, 18));
+        parent.setDepth(0);
+
+        ProjectStatusColumn todoColumn = ProjectStatusColumn.builder()
+                .id(UUID.randomUUID())
+                .project(project)
+                .name("To Do")
+                .mappedStatus(TaskStatus.TODO)
+                .build();
+
+        CreateTaskRequest request = new CreateTaskRequest();
+        request.setTitle("Design login UI");
+        request.setDescription("Child task");
+        request.setType(TaskType.BUG);
+        request.setStoryPoints(8);
+        request.setEstimatedHours(java.math.BigDecimal.valueOf(6));
+        request.setDueDate(LocalDate.of(2026, 4, 10));
+        request.setAssigneeId(assignee.getId());
+        request.setSkillTagsRequired(List.of("React", "UI"));
+
+        stubObjectMapper();
+
+        when(taskRepository.findById(parent.getId())).thenReturn(Optional.of(parent));
+        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+        when(userRepository.findById(assignee.getId())).thenReturn(Optional.of(assignee));
+        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                .thenReturn(Optional.of(member(project, actor, ProjectRole.PROJECT_MANAGER)));
+        when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), assignee.getId())).thenReturn(true);
+        when(columnRepository.findFirstByProjectOrderBySortOrderAsc(project)).thenReturn(Optional.of(todoColumn));
+        when(taskRepository.countByStatusColumnId(todoColumn.getId())).thenReturn(0L);
+        when(taskCodeGenerator.generateTaskCode(project)).thenReturn("TS-10");
+        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SubTaskResponse response = service.createSubTaskLight(parent.getId(), request, actor.getId());
+
+        assertThat(response.getTaskCode()).isEqualTo("TS-10");
+        verify(taskRepository).save(argThat(saved ->
+                saved.getType() == TaskType.SUB_TASK
+                        && saved.getPriority() == TaskPriority.CRITICAL
+                        && Integer.valueOf(0).equals(saved.getStoryPoints())
+                        && saved.getEstimatedHours() == null
+                        && saved.getSprint() == sprint
+                        && LocalDate.of(2026, 4, 18).equals(saved.getDueDate())
+                        && saved.getAssignee() == assignee
+                        && List.of("React", "UI").equals(saved.getSkillTagsRequired())
+        ));
+    }
+
+    @Test
     void getTimelineView_returnsTasksAndDependencies() {
         Project project = project();
         User actor = user("member@tasksphere.local");
@@ -353,8 +468,6 @@ class TaskServiceImplTest {
         Task blocked = task(project, assignee, "TS-2", "Task B", TaskStatus.IN_PROGRESS);
         blocked.setStartDate(LocalDate.of(2026, 3, 27));
         blocked.setDueDate(LocalDate.of(2026, 3, 30));
-        blocked.setParentTask(blocker);
-
         TaskDependency edge = TaskDependency.builder()
                 .id(UUID.randomUUID())
                 .blockingTask(blocker)
@@ -364,7 +477,7 @@ class TaskServiceImplTest {
                 .build();
 
         when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId())).thenReturn(true);
-        when(taskRepository.findTimelineTasksByProjectId(project.getId())).thenReturn(List.of(blocker, blocked));
+        when(taskRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(List.of(blocker, blocked));
         when(dependencyRepository.findBlockingEdgesByProjectId(project.getId())).thenReturn(List.of(edge));
 
         TimelineViewResponse response = service.getTimelineView(project.getId(), actor.getId());
