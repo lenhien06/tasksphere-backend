@@ -1,5 +1,6 @@
 package com.zone.tasksphere.controller;
 
+import com.zone.tasksphere.ai.service.ReportAiInsightService;
 import com.zone.tasksphere.dto.response.*;
 import com.zone.tasksphere.exception.CustomAuthenticationException;
 import com.zone.tasksphere.service.ReportService;
@@ -27,6 +28,7 @@ public class ReportController {
 
     private final SprintService sprintService;
     private final ReportService reportService;
+    private final ReportAiInsightService reportAiInsightService;
 
     private UUID getCurrentUserId() {
         UserDetail userDetail = AuthUtils.getUserDetail();
@@ -69,6 +71,18 @@ public class ReportController {
             @PathVariable UUID projectId,
             @RequestParam(defaultValue = "5") int limit) {
         VelocityForecastResponse response = sprintService.getVelocityForecast(projectId, limit, getCurrentUserId());
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Lấy phân tích AI cho báo cáo dự án",
+               description = "Đọc dữ liệu báo cáo thật của burndown, burnup hoặc velocity và trả về nhận định ngắn gọn cho PM.")
+    @GetMapping("/projects/{projectId}/reports/insights")
+    public ResponseEntity<ApiResponse<ReportInsightResponse>> getReportInsight(
+            @PathVariable UUID projectId,
+            @RequestParam String type,
+            @RequestParam(required = false) UUID sprintId) {
+        ReportInsightResponse response = reportAiInsightService.generateInsight(
+                projectId, sprintId, type, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
