@@ -69,585 +69,610 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class TaskServiceImplTest {
 
-    @Mock
-    private TaskRepository taskRepository;
-    @Mock
-    private ProjectRepository projectRepository;
-    @Mock
-    private UserRepository userRepository;
-    @Mock
-    private ProjectStatusColumnRepository columnRepository;
-    @Mock
-    private SprintRepository sprintRepository;
-    @Mock
-    private ProjectMemberRepository projectMemberRepository;
-    @Mock
-    private ActivityLogService activityLogService;
-    @Mock
-    private NotificationService notificationService;
-    @Mock
-    private TaskCodeGenerator taskCodeGenerator;
-    @Mock
-    private TaskMapper taskMapper;
-    @Mock
-    private DefaultColumnSeeder defaultColumnSeeder;
-    @Mock
-    private TaskDependencyRepository dependencyRepository;
-    @Mock
-    private ChecklistItemRepository checklistItemRepository;
-    @Mock
-    private WebSocketService webSocketService;
-    @Mock
-    private ReportService reportService;
-    @Mock
-    private ObjectMapper objectMapper;
+        @Mock
+        private TaskRepository taskRepository;
+        @Mock
+        private ProjectRepository projectRepository;
+        @Mock
+        private UserRepository userRepository;
+        @Mock
+        private ProjectStatusColumnRepository columnRepository;
+        @Mock
+        private SprintRepository sprintRepository;
+        @Mock
+        private ProjectMemberRepository projectMemberRepository;
+        @Mock
+        private ActivityLogService activityLogService;
+        @Mock
+        private NotificationService notificationService;
+        @Mock
+        private TaskCodeGenerator taskCodeGenerator;
+        @Mock
+        private TaskMapper taskMapper;
+        @Mock
+        private DefaultColumnSeeder defaultColumnSeeder;
+        @Mock
+        private TaskDependencyRepository dependencyRepository;
+        @Mock
+        private ChecklistItemRepository checklistItemRepository;
+        @Mock
+        private WebSocketService webSocketService;
+        @Mock
+        private ReportService reportService;
+        @Mock
+        private ObjectMapper objectMapper;
 
-    @InjectMocks
-    private TaskServiceImpl service;
+        @InjectMocks
+        private TaskServiceImpl service;
 
-    @Test
-    void updateStatus_rejectsDoneWhenBlockingTaskIsNotDone() {
-        Project project = project();
-        User actor = user("qa-member@tasksphere.local");
-        Task blocker = task(project, actor, "TS-1", "Task A", TaskStatus.IN_PROGRESS);
-        Task blocked = task(project, actor, "TS-2", "Task B", TaskStatus.IN_REVIEW);
+        @Test
+        void updateStatus_rejectsDoneWhenBlockingTaskIsNotDone() {
+                Project project = project();
+                User actor = user("qa-member@tasksphere.local");
+                Task blocker = task(project, actor, "TS-1", "Task A", TaskStatus.IN_PROGRESS);
+                Task blocked = task(project, actor, "TS-2", "Task B", TaskStatus.IN_REVIEW);
 
-        UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
-        request.setStatus(TaskStatus.DONE);
+                UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
+                request.setStatus(TaskStatus.DONE);
 
-        ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
-        qaMember.setSkillTags(List.of("QA"));
+                ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
+                qaMember.setSkillTags(List.of("QA"));
 
-        when(taskRepository.findByIdAndProjectId(blocked.getId(), project.getId())).thenReturn(Optional.of(blocked));
-        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
-        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(qaMember));
-        when(dependencyRepository.findBlockingTasksByBlockedTaskId(blocked.getId())).thenReturn(List.of(blocker));
+                when(taskRepository.findByIdAndProjectId(blocked.getId(), project.getId()))
+                                .thenReturn(Optional.of(blocked));
+                when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+                when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(Optional.of(qaMember));
+                when(dependencyRepository.findBlockingTasksByBlockedTaskId(blocked.getId()))
+                                .thenReturn(List.of(blocker));
 
-        assertThatThrownBy(() -> service.updateStatus(project.getId(), blocked.getId(), request, actor.getId()))
-                .isInstanceOf(StructuredApiException.class)
-                .satisfies(ex -> {
-                    StructuredApiException error = (StructuredApiException) ex;
-                    assertThat(error.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
-                    assertThat(error.getErrorCode()).isEqualTo("TASK_DEPENDENCY_BLOCKED");
-                    assertThat(error.getMeta()).containsKey("blockingTasks");
+                assertThatThrownBy(() -> service.updateStatus(project.getId(), blocked.getId(), request, actor.getId()))
+                                .isInstanceOf(StructuredApiException.class)
+                                .satisfies(ex -> {
+                                        StructuredApiException error = (StructuredApiException) ex;
+                                        assertThat(error.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                                        assertThat(error.getErrorCode()).isEqualTo("TASK_DEPENDENCY_BLOCKED");
+                                        assertThat(error.getMeta()).containsKey("blockingTasks");
+                                });
+
+                verify(taskRepository, never()).save(any(Task.class));
+        }
+
+        @Test
+        void updateStatus_allowsDoneWhenBlockingTaskIsDone() {
+                Project project = project();
+                User actor = user("qa-member@tasksphere.local");
+                User assignee = user("dev-owner@tasksphere.local");
+                Task blocker = task(project, actor, "TS-1", "Task A", TaskStatus.DONE);
+                Task blocked = task(project, actor, "TS-2", "Task B", TaskStatus.IN_REVIEW);
+                blocked.setAssignee(assignee);
+
+                UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
+                request.setStatus(TaskStatus.DONE);
+                ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
+                qaMember.setSkillTags(List.of("QA"));
+
+                stubObjectMapper();
+
+                when(taskRepository.findByIdAndProjectId(blocked.getId(), project.getId()))
+                                .thenReturn(Optional.of(blocked));
+                when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+                when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(Optional.of(qaMember));
+                when(projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(project.getId(),
+                                ProjectRole.PROJECT_MANAGER))
+                                .thenReturn(Optional.empty());
+                when(dependencyRepository.findBlockingTasksByBlockedTaskId(blocked.getId()))
+                                .thenReturn(List.of(blocker));
+                when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
+                        Task saved = invocation.getArgument(0);
+                        saved.setUpdatedAt(Instant.parse("2026-03-27T09:00:00Z"));
+                        return saved;
                 });
 
-        verify(taskRepository, never()).save(any(Task.class));
-    }
+                TaskStatusChangedResponse response = service.updateStatus(project.getId(), blocked.getId(), request,
+                                actor.getId());
 
-    @Test
-    void updateStatus_allowsDoneWhenBlockingTaskIsDone() {
-        Project project = project();
-        User actor = user("qa-member@tasksphere.local");
-        User assignee = user("dev-owner@tasksphere.local");
-        Task blocker = task(project, actor, "TS-1", "Task A", TaskStatus.DONE);
-        Task blocked = task(project, actor, "TS-2", "Task B", TaskStatus.IN_REVIEW);
-        blocked.setAssignee(assignee);
+                assertThat(response.getId()).isEqualTo(blocked.getId());
+                assertThat(response.getOldStatus()).isEqualTo(TaskStatus.IN_REVIEW);
+                assertThat(response.getNewStatus()).isEqualTo(TaskStatus.DONE);
+                assertThat(blocked.getCompletedAt()).isNotNull();
+                verify(taskRepository).save(blocked);
+                verify(webSocketService).sendToProject(eq(project.getId().toString()), eq("task.status_changed"),
+                                any(TaskStatusChangedResponse.class));
+        }
 
-        UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
-        request.setStatus(TaskStatus.DONE);
-        ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
-        qaMember.setSkillTags(List.of("QA"));
+        @Test
+        void updateStatus_usesRequestedStatusColumnWhenProvided() {
+                Project project = project();
+                User actor = user("member@tasksphere.local");
+                Task task = task(project, actor, "TS-3", "Move me", TaskStatus.TODO);
 
-        stubObjectMapper();
+                ProjectStatusColumn sourceColumn = ProjectStatusColumn.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .name("To Do")
+                                .mappedStatus(TaskStatus.TODO)
+                                .build();
+                ProjectStatusColumn targetColumn = ProjectStatusColumn.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .name("In Progress")
+                                .mappedStatus(TaskStatus.IN_PROGRESS)
+                                .build();
+                task.setStatusColumn(sourceColumn);
 
-        when(taskRepository.findByIdAndProjectId(blocked.getId(), project.getId())).thenReturn(Optional.of(blocked));
-        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
-        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(qaMember));
-        when(projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(project.getId(), ProjectRole.PROJECT_MANAGER))
-                .thenReturn(Optional.empty());
-        when(dependencyRepository.findBlockingTasksByBlockedTaskId(blocked.getId())).thenReturn(List.of(blocker));
-        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
-            Task saved = invocation.getArgument(0);
-            saved.setUpdatedAt(Instant.parse("2026-03-27T09:00:00Z"));
-            return saved;
-        });
+                UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
+                request.setStatus(TaskStatus.IN_PROGRESS);
+                request.setStatusColumnId(targetColumn.getId());
 
-        TaskStatusChangedResponse response = service.updateStatus(project.getId(), blocked.getId(), request, actor.getId());
+                stubObjectMapper();
 
-        assertThat(response.getId()).isEqualTo(blocked.getId());
-        assertThat(response.getOldStatus()).isEqualTo(TaskStatus.IN_REVIEW);
-        assertThat(response.getNewStatus()).isEqualTo(TaskStatus.DONE);
-        assertThat(blocked.getCompletedAt()).isNotNull();
-        verify(taskRepository).save(blocked);
-        verify(webSocketService).sendToProject(eq(project.getId().toString()), eq("task.status_changed"), any(TaskStatusChangedResponse.class));
-    }
+                when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
+                when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+                when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
+                when(columnRepository.findById(targetColumn.getId())).thenReturn(Optional.of(targetColumn));
+                when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
+                        Task saved = invocation.getArgument(0);
+                        saved.setUpdatedAt(Instant.parse("2026-03-27T10:00:00Z"));
+                        return saved;
+                });
 
-    @Test
-    void updateStatus_usesRequestedStatusColumnWhenProvided() {
-        Project project = project();
-        User actor = user("member@tasksphere.local");
-        Task task = task(project, actor, "TS-3", "Move me", TaskStatus.TODO);
+                TaskStatusChangedResponse response = service.updateStatus(project.getId(), task.getId(), request,
+                                actor.getId());
 
-        ProjectStatusColumn sourceColumn = ProjectStatusColumn.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .name("To Do")
-                .mappedStatus(TaskStatus.TODO)
-                .build();
-        ProjectStatusColumn targetColumn = ProjectStatusColumn.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .name("In Progress")
-                .mappedStatus(TaskStatus.IN_PROGRESS)
-                .build();
-        task.setStatusColumn(sourceColumn);
+                assertThat(task.getTaskStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+                assertThat(task.getStatusColumn()).isEqualTo(targetColumn);
+                assertThat(response.getColumnId()).isEqualTo(targetColumn.getId());
+                verify(columnRepository, never()).findFirstByProjectIdAndMappedStatusOrderBySortOrderAsc(any(), any());
+                verify(taskRepository).save(task);
+        }
 
-        UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
-        request.setStatus(TaskStatus.IN_PROGRESS);
-        request.setStatusColumnId(targetColumn.getId());
+        @Test
+        void updatePosition_movesTaskAcrossColumnsAndReindexesSafely() {
+                Project project = project();
+                User actor = user("member@tasksphere.local");
+                Task movingTask = task(project, actor, "TS-4", "Move me", TaskStatus.TODO);
+                Task remainingTodo = task(project, actor, "TS-5", "Stay put", TaskStatus.TODO);
 
-        stubObjectMapper();
+                ProjectStatusColumn sourceColumn = ProjectStatusColumn.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .name("To Do")
+                                .mappedStatus(TaskStatus.TODO)
+                                .build();
+                ProjectStatusColumn targetColumn = ProjectStatusColumn.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .name("In Progress")
+                                .mappedStatus(TaskStatus.IN_PROGRESS)
+                                .build();
+                movingTask.setStatusColumn(sourceColumn);
+                movingTask.setTaskPosition(0);
+                movingTask.setUpdatedAt(Instant.parse("2026-04-08T00:00:00Z"));
+                remainingTodo.setStatusColumn(sourceColumn);
+                remainingTodo.setTaskPosition(1);
 
-        when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
-        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
-        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
-        when(columnRepository.findById(targetColumn.getId())).thenReturn(Optional.of(targetColumn));
-        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
-            Task saved = invocation.getArgument(0);
-            saved.setUpdatedAt(Instant.parse("2026-03-27T10:00:00Z"));
-            return saved;
-        });
+                UpdateTaskPositionRequest request = new UpdateTaskPositionRequest();
+                request.setStatusColumnId(targetColumn.getId());
+                request.setNewPosition(0);
 
-        TaskStatusChangedResponse response = service.updateStatus(project.getId(), task.getId(), request, actor.getId());
+                stubObjectMapper();
 
-        assertThat(task.getTaskStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
-        assertThat(task.getStatusColumn()).isEqualTo(targetColumn);
-        assertThat(response.getColumnId()).isEqualTo(targetColumn.getId());
-        verify(columnRepository, never()).findFirstByProjectIdAndMappedStatusOrderBySortOrderAsc(any(), any());
-        verify(taskRepository).save(task);
-    }
+                when(taskRepository.findByIdAndProjectId(movingTask.getId(), project.getId()))
+                                .thenReturn(Optional.of(movingTask));
+                when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+                when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(true);
+                when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
+                when(columnRepository.findById(targetColumn.getId())).thenReturn(Optional.of(targetColumn));
+                when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(),
+                                sourceColumn.getId()))
+                                .thenReturn(List.of(movingTask, remainingTodo));
+                when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(),
+                                targetColumn.getId()))
+                                .thenReturn(List.of());
+                when(taskRepository.saveAll(any())).thenAnswer(invocation -> {
+                        List<Task> saved = invocation.getArgument(0);
+                        saved.forEach(task -> {
+                                if (task.getId().equals(movingTask.getId())) {
+                                        task.setUpdatedAt(Instant.parse("2026-04-08T00:05:00Z"));
+                                }
+                        });
+                        return saved;
+                });
 
-    @Test
-    void updatePosition_movesTaskAcrossColumnsAndReindexesSafely() {
-        Project project = project();
-        User actor = user("member@tasksphere.local");
-        Task movingTask = task(project, actor, "TS-4", "Move me", TaskStatus.TODO);
-        Task remainingTodo = task(project, actor, "TS-5", "Stay put", TaskStatus.TODO);
+                service.updatePosition(project.getId(), movingTask.getId(), request, actor.getId());
 
-        ProjectStatusColumn sourceColumn = ProjectStatusColumn.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .name("To Do")
-                .mappedStatus(TaskStatus.TODO)
-                .build();
-        ProjectStatusColumn targetColumn = ProjectStatusColumn.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .name("In Progress")
-                .mappedStatus(TaskStatus.IN_PROGRESS)
-                .build();
-        movingTask.setStatusColumn(sourceColumn);
-        movingTask.setTaskPosition(0);
-        movingTask.setUpdatedAt(Instant.parse("2026-04-08T00:00:00Z"));
-        remainingTodo.setStatusColumn(sourceColumn);
-        remainingTodo.setTaskPosition(1);
+                assertThat(movingTask.getStatusColumn()).isEqualTo(targetColumn);
+                assertThat(movingTask.getTaskStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+                assertThat(movingTask.getTaskPosition()).isEqualTo(0);
+                assertThat(remainingTodo.getTaskPosition()).isEqualTo(0);
+                verify(taskRepository).saveAll(argThat(tasks -> {
+                        List<Task> saved = toList(tasks);
+                        return saved.size() == 1 && saved.get(0).getId().equals(remainingTodo.getId());
+                }));
+                verify(taskRepository).saveAll(argThat(tasks -> {
+                        List<Task> saved = toList(tasks);
+                        return saved.size() == 1 && saved.get(0).getId().equals(movingTask.getId());
+                }));
+                verify(webSocketService).sendToProject(eq(project.getId().toString()), eq("task.position_updated"),
+                                any());
+        }
 
-        UpdateTaskPositionRequest request = new UpdateTaskPositionRequest();
-        request.setStatusColumnId(targetColumn.getId());
-        request.setNewPosition(0);
+        @Test
+        void updatePosition_rejectsDoneWhenDescendantSubtaskIsNotDone() {
+                Project project = project();
+                User actor = user("member@tasksphere.local");
+                Task parent = task(project, actor, "TS-6", "Parent", TaskStatus.IN_REVIEW);
+                Task child = task(project, actor, "TS-7", "Child", TaskStatus.DONE);
+                Task grandChild = task(project, actor, "TS-8", "Grandchild", TaskStatus.IN_PROGRESS);
 
-        stubObjectMapper();
+                ProjectStatusColumn sourceColumn = ProjectStatusColumn.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .name("In Review")
+                                .mappedStatus(TaskStatus.IN_REVIEW)
+                                .build();
+                ProjectStatusColumn doneColumn = ProjectStatusColumn.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .name("Done")
+                                .mappedStatus(TaskStatus.DONE)
+                                .build();
 
-        when(taskRepository.findByIdAndProjectId(movingTask.getId(), project.getId())).thenReturn(Optional.of(movingTask));
-        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
-        when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId())).thenReturn(true);
-        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
-        when(columnRepository.findById(targetColumn.getId())).thenReturn(Optional.of(targetColumn));
-        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), sourceColumn.getId()))
-                .thenReturn(List.of(movingTask, remainingTodo));
-        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), targetColumn.getId()))
-                .thenReturn(List.of());
-        when(taskRepository.saveAll(any())).thenAnswer(invocation -> {
-            List<Task> saved = invocation.getArgument(0);
-            saved.forEach(task -> {
-                if (task.getId().equals(movingTask.getId())) {
-                    task.setUpdatedAt(Instant.parse("2026-04-08T00:05:00Z"));
+                parent.setStatusColumn(sourceColumn);
+                parent.setTaskPosition(0);
+                child.setParentTask(parent);
+                grandChild.setParentTask(child);
+
+                UpdateTaskPositionRequest request = new UpdateTaskPositionRequest();
+                request.setStatusColumnId(doneColumn.getId());
+                request.setNewPosition(0);
+
+                when(taskRepository.findByIdAndProjectId(parent.getId(), project.getId()))
+                                .thenReturn(Optional.of(parent));
+                when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+                when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(true);
+                when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(Optional.of(member(project, actor, ProjectRole.PROJECT_MANAGER)));
+                when(columnRepository.findById(doneColumn.getId())).thenReturn(Optional.of(doneColumn));
+                when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(),
+                                sourceColumn.getId()))
+                                .thenReturn(List.of(parent));
+                when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(),
+                                doneColumn.getId()))
+                                .thenReturn(List.of());
+                when(taskRepository.findByParentTaskId(parent.getId())).thenReturn(List.of(child));
+                when(taskRepository.findByParentTaskId(child.getId())).thenReturn(List.of(grandChild));
+                when(taskRepository.findByParentTaskId(grandChild.getId())).thenReturn(List.of());
+
+                assertThatThrownBy(
+                                () -> service.updatePosition(project.getId(), parent.getId(), request, actor.getId()))
+                                .isInstanceOf(SubtaskPendingException.class)
+                                .hasMessageContaining("sub-task");
+
+                verify(taskRepository, never()).saveAll(any());
+        }
+
+        @Test
+        void updateStatus_rejectsDoneWhenTaskSkipsReview() {
+                Project project = project();
+                User actor = user("member@tasksphere.local");
+                Task task = task(project, actor, "TS-6", "Skip review", TaskStatus.IN_PROGRESS);
+
+                UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
+                request.setStatus(TaskStatus.DONE);
+
+                when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
+                when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+                when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
+
+                assertThatThrownBy(() -> service.updateStatus(project.getId(), task.getId(), request, actor.getId()))
+                                .isInstanceOf(BusinessRuleException.class)
+                                .hasMessageContaining("In Review hoặc Testing");
+
+                verify(taskRepository, never()).save(any(Task.class));
+        }
+
+        @Test
+        void updateStatus_allowsQaSkillMemberToMoveReviewTaskToDone() {
+                Project project = project();
+                User actor = user("qa@tasksphere.local");
+                User assignee = user("feature-dev@tasksphere.local");
+                Task task = task(project, actor, "TS-7", "Reviewed task", TaskStatus.IN_REVIEW);
+                task.setAssignee(assignee);
+
+                UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
+                request.setStatus(TaskStatus.DONE);
+
+                ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
+                qaMember.setSkillTags(List.of("QA", "Manual Testing"));
+
+                stubObjectMapper();
+
+                when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
+                when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+                when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(Optional.of(qaMember));
+                when(projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(project.getId(),
+                                ProjectRole.PROJECT_MANAGER))
+                                .thenReturn(Optional.empty());
+                when(dependencyRepository.findBlockingTasksByBlockedTaskId(task.getId())).thenReturn(List.of());
+                when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
+                        Task saved = invocation.getArgument(0);
+                        saved.setUpdatedAt(Instant.parse("2026-04-08T02:00:00Z"));
+                        return saved;
+                });
+
+                TaskStatusChangedResponse response = service.updateStatus(project.getId(), task.getId(), request,
+                                actor.getId());
+
+                assertThat(response.getNewStatus()).isEqualTo(TaskStatus.DONE);
+                assertThat(task.getCompletedAt()).isNotNull();
+                verify(taskRepository).save(task);
+        }
+
+        @Test
+        void updateStatus_rejectsDoneWhenTesterIsAlsoTheAssignee() {
+                Project project = project();
+                User actor = user("qa-dev@tasksphere.local");
+                Task task = task(project, actor, "TS-11", "Self review", TaskStatus.TESTING);
+
+                UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
+                request.setStatus(TaskStatus.DONE);
+
+                ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
+                qaMember.setSkillTags(List.of("QA", "Testing"));
+
+                when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
+                when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+                when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(Optional.of(qaMember));
+
+                assertThatThrownBy(() -> service.updateStatus(project.getId(), task.getId(), request, actor.getId()))
+                                .isInstanceOf(com.zone.tasksphere.exception.Forbidden.class)
+                                .hasMessageContaining("Tester khac")
+                                .hasMessageContaining("khach quan");
+
+                verify(taskRepository, never()).save(any(Task.class));
+        }
+
+        @Test
+        void updatePosition_rejectsMoveBackFromDoneWithoutQaSkill() {
+                Project project = project();
+                User actor = user("member@tasksphere.local");
+                Task task = task(project, actor, "TS-12", "Bug found", TaskStatus.DONE);
+
+                ProjectStatusColumn doneColumn = ProjectStatusColumn.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .name("Done")
+                                .mappedStatus(TaskStatus.DONE)
+                                .build();
+                ProjectStatusColumn inProgressColumn = ProjectStatusColumn.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .name("In Progress")
+                                .mappedStatus(TaskStatus.IN_PROGRESS)
+                                .build();
+                task.setStatusColumn(doneColumn);
+                task.setTaskPosition(0);
+
+                UpdateTaskPositionRequest request = new UpdateTaskPositionRequest();
+                request.setStatusColumnId(inProgressColumn.getId());
+                request.setNewPosition(0);
+
+                when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
+                when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+                when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(true);
+                when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
+                when(columnRepository.findById(inProgressColumn.getId())).thenReturn(Optional.of(inProgressColumn));
+                when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(),
+                                doneColumn.getId()))
+                                .thenReturn(List.of(task));
+                when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(),
+                                inProgressColumn.getId()))
+                                .thenReturn(List.of());
+
+                assertThatThrownBy(() -> service.updatePosition(project.getId(), task.getId(), request, actor.getId()))
+                                .isInstanceOf(com.zone.tasksphere.exception.Forbidden.class)
+                                .hasMessageContaining("QA/Testing");
+
+                verify(taskRepository, never()).saveAll(any());
+        }
+
+        @Test
+        void createSubTaskLight_inheritsParentSprintAndDueDateAndDoesNotCarryExtraPoints() {
+                Project project = project();
+                User actor = user("pm@tasksphere.local");
+                User assignee = user("dev@tasksphere.local");
+                Sprint sprint = Sprint.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .name("Sprint 1")
+                                .status(SprintStatus.ACTIVE)
+                                .build();
+                Task parent = task(project, actor, "TS-9", "Parent Task", TaskStatus.IN_PROGRESS);
+                parent.setPriority(TaskPriority.CRITICAL);
+                parent.setSprint(sprint);
+                parent.setDueDate(LocalDate.of(2026, 4, 18));
+                parent.setDepth(0);
+
+                ProjectStatusColumn todoColumn = ProjectStatusColumn.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .name("To Do")
+                                .mappedStatus(TaskStatus.TODO)
+                                .build();
+
+                CreateTaskRequest request = new CreateTaskRequest();
+                request.setTitle("Design login UI");
+                request.setDescription("Child task");
+                request.setType(TaskType.BUG);
+                request.setStoryPoints(8);
+                request.setEstimatedHours(java.math.BigDecimal.valueOf(6));
+                request.setDueDate(LocalDate.of(2026, 4, 10));
+                request.setAssigneeId(assignee.getId());
+                request.setSkillTagsRequired(List.of("React", "UI"));
+
+                stubObjectMapper();
+
+                when(taskRepository.findById(parent.getId())).thenReturn(Optional.of(parent));
+                when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
+                when(userRepository.findById(assignee.getId())).thenReturn(Optional.of(assignee));
+                when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(Optional.of(member(project, actor, ProjectRole.PROJECT_MANAGER)));
+                when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), assignee.getId()))
+                                .thenReturn(true);
+                when(columnRepository.findFirstByProjectOrderBySortOrderAsc(project))
+                                .thenReturn(Optional.of(todoColumn));
+                when(taskRepository.countByStatusColumnId(todoColumn.getId())).thenReturn(0L);
+                when(taskCodeGenerator.generateTaskCode(project)).thenReturn("TS-10");
+                when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+                SubTaskResponse response = service.createSubTaskLight(parent.getId(), request, actor.getId());
+
+                assertThat(response.getTaskCode()).isEqualTo("TS-10");
+                verify(taskRepository).save(argThat(saved -> saved.getType() == TaskType.SUB_TASK
+                                && saved.getPriority() == TaskPriority.CRITICAL
+                                && Integer.valueOf(0).equals(saved.getStoryPoints())
+                                && saved.getEstimatedHours() == null
+                                && saved.getSprint() == sprint
+                                && LocalDate.of(2026, 4, 18).equals(saved.getDueDate())
+                                && saved.getAssignee() == assignee
+                                && List.of("React", "UI").equals(saved.getSkillTagsRequired())));
+        }
+
+        @Test
+        void getTimelineView_returnsTasksAndDependencies() {
+                Project project = project();
+                User actor = user("member@tasksphere.local");
+                User assignee = user("dev@tasksphere.local");
+
+                Task blocker = task(project, assignee, "TS-1", "Task A", TaskStatus.DONE);
+                blocker.setStartDate(LocalDate.of(2026, 3, 25));
+                blocker.setEndDate(LocalDate.of(2026, 3, 26));
+                blocker.setDueDate(LocalDate.of(2026, 3, 26));
+
+                Task blocked = task(project, assignee, "TS-2", "Task B", TaskStatus.IN_PROGRESS);
+                blocked.setStartDate(LocalDate.of(2026, 3, 27));
+                blocked.setEndDate(LocalDate.of(2026, 3, 29));
+                blocked.setDueDate(LocalDate.of(2026, 3, 30));
+                TaskDependency edge = TaskDependency.builder()
+                                .id(UUID.randomUUID())
+                                .blockingTask(blocker)
+                                .blockedTask(blocked)
+                                .linkType(DependencyType.BLOCKS)
+                                .createdBy(actor)
+                                .build();
+
+                when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId()))
+                                .thenReturn(true);
+                when(taskRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class)))
+                                .thenReturn(List.of(blocker, blocked));
+                when(dependencyRepository.findBlockingEdgesByProjectId(project.getId())).thenReturn(List.of(edge));
+
+                TimelineViewResponse response = service.getTimelineView(project.getId(), actor.getId());
+
+                assertThat(response.getProjectId()).isEqualTo(project.getId());
+                assertThat(response.getTotalTasks()).isEqualTo(2);
+                assertThat(response.getTotalDependencies()).isEqualTo(1);
+                assertThat(response.getDependencies()).singleElement().satisfies(item -> {
+                        assertThat(item.getLinkType()).isEqualTo("BLOCKS");
+                        assertThat(item.getBlockerTaskId()).isEqualTo(blocker.getId());
+                        assertThat(item.getBlockedTaskId()).isEqualTo(blocked.getId());
+                });
+                assertThat(response.getTasks()).hasSize(2);
+
+                TimelineViewResponse.TimelineTaskItem blockedItem = response.getTasks().stream()
+                                .filter(item -> item.getId().equals(blocked.getId()))
+                                .findFirst()
+                                .orElseThrow();
+                assertThat(blockedItem.getEndDate()).isEqualTo(LocalDate.of(2026, 3, 29));
+                assertThat(blockedItem.getBlockedBy()).singleElement().satisfies(ref -> {
+                        assertThat(ref.getTaskId()).isEqualTo(blocker.getId());
+                        assertThat(ref.getLinkType()).isEqualTo("BLOCKED_BY");
+                });
+
+                TimelineViewResponse.TimelineTaskItem blockerItem = response.getTasks().stream()
+                                .filter(item -> item.getId().equals(blocker.getId()))
+                                .findFirst()
+                                .orElseThrow();
+                assertThat(blockerItem.getBlocking()).singleElement().satisfies(ref -> {
+                        assertThat(ref.getTaskId()).isEqualTo(blocked.getId());
+                        assertThat(ref.getLinkType()).isEqualTo("BLOCKS");
+                });
+        }
+
+        private Project project() {
+                User owner = user("owner@tasksphere.local");
+                return Project.builder()
+                                .id(UUID.randomUUID())
+                                .name("TaskSphere")
+                                .projectKey("TS")
+                                .status(ProjectStatus.ACTIVE)
+                                .visibility(ProjectVisibility.PRIVATE)
+                                .owner(owner)
+                                .build();
+        }
+
+        private User user(String email) {
+                return User.builder()
+                                .id(UUID.randomUUID())
+                                .email(email)
+                                .fullName(email)
+                                .passwordHash("secret")
+                                .systemRole(SystemRole.USER)
+                                .status(UserStatus.ACTIVE)
+                                .build();
+        }
+
+        private Task task(Project project, User actor, String code, String title, TaskStatus status) {
+                return Task.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .taskCode(code)
+                                .title(title)
+                                .taskStatus(status)
+                                .priority(TaskPriority.HIGH)
+                                .type(TaskType.TASK)
+                                .reporter(actor)
+                                .assignee(actor)
+                                .build();
+        }
+
+        private ProjectMember member(Project project, User user, ProjectRole role) {
+                return ProjectMember.builder()
+                                .id(UUID.randomUUID())
+                                .project(project)
+                                .user(user)
+                                .projectRole(role)
+                                .build();
+        }
+
+        private void stubObjectMapper() {
+                try {
+                        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+                } catch (JsonProcessingException e) {
+                        throw new RuntimeException(e);
                 }
-            });
-            return saved;
-        });
-
-        service.updatePosition(project.getId(), movingTask.getId(), request, actor.getId());
-
-        assertThat(movingTask.getStatusColumn()).isEqualTo(targetColumn);
-        assertThat(movingTask.getTaskStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
-        assertThat(movingTask.getTaskPosition()).isEqualTo(0);
-        assertThat(remainingTodo.getTaskPosition()).isEqualTo(0);
-        verify(taskRepository).saveAll(argThat(tasks -> {
-            List<Task> saved = toList(tasks);
-            return saved.size() == 1 && saved.get(0).getId().equals(remainingTodo.getId());
-        }));
-        verify(taskRepository).saveAll(argThat(tasks -> {
-            List<Task> saved = toList(tasks);
-            return saved.size() == 1 && saved.get(0).getId().equals(movingTask.getId());
-        }));
-        verify(webSocketService).sendToProject(eq(project.getId().toString()), eq("task.position_updated"), any());
-    }
-
-    @Test
-    void updatePosition_rejectsDoneWhenDescendantSubtaskIsNotDone() {
-        Project project = project();
-        User actor = user("member@tasksphere.local");
-        Task parent = task(project, actor, "TS-6", "Parent", TaskStatus.IN_REVIEW);
-        Task child = task(project, actor, "TS-7", "Child", TaskStatus.DONE);
-        Task grandChild = task(project, actor, "TS-8", "Grandchild", TaskStatus.IN_PROGRESS);
-
-        ProjectStatusColumn sourceColumn = ProjectStatusColumn.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .name("In Review")
-                .mappedStatus(TaskStatus.IN_REVIEW)
-                .build();
-        ProjectStatusColumn doneColumn = ProjectStatusColumn.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .name("Done")
-                .mappedStatus(TaskStatus.DONE)
-                .build();
-
-        parent.setStatusColumn(sourceColumn);
-        parent.setTaskPosition(0);
-        child.setParentTask(parent);
-        grandChild.setParentTask(child);
-
-        UpdateTaskPositionRequest request = new UpdateTaskPositionRequest();
-        request.setStatusColumnId(doneColumn.getId());
-        request.setNewPosition(0);
-
-        when(taskRepository.findByIdAndProjectId(parent.getId(), project.getId())).thenReturn(Optional.of(parent));
-        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
-        when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId())).thenReturn(true);
-        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(member(project, actor, ProjectRole.PROJECT_MANAGER)));
-        when(columnRepository.findById(doneColumn.getId())).thenReturn(Optional.of(doneColumn));
-        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), sourceColumn.getId()))
-                .thenReturn(List.of(parent));
-        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), doneColumn.getId()))
-                .thenReturn(List.of());
-        when(taskRepository.findByParentTaskId(parent.getId())).thenReturn(List.of(child));
-        when(taskRepository.findByParentTaskId(child.getId())).thenReturn(List.of(grandChild));
-        when(taskRepository.findByParentTaskId(grandChild.getId())).thenReturn(List.of());
-
-        assertThatThrownBy(() -> service.updatePosition(project.getId(), parent.getId(), request, actor.getId()))
-                .isInstanceOf(SubtaskPendingException.class)
-                .hasMessageContaining("sub-task");
-
-        verify(taskRepository, never()).saveAll(any());
-    }
-
-    @Test
-    void updateStatus_rejectsDoneWhenTaskSkipsReview() {
-        Project project = project();
-        User actor = user("member@tasksphere.local");
-        Task task = task(project, actor, "TS-6", "Skip review", TaskStatus.IN_PROGRESS);
-
-        UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
-        request.setStatus(TaskStatus.DONE);
-
-        when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
-        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
-        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
-
-        assertThatThrownBy(() -> service.updateStatus(project.getId(), task.getId(), request, actor.getId()))
-                .isInstanceOf(BusinessRuleException.class)
-                .hasMessageContaining("Ready for Test/Testing");
-
-        verify(taskRepository, never()).save(any(Task.class));
-    }
-
-    @Test
-    void updateStatus_allowsQaSkillMemberToMoveReviewTaskToDone() {
-        Project project = project();
-        User actor = user("qa@tasksphere.local");
-        User assignee = user("feature-dev@tasksphere.local");
-        Task task = task(project, actor, "TS-7", "Reviewed task", TaskStatus.IN_REVIEW);
-        task.setAssignee(assignee);
-
-        UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
-        request.setStatus(TaskStatus.DONE);
-
-        ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
-        qaMember.setSkillTags(List.of("QA", "Manual Testing"));
-
-        stubObjectMapper();
-
-        when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
-        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
-        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(qaMember));
-        when(projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(project.getId(), ProjectRole.PROJECT_MANAGER))
-                .thenReturn(Optional.empty());
-        when(dependencyRepository.findBlockingTasksByBlockedTaskId(task.getId())).thenReturn(List.of());
-        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> {
-            Task saved = invocation.getArgument(0);
-            saved.setUpdatedAt(Instant.parse("2026-04-08T02:00:00Z"));
-            return saved;
-        });
-
-        TaskStatusChangedResponse response = service.updateStatus(project.getId(), task.getId(), request, actor.getId());
-
-        assertThat(response.getNewStatus()).isEqualTo(TaskStatus.DONE);
-        assertThat(task.getCompletedAt()).isNotNull();
-        verify(taskRepository).save(task);
-    }
-
-    @Test
-    void updateStatus_rejectsDoneWhenTesterIsAlsoTheAssignee() {
-        Project project = project();
-        User actor = user("qa-dev@tasksphere.local");
-        Task task = task(project, actor, "TS-11", "Self review", TaskStatus.TESTING);
-
-        UpdateTaskStatusRequest request = new UpdateTaskStatusRequest();
-        request.setStatus(TaskStatus.DONE);
-
-        ProjectMember qaMember = member(project, actor, ProjectRole.MEMBER);
-        qaMember.setSkillTags(List.of("QA", "Testing"));
-
-        when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
-        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
-        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(qaMember));
-
-        assertThatThrownBy(() -> service.updateStatus(project.getId(), task.getId(), request, actor.getId()))
-                .isInstanceOf(com.zone.tasksphere.exception.Forbidden.class)
-                .hasMessageContaining("Tester khac")
-                .hasMessageContaining("khach quan");
-
-        verify(taskRepository, never()).save(any(Task.class));
-    }
-
-    @Test
-    void updatePosition_rejectsMoveBackFromDoneWithoutQaSkill() {
-        Project project = project();
-        User actor = user("member@tasksphere.local");
-        Task task = task(project, actor, "TS-12", "Bug found", TaskStatus.DONE);
-
-        ProjectStatusColumn doneColumn = ProjectStatusColumn.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .name("Done")
-                .mappedStatus(TaskStatus.DONE)
-                .build();
-        ProjectStatusColumn inProgressColumn = ProjectStatusColumn.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .name("In Progress")
-                .mappedStatus(TaskStatus.IN_PROGRESS)
-                .build();
-        task.setStatusColumn(doneColumn);
-        task.setTaskPosition(0);
-
-        UpdateTaskPositionRequest request = new UpdateTaskPositionRequest();
-        request.setStatusColumnId(inProgressColumn.getId());
-        request.setNewPosition(0);
-
-        when(taskRepository.findByIdAndProjectId(task.getId(), project.getId())).thenReturn(Optional.of(task));
-        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
-        when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId())).thenReturn(true);
-        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(member(project, actor, ProjectRole.MEMBER)));
-        when(columnRepository.findById(inProgressColumn.getId())).thenReturn(Optional.of(inProgressColumn));
-        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), doneColumn.getId()))
-                .thenReturn(List.of(task));
-        when(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(project.getId(), inProgressColumn.getId()))
-                .thenReturn(List.of());
-
-        assertThatThrownBy(() -> service.updatePosition(project.getId(), task.getId(), request, actor.getId()))
-                .isInstanceOf(com.zone.tasksphere.exception.Forbidden.class)
-                .hasMessageContaining("QA/Testing");
-
-        verify(taskRepository, never()).saveAll(any());
-    }
-
-    @Test
-    void createSubTaskLight_inheritsParentSprintAndDueDateAndDoesNotCarryExtraPoints() {
-        Project project = project();
-        User actor = user("pm@tasksphere.local");
-        User assignee = user("dev@tasksphere.local");
-        Sprint sprint = Sprint.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .name("Sprint 1")
-                .status(SprintStatus.ACTIVE)
-                .build();
-        Task parent = task(project, actor, "TS-9", "Parent Task", TaskStatus.IN_PROGRESS);
-        parent.setPriority(TaskPriority.CRITICAL);
-        parent.setSprint(sprint);
-        parent.setDueDate(LocalDate.of(2026, 4, 18));
-        parent.setDepth(0);
-
-        ProjectStatusColumn todoColumn = ProjectStatusColumn.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .name("To Do")
-                .mappedStatus(TaskStatus.TODO)
-                .build();
-
-        CreateTaskRequest request = new CreateTaskRequest();
-        request.setTitle("Design login UI");
-        request.setDescription("Child task");
-        request.setType(TaskType.BUG);
-        request.setStoryPoints(8);
-        request.setEstimatedHours(java.math.BigDecimal.valueOf(6));
-        request.setDueDate(LocalDate.of(2026, 4, 10));
-        request.setAssigneeId(assignee.getId());
-        request.setSkillTagsRequired(List.of("React", "UI"));
-
-        stubObjectMapper();
-
-        when(taskRepository.findById(parent.getId())).thenReturn(Optional.of(parent));
-        when(userRepository.findById(actor.getId())).thenReturn(Optional.of(actor));
-        when(userRepository.findById(assignee.getId())).thenReturn(Optional.of(assignee));
-        when(projectMemberRepository.findByProjectIdAndUserId(project.getId(), actor.getId()))
-                .thenReturn(Optional.of(member(project, actor, ProjectRole.PROJECT_MANAGER)));
-        when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), assignee.getId())).thenReturn(true);
-        when(columnRepository.findFirstByProjectOrderBySortOrderAsc(project)).thenReturn(Optional.of(todoColumn));
-        when(taskRepository.countByStatusColumnId(todoColumn.getId())).thenReturn(0L);
-        when(taskCodeGenerator.generateTaskCode(project)).thenReturn("TS-10");
-        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        SubTaskResponse response = service.createSubTaskLight(parent.getId(), request, actor.getId());
-
-        assertThat(response.getTaskCode()).isEqualTo("TS-10");
-        verify(taskRepository).save(argThat(saved ->
-                saved.getType() == TaskType.SUB_TASK
-                        && saved.getPriority() == TaskPriority.CRITICAL
-                        && Integer.valueOf(0).equals(saved.getStoryPoints())
-                        && saved.getEstimatedHours() == null
-                        && saved.getSprint() == sprint
-                        && LocalDate.of(2026, 4, 18).equals(saved.getDueDate())
-                        && saved.getAssignee() == assignee
-                        && List.of("React", "UI").equals(saved.getSkillTagsRequired())
-        ));
-    }
-
-    @Test
-    void getTimelineView_returnsTasksAndDependencies() {
-        Project project = project();
-        User actor = user("member@tasksphere.local");
-        User assignee = user("dev@tasksphere.local");
-
-        Task blocker = task(project, assignee, "TS-1", "Task A", TaskStatus.DONE);
-        blocker.setStartDate(LocalDate.of(2026, 3, 25));
-        blocker.setEndDate(LocalDate.of(2026, 3, 26));
-        blocker.setDueDate(LocalDate.of(2026, 3, 26));
-
-        Task blocked = task(project, assignee, "TS-2", "Task B", TaskStatus.IN_PROGRESS);
-        blocked.setStartDate(LocalDate.of(2026, 3, 27));
-        blocked.setEndDate(LocalDate.of(2026, 3, 29));
-        blocked.setDueDate(LocalDate.of(2026, 3, 30));
-        TaskDependency edge = TaskDependency.builder()
-                .id(UUID.randomUUID())
-                .blockingTask(blocker)
-                .blockedTask(blocked)
-                .linkType(DependencyType.BLOCKS)
-                .createdBy(actor)
-                .build();
-
-        when(projectMemberRepository.existsByProjectIdAndUserId(project.getId(), actor.getId())).thenReturn(true);
-        when(taskRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(List.of(blocker, blocked));
-        when(dependencyRepository.findBlockingEdgesByProjectId(project.getId())).thenReturn(List.of(edge));
-
-        TimelineViewResponse response = service.getTimelineView(project.getId(), actor.getId());
-
-        assertThat(response.getProjectId()).isEqualTo(project.getId());
-        assertThat(response.getTotalTasks()).isEqualTo(2);
-        assertThat(response.getTotalDependencies()).isEqualTo(1);
-        assertThat(response.getDependencies()).singleElement().satisfies(item -> {
-            assertThat(item.getLinkType()).isEqualTo("BLOCKS");
-            assertThat(item.getBlockerTaskId()).isEqualTo(blocker.getId());
-            assertThat(item.getBlockedTaskId()).isEqualTo(blocked.getId());
-        });
-        assertThat(response.getTasks()).hasSize(2);
-
-        TimelineViewResponse.TimelineTaskItem blockedItem = response.getTasks().stream()
-                .filter(item -> item.getId().equals(blocked.getId()))
-                .findFirst()
-                .orElseThrow();
-        assertThat(blockedItem.getEndDate()).isEqualTo(LocalDate.of(2026, 3, 29));
-        assertThat(blockedItem.getBlockedBy()).singleElement().satisfies(ref -> {
-            assertThat(ref.getTaskId()).isEqualTo(blocker.getId());
-            assertThat(ref.getLinkType()).isEqualTo("BLOCKED_BY");
-        });
-
-        TimelineViewResponse.TimelineTaskItem blockerItem = response.getTasks().stream()
-                .filter(item -> item.getId().equals(blocker.getId()))
-                .findFirst()
-                .orElseThrow();
-        assertThat(blockerItem.getBlocking()).singleElement().satisfies(ref -> {
-            assertThat(ref.getTaskId()).isEqualTo(blocked.getId());
-            assertThat(ref.getLinkType()).isEqualTo("BLOCKS");
-        });
-    }
-
-    private Project project() {
-        User owner = user("owner@tasksphere.local");
-        return Project.builder()
-                .id(UUID.randomUUID())
-                .name("TaskSphere")
-                .projectKey("TS")
-                .status(ProjectStatus.ACTIVE)
-                .visibility(ProjectVisibility.PRIVATE)
-                .owner(owner)
-                .build();
-    }
-
-    private User user(String email) {
-        return User.builder()
-                .id(UUID.randomUUID())
-                .email(email)
-                .fullName(email)
-                .passwordHash("secret")
-                .systemRole(SystemRole.USER)
-                .status(UserStatus.ACTIVE)
-                .build();
-    }
-
-    private Task task(Project project, User actor, String code, String title, TaskStatus status) {
-        return Task.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .taskCode(code)
-                .title(title)
-                .taskStatus(status)
-                .priority(TaskPriority.HIGH)
-                .type(TaskType.TASK)
-                .reporter(actor)
-                .assignee(actor)
-                .build();
-    }
-
-    private ProjectMember member(Project project, User user, ProjectRole role) {
-        return ProjectMember.builder()
-                .id(UUID.randomUUID())
-                .project(project)
-                .user(user)
-                .projectRole(role)
-                .build();
-    }
-
-    private void stubObjectMapper() {
-        try {
-            when(objectMapper.writeValueAsString(any())).thenReturn("{}");
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
         }
-    }
 
-    private List<Task> toList(Iterable<Task> tasks) {
-        if (tasks instanceof List<?> list) {
-            @SuppressWarnings("unchecked")
-            List<Task> typed = (List<Task>) list;
-            return typed;
+        private List<Task> toList(Iterable<Task> tasks) {
+                if (tasks instanceof List<?> list) {
+                        @SuppressWarnings("unchecked")
+                        List<Task> typed = (List<Task>) list;
+                        return typed;
+                }
+                java.util.ArrayList<Task> collected = new java.util.ArrayList<>();
+                tasks.forEach(collected::add);
+                return collected;
         }
-        java.util.ArrayList<Task> collected = new java.util.ArrayList<>();
-        tasks.forEach(collected::add);
-        return collected;
-    }
 }

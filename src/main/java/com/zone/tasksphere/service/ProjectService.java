@@ -247,8 +247,8 @@ public class ProjectService {
                 .project(project).name("In Progress").colorHex("#1677FF").sortOrder(2).isDefault(false)
                 .mappedStatus(TaskStatus.IN_PROGRESS).build());
         defaultColumns.add(ProjectStatusColumn.builder()
-                .project(project).name("Ready for Test").colorHex("#FAAD14").sortOrder(3).isDefault(false)
-                .mappedStatus(TaskStatus.READY_FOR_TEST).build());
+                .project(project).name("In Review").colorHex("#FAAD14").sortOrder(3).isDefault(false)
+                .mappedStatus(TaskStatus.IN_REVIEW).build());
         defaultColumns.add(ProjectStatusColumn.builder()
                 .project(project).name("Testing").colorHex("#722ED1").sortOrder(4).isDefault(false)
                 .mappedStatus(TaskStatus.TESTING).build());

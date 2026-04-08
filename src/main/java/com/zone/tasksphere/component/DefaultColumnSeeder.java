@@ -14,8 +14,8 @@ import java.util.List;
 /**
  * Seeder tái sử dụng để tạo 5 cột Kanban mặc định cho một Project.
  * Được gọi bởi:
- *   - ColumnMigrationRunner (startup — migrate data cũ)
- *   - TaskServiceImpl (safety guard — edge case)
+ * - ColumnMigrationRunner (startup — migrate data cũ)
+ * - TaskServiceImpl (safety guard — edge case)
  */
 @Component
 @RequiredArgsConstructor
@@ -24,18 +24,20 @@ public class DefaultColumnSeeder {
 
     private final ProjectStatusColumnRepository columnRepository;
 
-    /** 5 cột mặc định — khớp với logic đang có trong ProjectService.createProject() */
+    /**
+     * 5 cột mặc định — khớp với logic đang có trong ProjectService.createProject()
+     */
     private static final List<DefaultColumnDef> DEFAULT_COLUMNS = List.of(
-        new DefaultColumnDef("To Do",       "#D9D9D9", 1, true,  TaskStatus.TODO),
-        new DefaultColumnDef("In Progress", "#1677FF", 2, false, TaskStatus.IN_PROGRESS),
-        new DefaultColumnDef("Ready for Test", "#FAAD14", 3, false, TaskStatus.READY_FOR_TEST),
-        new DefaultColumnDef("Testing",     "#722ED1", 4, false, TaskStatus.TESTING),
-        new DefaultColumnDef("Done",        "#52C41A", 5, false, TaskStatus.DONE)
-    );
+            new DefaultColumnDef("To Do", "#D9D9D9", 1, true, TaskStatus.TODO),
+            new DefaultColumnDef("In Progress", "#1677FF", 2, false, TaskStatus.IN_PROGRESS),
+            new DefaultColumnDef("In Review", "#FAAD14", 3, false, TaskStatus.IN_REVIEW),
+            new DefaultColumnDef("Testing", "#722ED1", 4, false, TaskStatus.TESTING),
+            new DefaultColumnDef("Done", "#52C41A", 5, false, TaskStatus.DONE));
 
     /**
-     * Seed 4 cột mặc định cho project.
-     * Guard: nếu project đã có ít nhất 1 cột → trả về danh sách hiện có, không seed thêm.
+     * Seed 5 cột mặc định cho project.
+     * Guard: nếu project đã có ít nhất 1 cột → trả về danh sách hiện có, không seed
+     * thêm.
      */
     @Transactional
     public List<ProjectStatusColumn> seedForProject(Project project) {
@@ -45,27 +47,27 @@ public class DefaultColumnSeeder {
         }
 
         log.info("[DefaultColumnSeeder] Seeding default columns for project: {} ({})",
-            project.getName(), project.getId());
+                project.getName(), project.getId());
 
         List<ProjectStatusColumn> columns = DEFAULT_COLUMNS.stream()
-            .map(def -> ProjectStatusColumn.builder()
-                .project(project)
-                .name(def.name())
-                .colorHex(def.color())
-                .sortOrder(def.sortOrder())
-                .isDefault(def.isDefault())
-                .mappedStatus(def.mappedStatus())
-                .build())
-            .collect(java.util.stream.Collectors.toList());
+                .map(def -> ProjectStatusColumn.builder()
+                        .project(project)
+                        .name(def.name())
+                        .colorHex(def.color())
+                        .sortOrder(def.sortOrder())
+                        .isDefault(def.isDefault())
+                        .mappedStatus(def.mappedStatus())
+                        .build())
+                .collect(java.util.stream.Collectors.toList());
 
         return columnRepository.saveAll(columns);
     }
 
     record DefaultColumnDef(
-        String name,
-        String color,
-        int sortOrder,
-        boolean isDefault,
-        TaskStatus mappedStatus
-    ) {}
+            String name,
+            String color,
+            int sortOrder,
+            boolean isDefault,
+            TaskStatus mappedStatus) {
+    }
 }

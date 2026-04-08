@@ -16,16 +16,18 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Tầng 2: Migration data cũ — chạy 1 lần khi app khởi động.
- * - Tìm project chưa có column → seed 4 cột mặc định.
+ * - Tìm project chưa có column → seed 5 cột mặc định.
  * - Tìm task chưa có statusColumn → gán vào cột đầu tiên của project.
  */
 @Component
 @RequiredArgsConstructor
 @Slf4j
-@Order(2)   // Chạy sau DataSeeder (Order=1)
+@Order(2) // Chạy sau DataSeeder (Order=1)
 public class ColumnMigrationRunner implements ApplicationRunner {
 
     private final ProjectRepository projectRepository;
@@ -52,16 +54,16 @@ public class ColumnMigrationRunner implements ApplicationRunner {
         }
 
         log.warn("[ColumnMigration] Found {} project(s) without columns. Seeding...",
-            orphanProjects.size());
+                orphanProjects.size());
 
         for (Project project : orphanProjects) {
             try {
                 defaultColumnSeeder.seedForProject(project);
                 log.info("[ColumnMigration] Seeded columns for project: {} ({})",
-                    project.getName(), project.getId());
+                        project.getName(), project.getId());
             } catch (Exception e) {
                 log.error("[ColumnMigration] Failed to seed columns for project {}: {}",
-                    project.getId(), e.getMessage());
+                        project.getId(), e.getMessage());
             }
         }
 
@@ -79,21 +81,21 @@ public class ColumnMigrationRunner implements ApplicationRunner {
         }
 
         log.warn("[ColumnMigration] Found {} task(s) without statusColumn. Fixing...",
-            orphanTasks.size());
+                orphanTasks.size());
 
         int fixed = 0;
         for (Task task : orphanTasks) {
             try {
                 ProjectStatusColumn firstCol = columnRepository
-                    .findFirstByProjectOrderBySortOrderAsc(task.getProject())
-                    .orElseGet(() -> {
-                        // Edge case: project vẫn không có column sau migration → seed ngay
-                        log.warn("[ColumnMigration] Project {} has no columns even after migration! Seeding on-demand.",
-                            task.getProject().getId());
-                        List<ProjectStatusColumn> seeded =
-                            defaultColumnSeeder.seedForProject(task.getProject());
-                        return seeded.get(0);
-                    });
+                        .findFirstByProjectOrderBySortOrderAsc(task.getProject())
+                        .orElseGet(() -> {
+                            // Edge case: project vẫn không có column sau migration → seed ngay
+                            log.warn(
+                                    "[ColumnMigration] Project {} has no columns even after migration! Seeding on-demand.",
+                                    task.getProject().getId());
+                            List<ProjectStatusColumn> seeded = defaultColumnSeeder.seedForProject(task.getProject());
+                            return seeded.get(0);
+                        });
 
                 task.setStatusColumn(firstCol);
                 taskRepository.save(task);
@@ -117,9 +119,10 @@ public class ColumnMigrationRunner implements ApplicationRunner {
             }
 
             boolean changed = false;
-            ProjectStatusColumn readyForTestColumn = null;
+            ProjectStatusColumn reviewColumn = null;
             ProjectStatusColumn testingColumn = null;
             ProjectStatusColumn doneColumn = null;
+            List<ProjectStatusColumn> duplicateReviewColumns = new java.util.ArrayList<>();
 
             for (ProjectStatusColumn column : columns) {
                 String normalizedName = column.getName() == null ? "" : column.getName().trim().toLowerCase();
@@ -133,31 +136,36 @@ public class ColumnMigrationRunner implements ApplicationRunner {
                         changed = true;
                     }
                 }
-                if (column.getMappedStatus() == TaskStatus.READY_FOR_TEST
+                boolean isReviewColumn = column.getMappedStatus() == TaskStatus.IN_REVIEW
                         || normalizedName.contains("ready for test")
-                        || normalizedName.equals("in review")
-                        || column.getMappedStatus() == TaskStatus.IN_REVIEW) {
-                    readyForTestColumn = column;
-                    if (!"Ready for Test".equals(column.getName())) {
-                        column.setName("Ready for Test");
-                        changed = true;
-                    }
-                    if (column.getMappedStatus() != TaskStatus.READY_FOR_TEST) {
-                        column.setMappedStatus(TaskStatus.READY_FOR_TEST);
-                        changed = true;
+                        || normalizedName.contains("in review");
+                if (isReviewColumn) {
+                    if (reviewColumn == null) {
+                        reviewColumn = column;
+                        if (!"In Review".equals(column.getName())) {
+                            column.setName("In Review");
+                            changed = true;
+                        }
+                        if (column.getMappedStatus() != TaskStatus.IN_REVIEW) {
+                            column.setMappedStatus(TaskStatus.IN_REVIEW);
+                            changed = true;
+                        }
+                    } else if (!java.util.Objects.equals(reviewColumn.getId(), column.getId())) {
+                        duplicateReviewColumns.add(column);
                     }
                 }
             }
 
-            if (readyForTestColumn == null) {
-                readyForTestColumn = ProjectStatusColumn.builder()
+            if (reviewColumn == null) {
+                reviewColumn = ProjectStatusColumn.builder()
                         .project(project)
-                        .name("Ready for Test")
+                        .name("In Review")
                         .colorHex("#FAAD14")
                         .isDefault(false)
-                        .mappedStatus(TaskStatus.READY_FOR_TEST)
+                        .mappedStatus(TaskStatus.IN_REVIEW)
                         .build();
-                columns.add(readyForTestColumn);
+                reviewColumn = columnRepository.save(reviewColumn);
+                columns.add(reviewColumn);
                 changed = true;
             }
 
@@ -173,13 +181,37 @@ public class ColumnMigrationRunner implements ApplicationRunner {
                 changed = true;
             }
 
+            if (!duplicateReviewColumns.isEmpty()) {
+                Set<UUID> duplicateIds = duplicateReviewColumns.stream()
+                        .map(ProjectStatusColumn::getId)
+                        .collect(java.util.stream.Collectors.toSet());
+                List<Task> tasksToReassign = new java.util.ArrayList<>();
+                for (Task task : taskRepository.findTimelineTasksByProjectId(project.getId())) {
+                    if (task.getStatusColumn() != null && duplicateIds.contains(task.getStatusColumn().getId())) {
+                        task.setStatusColumn(reviewColumn);
+                        if (task.getTaskStatus() != TaskStatus.DONE && task.getTaskStatus() != TaskStatus.CANCELLED) {
+                            task.setTaskStatus(TaskStatus.IN_REVIEW);
+                        }
+                        tasksToReassign.add(task);
+                    }
+                }
+                if (!tasksToReassign.isEmpty()) {
+                    taskRepository.saveAll(tasksToReassign);
+                }
+                columnRepository.deleteAll(duplicateReviewColumns);
+                changed = true;
+            }
+
             columns.sort(java.util.Comparator.comparingInt(ProjectStatusColumn::getSortOrder));
             List<ProjectStatusColumn> reordered = new java.util.ArrayList<>();
+            Set<UUID> duplicateIds = duplicateReviewColumns.stream()
+                    .map(ProjectStatusColumn::getId)
+                    .collect(java.util.stream.Collectors.toSet());
             for (ProjectStatusColumn column : columns) {
-                if (!java.util.Objects.equals(column.getId(), readyForTestColumn.getId())
+                if (!java.util.Objects.equals(column.getId(), reviewColumn.getId())
                         && !java.util.Objects.equals(column.getId(), testingColumn.getId())
-                        && column != readyForTestColumn
-                        && column != testingColumn) {
+                        && !java.util.Objects.equals(column.getId(), doneColumn == null ? null : doneColumn.getId())
+                        && !duplicateIds.contains(column.getId())) {
                     reordered.add(column);
                 }
             }
@@ -188,8 +220,11 @@ public class ColumnMigrationRunner implements ApplicationRunner {
             if (doneIndex < 0) {
                 doneIndex = reordered.size();
             }
-            reordered.add(Math.min(doneIndex, reordered.size()), readyForTestColumn);
+            reordered.add(Math.min(doneIndex, reordered.size()), reviewColumn);
             reordered.add(Math.min(doneIndex + 1, reordered.size()), testingColumn);
+            if (doneColumn != null) {
+                reordered.add(Math.min(doneIndex + 2, reordered.size()), doneColumn);
+            }
 
             for (int i = 0; i < reordered.size(); i++) {
                 reordered.get(i).setSortOrder(i + 1);
@@ -211,17 +246,13 @@ public class ColumnMigrationRunner implements ApplicationRunner {
         List<Task> tasks = taskRepository.findTimelineTasksByProjectId(project.getId());
         List<Task> toSave = new java.util.ArrayList<>();
         for (Task task : tasks) {
-            if (task.getStatusColumn() == null || task.getTaskStatus() == TaskStatus.DONE || task.getTaskStatus() == TaskStatus.CANCELLED) {
+            if (task.getStatusColumn() == null || task.getTaskStatus() == TaskStatus.DONE
+                    || task.getTaskStatus() == TaskStatus.CANCELLED) {
                 continue;
             }
             TaskStatus mappedStatus = task.getStatusColumn().getMappedStatus();
-            if (mappedStatus == TaskStatus.READY_FOR_TEST
-                    && (task.getTaskStatus() == TaskStatus.IN_REVIEW || task.getTaskStatus() == TaskStatus.IN_PROGRESS)) {
-                task.setTaskStatus(TaskStatus.READY_FOR_TEST);
-                toSave.add(task);
-            } else if (mappedStatus == TaskStatus.TESTING
-                    && (task.getTaskStatus() == TaskStatus.IN_REVIEW || task.getTaskStatus() == TaskStatus.IN_PROGRESS)) {
-                task.setTaskStatus(TaskStatus.TESTING);
+            if (mappedStatus != null && task.getTaskStatus() != mappedStatus) {
+                task.setTaskStatus(mappedStatus);
                 toSave.add(task);
             }
         }

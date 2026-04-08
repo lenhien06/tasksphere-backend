@@ -110,8 +110,8 @@ public class TaskServiceImpl implements TaskService {
         Sprint sprint = null;
         if (request.getSprintId() != null) {
             sprint = sprintRepository
-                .findByIdAndProject_IdAndDeletedAtIsNull(request.getSprintId(), projectId)
-                .orElseThrow(() -> new NotFoundException("Sprint không tồn tại hoặc không thuộc dự án này"));
+                    .findByIdAndProject_IdAndDeletedAtIsNull(request.getSprintId(), projectId)
+                    .orElseThrow(() -> new NotFoundException("Sprint không tồn tại hoặc không thuộc dự án này"));
             if (sprint.getStatus() == SprintStatus.COMPLETED) {
                 throw new BusinessRuleException("Không thể thêm task vào sprint đã hoàn thành");
             }
@@ -123,7 +123,7 @@ public class TaskServiceImpl implements TaskService {
         int depth = 0;
         if (request.getParentTaskId() != null) {
             parentTask = taskRepository.findById(request.getParentTaskId())
-                .orElseThrow(() -> new NotFoundException("Parent task not found"));
+                    .orElseThrow(() -> new NotFoundException("Parent task not found"));
             depth = parentTask.getDepth() + 1;
             if (depth > 3) {
                 throw new BadRequestException("TSK_003: Sub-task depth limit exceeded (max 3 levels)");
@@ -134,9 +134,10 @@ public class TaskServiceImpl implements TaskService {
         ProjectStatusColumn statusColumn;
         if (request.getStatusColumnId() != null) {
             statusColumn = columnRepository.findById(request.getStatusColumnId())
-                .orElseThrow(() -> new NotFoundException("Column not found"));
+                    .orElseThrow(() -> new NotFoundException("Column not found"));
         } else {
-            // Tầng 3 safety guard: nếu project chưa có column → tự seed rồi lấy cột đầu tiên
+            // Tầng 3 safety guard: nếu project chưa có column → tự seed rồi lấy cột đầu
+            // tiên
             statusColumn = getOrCreateDefaultColumn(project);
         }
 
@@ -146,59 +147,59 @@ public class TaskServiceImpl implements TaskService {
         // Sinh task code (thread-safe)
         String taskCode = taskCodeGenerator.generateTaskCode(project);
         LocalDate scheduledStart = resolveRequestedStartDate(request.getStartDate(), sprint, null);
-        LocalDate scheduledEnd = resolveRequestedEndDate(request.getEndDate(), request.getDueDate(), scheduledStart, null);
+        LocalDate scheduledEnd = resolveRequestedEndDate(request.getEndDate(), request.getDueDate(), scheduledStart,
+                null);
         validateScheduleWindow(scheduledStart, scheduledEnd);
         validateScheduledWindowWithinSprint(sprint, scheduledStart, scheduledEnd);
 
         // Build và save entity
         Task task = Task.builder()
-            .taskCode(taskCode)
-            .title(request.getTitle())
-            .description(request.getDescription())
-            .type(request.getType() != null ? request.getType() : TaskType.TASK)
-            .priority(request.getPriority() != null ? request.getPriority() : TaskPriority.MEDIUM)
-            .taskStatus(statusColumn.getMappedStatus() != null ? statusColumn.getMappedStatus() : TaskStatus.TODO)
-            .completedAt(statusColumn.getMappedStatus() == TaskStatus.DONE ? Instant.now() : null)
-            .storyPoints(request.getStoryPoints())
-            .estimatedHours(request.getEstimatedHours())
-            .startDate(scheduledStart)
-            .endDate(scheduledEnd)
-            .skillTagsRequired(request.getSkillTagsRequired())
-            .startDate(scheduledStart)
-            .endDate(scheduledEnd)
-            .dueDate(request.getDueDate())
-            .taskPosition(position)
-            .depth(depth)
-            .project(project)
-            .assignee(assignee)
-            .reporter(currentUser)
-            .sprint(sprint)
-            .statusColumn(statusColumn)
-            .parentTask(parentTask)
-            .build();
+                .taskCode(taskCode)
+                .title(request.getTitle())
+                .description(request.getDescription())
+                .type(request.getType() != null ? request.getType() : TaskType.TASK)
+                .priority(request.getPriority() != null ? request.getPriority() : TaskPriority.MEDIUM)
+                .taskStatus(statusColumn.getMappedStatus() != null ? statusColumn.getMappedStatus() : TaskStatus.TODO)
+                .completedAt(statusColumn.getMappedStatus() == TaskStatus.DONE ? Instant.now() : null)
+                .storyPoints(request.getStoryPoints())
+                .estimatedHours(request.getEstimatedHours())
+                .startDate(scheduledStart)
+                .endDate(scheduledEnd)
+                .skillTagsRequired(request.getSkillTagsRequired())
+                .startDate(scheduledStart)
+                .endDate(scheduledEnd)
+                .dueDate(request.getDueDate())
+                .taskPosition(position)
+                .depth(depth)
+                .project(project)
+                .assignee(assignee)
+                .reporter(currentUser)
+                .sprint(sprint)
+                .statusColumn(statusColumn)
+                .parentTask(parentTask)
+                .build();
 
         task = taskRepository.save(task);
         syncWorkspaceMemberActiveTaskCount(project, assignee != null ? assignee.getId() : null);
 
         // Ghi activity log
         logActivity(project.getId(), currentUserId, EntityType.TASK, task.getId(),
-            ActionType.TASK_CREATED, null, toJson(Map.of(
-                    "taskCode", taskCode,
-                    "title", task.getTitle(),
-                    "type", task.getType() != null ? task.getType().name() : null,
-                    "priority", task.getPriority() != null ? task.getPriority().name() : null
-            )));
+                ActionType.TASK_CREATED, null, toJson(Map.of(
+                        "taskCode", taskCode,
+                        "title", task.getTitle(),
+                        "type", task.getType() != null ? task.getType().name() : null,
+                        "priority", task.getPriority() != null ? task.getPriority().name() : null)));
 
         if (sprint != null && sprint.getStatus() == SprintStatus.ACTIVE) {
             logActivity(project.getId(), currentUserId, EntityType.SPRINT, sprint.getId(),
-                ActionType.UPDATED, null, toJson(mapOf(
-                    "activeSprintScopeChange", true,
-                    "taskId", task.getId(),
-                    "taskCode", task.getTaskCode(),
-                    "taskTitle", task.getTitle(),
-                    "actorName", currentUser.getFullName(),
-                    "message", String.format("PM %s da them Task %s vao luc Sprint dang chay.", currentUser.getFullName(), task.getTitle())
-                )));
+                    ActionType.UPDATED, null, toJson(mapOf(
+                            "activeSprintScopeChange", true,
+                            "taskId", task.getId(),
+                            "taskCode", task.getTaskCode(),
+                            "taskTitle", task.getTitle(),
+                            "actorName", currentUser.getFullName(),
+                            "message", String.format("PM %s da them Task %s vao luc Sprint dang chay.",
+                                    currentUser.getFullName(), task.getTitle()))));
         }
 
         // Gửi notification nếu có assignee khác reporter
@@ -217,7 +218,7 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional(readOnly = true)
     public PageResponse<TaskResponse> getTasks(UUID projectId, TaskFilterParams params,
-                                               Pageable pageable, UUID currentUserId) {
+            Pageable pageable, UUID currentUserId) {
         validateMembership(projectId, currentUserId);
         TaskFilterParams normalizedParams = TaskFilterSupport.resolveForQuery(params, currentUserId);
         normalizedParams.setProjectId(projectId);
@@ -276,7 +277,8 @@ public class TaskServiceImpl implements TaskService {
 
         return tasks.stream().map(task -> {
             TaskResponse response = taskMapper.toResponse(task);
-            List<TaskResponse.DependencySummary> activeBlockers = activeBlockersByTaskId.getOrDefault(task.getId(), List.of());
+            List<TaskResponse.DependencySummary> activeBlockers = activeBlockersByTaskId.getOrDefault(task.getId(),
+                    List.of());
             response.setBlockedBy(activeBlockers);
             response.setBlockedByDependency(!activeBlockers.isEmpty());
             response.setBlockingDependencyCount(activeBlockers.size());
@@ -286,20 +288,20 @@ public class TaskServiceImpl implements TaskService {
 
     private List<TaskDetailResponse.TaskLinkSummary> buildLinkSummaries(UUID taskId) {
         return dependencyRepository.findLinksBySourceTaskId(taskId).stream()
-            .map(dep -> {
-                Task target = dep.getBlockedTask();
-                return TaskDetailResponse.TaskLinkSummary.builder()
-                    .id(dep.getId())
-                    .linkType(dep.getLinkType().name())
-                    .targetTask(TaskDetailResponse.TaskLinkSummary.TaskRef.builder()
-                        .id(target.getId())
-                        .taskId(target.getTaskCode())
-                        .title(target.getTitle())
-                        .status(target.getTaskStatus())
-                        .build())
-                    .build();
-            })
-            .toList();
+                .map(dep -> {
+                    Task target = dep.getBlockedTask();
+                    return TaskDetailResponse.TaskLinkSummary.builder()
+                            .id(dep.getId())
+                            .linkType(dep.getLinkType().name())
+                            .targetTask(TaskDetailResponse.TaskLinkSummary.TaskRef.builder()
+                                    .id(target.getId())
+                                    .taskId(target.getTaskCode())
+                                    .title(target.getTitle())
+                                    .status(target.getTaskStatus())
+                                    .build())
+                            .build();
+                })
+                .toList();
     }
 
     // ════════════════════════════════════════
@@ -307,11 +309,11 @@ public class TaskServiceImpl implements TaskService {
     // ════════════════════════════════════════
     @Override
     public TaskDetailResponse updateTask(UUID projectId, UUID taskId,
-                                         UpdateTaskRequest request, UUID currentUserId) {
+            UpdateTaskRequest request, UUID currentUserId) {
         Task task = getTaskInProject(taskId, projectId);
         User currentUser = getUser(currentUserId);
         ProjectMember actorMember = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
-            .orElse(null);
+                .orElse(null);
         boolean isAdmin = currentUser.getSystemRole() == SystemRole.ADMIN;
         if (actorMember == null && !isAdmin) {
             throw new Forbidden("Bạn không phải thành viên dự án này");
@@ -329,7 +331,7 @@ public class TaskServiceImpl implements TaskService {
 
         // Quyền: MEMBER chỉ sửa task mình là assignee; PM sửa được tất cả
         boolean isAssignee = task.getAssignee() != null
-            && task.getAssignee().getId().equals(currentUserId);
+                && task.getAssignee().getId().equals(currentUserId);
         boolean isPM = actorMember != null && actorMember.getProjectRole() == ProjectRole.PROJECT_MANAGER;
 
         if (!isAssignee && !isPM && !isAdmin) {
@@ -352,13 +354,14 @@ public class TaskServiceImpl implements TaskService {
         // Đổi cột Kanban nếu có
         if (request.getStatusColumnId() != null
                 && (task.getStatusColumn() == null
-                    || !task.getStatusColumn().getId().equals(request.getStatusColumnId()))) {
+                        || !task.getStatusColumn().getId().equals(request.getStatusColumnId()))) {
             ProjectStatusColumn newCol = columnRepository.findById(request.getStatusColumnId())
-                .orElseThrow(() -> new NotFoundException("Column not found"));
+                    .orElseThrow(() -> new NotFoundException("Column not found"));
             TaskStatus oldStatusForColumnChange = task.getTaskStatus();
             task.setStatusColumn(newCol);
             if (newCol.getMappedStatus() != null) {
-                enforceQaWorkflowTransition(task, oldStatusForColumnChange, newCol.getMappedStatus(), actorMember, currentUser);
+                enforceQaWorkflowTransition(task, oldStatusForColumnChange, newCol.getMappedStatus(), actorMember,
+                        currentUser);
                 task.setTaskStatus(newCol.getMappedStatus());
                 syncCompletedAt(task, oldStatusForColumnChange, newCol.getMappedStatus());
             }
@@ -370,8 +373,8 @@ public class TaskServiceImpl implements TaskService {
         // Đổi sprint nếu có (BR-20: chỉ PM thêm task vào sprint ACTIVE)
         if (request.getSprintId() != null) {
             Sprint sprint = sprintRepository
-                .findByIdAndProject_IdAndDeletedAtIsNull(request.getSprintId(), projectId)
-                .orElseThrow(() -> new NotFoundException("Sprint không tồn tại hoặc không thuộc dự án này"));
+                    .findByIdAndProject_IdAndDeletedAtIsNull(request.getSprintId(), projectId)
+                    .orElseThrow(() -> new NotFoundException("Sprint không tồn tại hoặc không thuộc dự án này"));
             if (sprint.getStatus() == SprintStatus.COMPLETED) {
                 throw new BusinessRuleException("Không thể thêm task vào sprint đã hoàn thành");
             }
@@ -387,7 +390,8 @@ public class TaskServiceImpl implements TaskService {
         }
 
         LocalDate requestedStart = resolveRequestedStartDate(request.getStartDate(), effectiveSprint, task);
-        LocalDate requestedEnd = resolveRequestedEndDate(request.getEndDate(), request.getDueDate(), requestedStart, task);
+        LocalDate requestedEnd = resolveRequestedEndDate(request.getEndDate(), request.getDueDate(), requestedStart,
+                task);
         if (request.getStartDate() != null || request.getEndDate() != null) {
             validateScheduleWindow(requestedStart, requestedEnd);
             validateStartDateAgainstDependencies(task, requestedStart);
@@ -397,11 +401,12 @@ public class TaskServiceImpl implements TaskService {
 
         taskMapper.updateEntityFromRequest(task, request);
         task = taskRepository.save(task);
-        syncWorkspaceMemberActiveTaskCounts(task.getProject(), oldAssigneeId, task.getAssignee() != null ? task.getAssignee().getId() : null);
+        syncWorkspaceMemberActiveTaskCounts(task.getProject(), oldAssigneeId,
+                task.getAssignee() != null ? task.getAssignee().getId() : null);
 
         Map<String, Object> newSnapshot = buildTaskSnapshot(task);
         logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
-            ActionType.UPDATED, toJson(oldSnapshot), toJson(newSnapshot));
+                ActionType.UPDATED, toJson(oldSnapshot), toJson(newSnapshot));
 
         UUID newAssigneeId = task.getAssignee() != null ? task.getAssignee().getId() : null;
         String newAssigneeName = task.getAssignee() != null ? task.getAssignee().getFullName() : null;
@@ -442,11 +447,11 @@ public class TaskServiceImpl implements TaskService {
     // ════════════════════════════════════════
     @Override
     public TaskStatusChangedResponse updateStatus(UUID projectId, UUID taskId,
-                                                   UpdateTaskStatusRequest request, UUID currentUserId) {
+            UpdateTaskStatusRequest request, UUID currentUserId) {
         Task task = getTaskInProject(taskId, projectId);
         User currentUser = getUser(currentUserId);
         ProjectMember actorMember = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
-            .orElse(null);
+                .orElse(null);
         boolean isAdmin = currentUser.getSystemRole() == SystemRole.ADMIN;
         if (actorMember == null && !isAdmin) {
             throw new Forbidden("Bạn không phải thành viên dự án này");
@@ -471,28 +476,33 @@ public class TaskServiceImpl implements TaskService {
             assertNoUnfinishedBlockingDependencies(taskId);
         }
 
-        enforceQaWorkflowTransition(task, oldStatus, newStatus, actorMember, currentUser);
+        // Only enforce strict QA workflow for parent tasks (depth=0), not sub-tasks
+        if (task.getDepth() == 0) {
+            enforceQaWorkflowTransition(task, oldStatus, newStatus, actorMember, currentUser);
+        }
 
         task.setTaskStatus(newStatus);
         syncCompletedAt(task, oldStatus, newStatus);
 
         if (request.getStatusColumnId() != null) {
             ProjectStatusColumn requestedColumn = columnRepository.findById(request.getStatusColumnId())
-                .orElseThrow(() -> new NotFoundException("Column not found"));
+                    .orElseThrow(() -> new NotFoundException("Column not found"));
             if (!requestedColumn.getProject().getId().equals(projectId)) {
                 throw new BadRequestException("Cột không thuộc dự án hiện tại");
             }
             task.setStatusColumn(requestedColumn);
         } else {
-            // Sync statusColumn to the first column mapped to the new status so Kanban grouping stays correct.
+            // Sync statusColumn to the first column mapped to the new status so Kanban
+            // grouping stays correct.
             // Older projects often have only To Do marked as default.
             columnRepository.findFirstByProjectIdAndMappedStatusOrderBySortOrderAsc(projectId, newStatus)
-                .ifPresent(task::setStatusColumn);
+                    .ifPresent(task::setStatusColumn);
         }
 
         task = taskRepository.save(task);
 
-        // BR-AI-06: Decrement active_task_count when assignee's task reaches terminal state
+        // BR-AI-06: Decrement active_task_count when assignee's task reaches terminal
+        // state
         boolean enteringTerminal = (newStatus == TaskStatus.DONE || newStatus == TaskStatus.CANCELLED)
                 && oldStatus != TaskStatus.DONE && oldStatus != TaskStatus.CANCELLED;
         if (enteringTerminal && task.getAssignee() != null) {
@@ -502,24 +512,25 @@ public class TaskServiceImpl implements TaskService {
                         projectMemberRepository.save(pm);
                     });
         }
-        syncWorkspaceMemberActiveTaskCount(task.getProject(), task.getAssignee() != null ? task.getAssignee().getId() : null);
+        syncWorkspaceMemberActiveTaskCount(task.getProject(),
+                task.getAssignee() != null ? task.getAssignee().getId() : null);
 
         logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
-            ActionType.STATUS_CHANGED,
-            toJson(Map.of("status", oldStatus.name())),
-            toJson(Map.of("status", newStatus.name())));
+                ActionType.STATUS_CHANGED,
+                toJson(Map.of("status", oldStatus.name())),
+                toJson(Map.of("status", newStatus.name())));
 
         notifyTaskStatusStakeholders(task, currentUser, oldStatus, newStatus);
 
         // Emit WebSocket event task.status_changed
         TaskStatusChangedResponse wsPayload = TaskStatusChangedResponse.builder()
-            .id(task.getId())
-            .taskCode(task.getTaskCode())
-            .oldStatus(oldStatus)
-            .newStatus(newStatus)
-            .updatedAt(task.getUpdatedAt())
-            .columnId(task.getStatusColumn() != null ? task.getStatusColumn().getId() : null)
-            .build();
+                .id(task.getId())
+                .taskCode(task.getTaskCode())
+                .oldStatus(oldStatus)
+                .newStatus(newStatus)
+                .updatedAt(task.getUpdatedAt())
+                .columnId(task.getStatusColumn() != null ? task.getStatusColumn().getId() : null)
+                .build();
         webSocketService.sendToProject(task.getProject().getId().toString(), "task.status_changed", wsPayload);
 
         log.info("Task {} status changed: {} → {} by {}", task.getTaskCode(), oldStatus, newStatus, currentUserId);
@@ -533,12 +544,12 @@ public class TaskServiceImpl implements TaskService {
     // ════════════════════════════════════════
     @Override
     public void updatePosition(UUID projectId, UUID taskId,
-                               UpdateTaskPositionRequest request, UUID currentUserId) {
+            UpdateTaskPositionRequest request, UUID currentUserId) {
         validateMembership(projectId, currentUserId);
         Task task = getTaskInProject(taskId, projectId);
         User currentUser = getUser(currentUserId);
         ProjectMember actorMember = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
-            .orElse(null);
+                .orElse(null);
         boolean isAdmin = currentUser.getSystemRole() == SystemRole.ADMIN;
         if (actorMember == null && !isAdmin) {
             throw new Forbidden("Bạn không phải thành viên dự án này");
@@ -552,18 +563,20 @@ public class TaskServiceImpl implements TaskService {
         TaskStatus oldStatus = task.getTaskStatus();
 
         ProjectStatusColumn newColumn = columnRepository.findById(request.getStatusColumnId())
-            .orElseThrow(() -> new NotFoundException("Column not found"));
+                .orElseThrow(() -> new NotFoundException("Column not found"));
         if (newColumn.getProject() == null || !projectId.equals(newColumn.getProject().getId())) {
             throw new BadRequestException("Column does not belong to the current project");
         }
 
         UUID sourceColumnId = task.getStatusColumn() != null ? task.getStatusColumn().getId() : null;
         List<Task> sourceTasks = sourceColumnId != null
-                ? new ArrayList<>(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(projectId, sourceColumnId))
+                ? new ArrayList<>(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(projectId,
+                        sourceColumnId))
                 : new ArrayList<>();
         List<Task> targetTasks = sourceColumnId != null && sourceColumnId.equals(newColumn.getId())
                 ? sourceTasks
-                : new ArrayList<>(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(projectId, newColumn.getId()));
+                : new ArrayList<>(taskRepository.findByProjectIdAndStatusColumnIdOrderByTaskPositionAsc(projectId,
+                        newColumn.getId()));
 
         sourceTasks.removeIf(item -> item.getId().equals(taskId));
         if (targetTasks != sourceTasks) {
@@ -589,7 +602,8 @@ public class TaskServiceImpl implements TaskService {
             enforceQaWorkflowTransition(task, currentStatusBeforeMove, mapped, actorMember, currentUser);
             task.setTaskStatus(mapped);
             syncCompletedAt(task, currentStatusBeforeMove, mapped);
-            if (mapped == TaskStatus.TESTING && request.getTransitionEvidence() != null && !request.getTransitionEvidence().isBlank()) {
+            if (mapped == TaskStatus.TESTING && request.getTransitionEvidence() != null
+                    && !request.getTransitionEvidence().isBlank()) {
                 logActivity(projectId, currentUserId, EntityType.TASK, taskId,
                         ActionType.UPDATED,
                         null,
@@ -613,7 +627,8 @@ public class TaskServiceImpl implements TaskService {
             taskRepository.saveAll(sourceTasks);
         }
         taskRepository.saveAll(targetTasks);
-        syncWorkspaceMemberActiveTaskCount(task.getProject(), task.getAssignee() != null ? task.getAssignee().getId() : null);
+        syncWorkspaceMemberActiveTaskCount(task.getProject(),
+                task.getAssignee() != null ? task.getAssignee().getId() : null);
 
         if (oldStatus != task.getTaskStatus()) {
             logActivity(projectId, currentUserId, EntityType.TASK, taskId,
@@ -635,29 +650,29 @@ public class TaskServiceImpl implements TaskService {
         logActivity(projectId, currentUserId, EntityType.TASK, taskId,
                 ActionType.POSITION_CHANGED,
                 toJson(mapOf("columnId", oldColumnId, "columnName", oldColumnName, "position", oldPosition)),
-                toJson(mapOf("columnId", newColumn.getId(), "columnName", newColumn.getName(), "position", boundedPosition)));
+                toJson(mapOf("columnId", newColumn.getId(), "columnName", newColumn.getName(), "position",
+                        boundedPosition)));
 
         // FIX: P5-BE-07 - Emit WebSocket event task.position_updated
         webSocketService.sendToProject(task.getProject().getId().toString(), "task.position_updated",
-            java.util.Map.of(
-                "taskId", task.getId(),
-                "taskCode", task.getTaskCode(),
-                "columnId", newColumn.getId(),
-                "newPosition", boundedPosition
-            ));
+                java.util.Map.of(
+                        "taskId", task.getId(),
+                        "taskCode", task.getTaskCode(),
+                        "columnId", newColumn.getId(),
+                        "newPosition", boundedPosition));
 
         log.info("Task {} repositioned to column={} pos={}", task.getTaskCode(),
-            newColumn.getName(), boundedPosition);
+                newColumn.getName(), boundedPosition);
         reportService.invalidateOverviewCache(projectId);
     }
 
     @Override
     @Transactional
     public TaskDetailResponse updateDueDate(UUID projectId, UUID taskId,
-                                            UpdateTaskDueDateRequest request, UUID currentUserId) {
+            UpdateTaskDueDateRequest request, UUID currentUserId) {
         ProjectMember actorMember = projectMemberRepository
-            .findByProjectIdAndUserId(projectId, currentUserId)
-            .orElseThrow(() -> new Forbidden("Ban khong phai thanh vien du an nay"));
+                .findByProjectIdAndUserId(projectId, currentUserId)
+                .orElseThrow(() -> new Forbidden("Ban khong phai thanh vien du an nay"));
         if (actorMember.getProjectRole() == ProjectRole.VIEWER) {
             throw new Forbidden("VIEWER khong duoc sua task");
         }
@@ -685,7 +700,7 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional
     public ShiftTaskScheduleResponse shiftTaskSchedule(UUID projectId, UUID taskId,
-                                                       ShiftTaskScheduleRequest request, UUID currentUserId) {
+            ShiftTaskScheduleRequest request, UUID currentUserId) {
         Task rootTask = getTaskInProject(taskId, projectId);
         User currentUser = getUser(currentUserId);
         ProjectMember actorMember = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
@@ -756,8 +771,7 @@ public class TaskServiceImpl implements TaskService {
                 ActionType.UPDATED, null, toJson(Map.of(
                         "shiftDays", shiftDays,
                         "autoShiftDependents", autoShiftDependents,
-                        "updatedTaskIds", updatedTaskIds
-                )));
+                        "updatedTaskIds", updatedTaskIds)));
 
         return ShiftTaskScheduleResponse.builder()
                 .taskId(taskId)
@@ -794,11 +808,11 @@ public class TaskServiceImpl implements TaskService {
         syncWorkspaceMemberActiveTaskCounts(task.getProject(), affectedWorkspaceAssignees.toArray(UUID[]::new));
 
         logActivity(task.getProject().getId(), currentUserId, EntityType.TASK, taskId,
-            ActionType.DELETED, toJson(Map.of(
-                    "taskCode", task.getTaskCode(),
-                    "title", task.getTitle(),
-                    "status", task.getTaskStatus() != null ? task.getTaskStatus().name() : null
-            )), toJson(Map.of("deletedAt", now.toString())));
+                ActionType.DELETED, toJson(Map.of(
+                        "taskCode", task.getTaskCode(),
+                        "title", task.getTitle(),
+                        "status", task.getTaskStatus() != null ? task.getTaskStatus().name() : null)),
+                toJson(Map.of("deletedAt", now.toString())));
 
         log.info("Task {} soft-deleted by {}", task.getTaskCode(), currentUserId);
         reportService.invalidateOverviewCache(projectId);
@@ -823,7 +837,7 @@ public class TaskServiceImpl implements TaskService {
     /** Logic chung tạo sub-task — trả về entity đã save (không map response) */
     private Task createSubTaskInternal(UUID parentTaskId, CreateTaskRequest request, UUID currentUserId) {
         Task parentTask = taskRepository.findById(parentTaskId)
-            .orElseThrow(() -> new NotFoundException("Parent task not found: " + parentTaskId));
+                .orElseThrow(() -> new NotFoundException("Parent task not found: " + parentTaskId));
 
         if (request.getType() == TaskType.EPIC) {
             throw new BusinessRuleException("EPIC không thể là sub-task");
@@ -856,49 +870,50 @@ public class TaskServiceImpl implements TaskService {
         ProjectStatusColumn statusColumn;
         if (request.getStatusColumnId() != null) {
             statusColumn = columnRepository.findById(request.getStatusColumnId())
-                .filter(column -> column.getProject() != null && projectId.equals(column.getProject().getId()))
-                .orElseThrow(() -> new NotFoundException("Column not found"));
+                    .filter(column -> column.getProject() != null && projectId.equals(column.getProject().getId()))
+                    .orElseThrow(() -> new NotFoundException("Column not found"));
         } else {
             statusColumn = getOrCreateDefaultColumn(parentTask.getProject());
         }
         String taskCode = taskCodeGenerator.generateTaskCode(parentTask.getProject());
         int position = (int) taskRepository.countByStatusColumnId(statusColumn.getId());
         LocalDate scheduledStart = resolveRequestedStartDate(request.getStartDate(), parentTask.getSprint(), null);
-        LocalDate scheduledEnd = resolveRequestedEndDate(request.getEndDate(), request.getDueDate(), scheduledStart, null);
+        LocalDate scheduledEnd = resolveRequestedEndDate(request.getEndDate(), request.getDueDate(), scheduledStart,
+                null);
         validateScheduleWindow(scheduledStart, scheduledEnd);
         validateScheduledWindowWithinSprint(parentTask.getSprint(), scheduledStart, scheduledEnd);
 
         Task subTask = Task.builder()
-            .taskCode(taskCode)
-            .title(request.getTitle())
-            .description(request.getDescription())
-            .type(TaskType.SUB_TASK)
-            .priority(parentTask.getPriority() != null ? parentTask.getPriority() : TaskPriority.MEDIUM)
-            .taskStatus(statusColumn.getMappedStatus() != null ? statusColumn.getMappedStatus() : TaskStatus.TODO)
-            .completedAt(statusColumn.getMappedStatus() == TaskStatus.DONE ? Instant.now() : null)
-            .storyPoints(request.getStoryPoints())
-            .estimatedHours(request.getEstimatedHours())
-            .skillTagsRequired(request.getSkillTagsRequired())
-            .startDate(scheduledStart)
-            .endDate(scheduledEnd)
-            .dueDate(request.getDueDate())
-            .taskPosition(position)
-            .depth(newDepth)
-            .project(parentTask.getProject())
-            .assignee(assignee)
-            .reporter(currentUser)
-            .sprint(parentTask.getSprint())
-            .statusColumn(statusColumn)
-            .parentTask(parentTask)
-            .build();
+                .taskCode(taskCode)
+                .title(request.getTitle())
+                .description(request.getDescription())
+                .type(TaskType.SUB_TASK)
+                .priority(parentTask.getPriority() != null ? parentTask.getPriority() : TaskPriority.MEDIUM)
+                .taskStatus(statusColumn.getMappedStatus() != null ? statusColumn.getMappedStatus() : TaskStatus.TODO)
+                .completedAt(statusColumn.getMappedStatus() == TaskStatus.DONE ? Instant.now() : null)
+                .storyPoints(request.getStoryPoints())
+                .estimatedHours(request.getEstimatedHours())
+                .skillTagsRequired(request.getSkillTagsRequired())
+                .startDate(scheduledStart)
+                .endDate(scheduledEnd)
+                .dueDate(request.getDueDate())
+                .taskPosition(position)
+                .depth(newDepth)
+                .project(parentTask.getProject())
+                .assignee(assignee)
+                .reporter(currentUser)
+                .sprint(parentTask.getSprint())
+                .statusColumn(statusColumn)
+                .parentTask(parentTask)
+                .build();
 
         subTask = taskRepository.save(subTask);
         syncWorkspaceMemberActiveTaskCount(parentTask.getProject(), assignee != null ? assignee.getId() : null);
-        logActivity(projectId, currentUserId, EntityType.TASK, subTask.getId(), ActionType.SUBTASK_CREATED, null, toJson(Map.of(
-                "taskCode", taskCode,
-                "title", subTask.getTitle(),
-                "parentTaskId", parentTask.getId()
-        )));
+        logActivity(projectId, currentUserId, EntityType.TASK, subTask.getId(), ActionType.SUBTASK_CREATED, null,
+                toJson(Map.of(
+                        "taskCode", taskCode,
+                        "title", subTask.getTitle(),
+                        "parentTaskId", parentTask.getId())));
         log.info("Sub-task created: {} under parent {}", taskCode, parentTask.getTaskCode());
         if (assignee != null && !assignee.getId().equals(currentUserId)) {
             notificationService.sendTaskAssigned(subTask, assignee, currentUser);
@@ -910,7 +925,7 @@ public class TaskServiceImpl implements TaskService {
     @Transactional(readOnly = true)
     public List<SubTaskResponse> getSubTasks(UUID taskId, UUID currentUserId) {
         Task task = taskRepository.findById(taskId)
-            .orElseThrow(() -> new NotFoundException("Task not found: " + taskId));
+                .orElseThrow(() -> new NotFoundException("Task not found: " + taskId));
 
         validateMembership(task.getProject().getId(), currentUserId);
 
@@ -920,13 +935,13 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     public TaskDetailResponse promoteSubTask(UUID subtaskId, PromoteSubTaskRequest request,
-                                             UUID currentUserId, UUID projectId) {
+            UUID currentUserId, UUID projectId) {
         if (request == null) {
             request = new PromoteSubTaskRequest();
         }
 
         Task subTask = taskRepository.findById(subtaskId)
-            .orElseThrow(() -> new NotFoundException("Task not found: " + subtaskId));
+                .orElseThrow(() -> new NotFoundException("Task not found: " + subtaskId));
 
         UUID resolvedProjectId = subTask.getProject().getId();
         if (projectId != null && !projectId.equals(resolvedProjectId)) {
@@ -935,8 +950,8 @@ public class TaskServiceImpl implements TaskService {
 
         User currentUser = getUser(currentUserId);
         ProjectMember actorMember = projectMemberRepository
-            .findByProjectIdAndUserId(resolvedProjectId, currentUserId)
-            .orElse(null);
+                .findByProjectIdAndUserId(resolvedProjectId, currentUserId)
+                .orElse(null);
         boolean isAdmin = currentUser.getSystemRole() == SystemRole.ADMIN;
         if (actorMember == null && !isAdmin) {
             throw new Forbidden("Bạn không phải thành viên dự án này");
@@ -949,9 +964,9 @@ public class TaskServiceImpl implements TaskService {
         }
 
         boolean isMember = actorMember != null
-            && actorMember.getProjectRole() == ProjectRole.MEMBER;
+                && actorMember.getProjectRole() == ProjectRole.MEMBER;
         boolean isPM = actorMember != null
-            && actorMember.getProjectRole() == ProjectRole.PROJECT_MANAGER;
+                && actorMember.getProjectRole() == ProjectRole.PROJECT_MANAGER;
         if (!isMember && !isPM && !isAdmin) {
             throw new Forbidden("Chỉ Admin, PM hoặc Member mới được promote sub-task");
         }
@@ -988,52 +1003,51 @@ public class TaskServiceImpl implements TaskService {
         recalculateDescendantDepths(promotedTask.getId(), 0);
         taskRepository.flush();
         Task reloaded = taskRepository.findById(promotedTask.getId())
-            .orElseThrow(() -> new NotFoundException("Task not found: " + promotedTask.getId()));
+                .orElseThrow(() -> new NotFoundException("Task not found: " + promotedTask.getId()));
 
         String actorName = currentUser.getFullName() != null && !currentUser.getFullName().isBlank()
-            ? currentUser.getFullName()
-            : currentUser.getEmail();
+                ? currentUser.getFullName()
+                : currentUser.getEmail();
         String auditMsg = String.format("Sub-task \"%s\" được nâng cấp thành Task bởi %s",
-            reloaded.getTitle(), actorName);
+                reloaded.getTitle(), actorName);
         logActivity(resolvedProjectId, currentUserId, EntityType.TASK, reloaded.getId(),
-            ActionType.SUBTASK_PROMOTED,
-            toJson(Map.of(
-                "parentTaskId", oldParentId,
-                "parentTaskCode", oldParent.getTaskCode())),
-            auditMsg);
+                ActionType.SUBTASK_PROMOTED,
+                toJson(Map.of(
+                        "parentTaskId", oldParentId,
+                        "parentTaskCode", oldParent.getTaskCode())),
+                auditMsg);
 
         String notifTitle = "Sub-task được chuyển thành task độc lập";
         String notifBody = String.format("[%s] %s đã được tách ra từ [%s]",
-            reloaded.getTaskCode(), reloaded.getTitle(), oldParent.getTaskCode());
+                reloaded.getTaskCode(), reloaded.getTitle(), oldParent.getTaskCode());
 
         Set<UUID> notifiedUsers = new HashSet<>();
         projectMemberRepository.findByProjectId(resolvedProjectId).stream()
-            .filter(m -> m.getProjectRole() == ProjectRole.PROJECT_MANAGER)
-            .map(ProjectMember::getUser)
-            .filter(u -> !u.getId().equals(currentUserId))
-            .forEach(pm -> {
-                if (notifiedUsers.add(pm.getId())) {
-                    notificationService.createNotification(
-                        pm, NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
-                        EntityType.TASK.name(), reloaded.getId(),
-                        resolvedProjectId, reloaded.getTaskCode(), currentUser);
-                }
-            });
+                .filter(m -> m.getProjectRole() == ProjectRole.PROJECT_MANAGER)
+                .map(ProjectMember::getUser)
+                .filter(u -> !u.getId().equals(currentUserId))
+                .forEach(pm -> {
+                    if (notifiedUsers.add(pm.getId())) {
+                        notificationService.createNotification(
+                                pm, NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
+                                EntityType.TASK.name(), reloaded.getId(),
+                                resolvedProjectId, reloaded.getTaskCode(), currentUser);
+                    }
+                });
 
         if (reloaded.getAssignee() != null && !reloaded.getAssignee().getId().equals(currentUserId)) {
             User assignee = reloaded.getAssignee();
             if (notifiedUsers.add(assignee.getId())) {
                 notificationService.createNotification(
-                    assignee, NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
-                    EntityType.TASK.name(), reloaded.getId(),
-                    resolvedProjectId, reloaded.getTaskCode(), currentUser);
+                        assignee, NotificationType.TASK_ASSIGNED, notifTitle, notifBody,
+                        EntityType.TASK.name(), reloaded.getId(),
+                        resolvedProjectId, reloaded.getTaskCode(), currentUser);
             }
         }
 
         webSocketService.sendToProject(resolvedProjectId.toString(), "task.subtask_promoted", Map.of(
-            "promotedTaskId", reloaded.getId(),
-            "previousParentTaskId", oldParentId
-        ));
+                "promotedTaskId", reloaded.getId(),
+                "previousParentTaskId", oldParentId));
 
         reportService.invalidateOverviewCache(resolvedProjectId);
 
@@ -1068,12 +1082,15 @@ public class TaskServiceImpl implements TaskService {
         List<Task> tasks = taskRepository.findAll(TaskSpecification.buildFilter(normalizedParams, false));
         tasks = tasks.stream()
                 .sorted(java.util.Comparator
-                        .comparing(this::resolveTimelineStartDate, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                        .comparing(this::resolveTimelineStartDate,
+                                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
                         .thenComparing(task -> resolveTimelineEndDate(task, resolveTimelineStartDate(task)),
                                 java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
-                        .thenComparing(Task::getDueDate, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                        .thenComparing(Task::getDueDate,
+                                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
                         .thenComparingInt(Task::getTaskPosition)
-                        .thenComparing(Task::getCreatedAt, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                        .thenComparing(Task::getCreatedAt,
+                                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
                 .toList();
 
         Set<UUID> visibleTaskIds = tasks.stream().map(Task::getId).collect(java.util.stream.Collectors.toSet());
@@ -1168,8 +1185,8 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional(readOnly = true)
     public CalendarViewResponse getCalendarView(UUID projectId, int year, int month,
-                                                String q, TaskStatus status, String assigneeId,
-                                                UUID sprintId, List<TaskPriority> priorities, UUID currentUserId) {
+            String q, TaskStatus status, String assigneeId,
+            UUID sprintId, List<TaskPriority> priorities, UUID currentUserId) {
         TaskFilterParams params = new TaskFilterParams();
         params.setQ(q);
         params.setStatus(status);
@@ -1181,7 +1198,7 @@ public class TaskServiceImpl implements TaskService {
 
     @Transactional(readOnly = true)
     public CalendarViewResponse getCalendarView(UUID projectId, int year, int month,
-                                                TaskFilterParams params, UUID currentUserId) {
+            TaskFilterParams params, UUID currentUserId) {
         validateMembership(projectId, currentUserId);
 
         if (year < 2020 || year > 2030) {
@@ -1256,7 +1273,8 @@ public class TaskServiceImpl implements TaskService {
                 .build();
     }
 
-    private Specification<Task> buildCalendarSpecification(UUID projectId, int year, int month, TaskFilterParams params) {
+    private Specification<Task> buildCalendarSpecification(UUID projectId, int year, int month,
+            TaskFilterParams params) {
         return (root, query, cb) -> {
             query.distinct(true);
 
@@ -1276,8 +1294,7 @@ public class TaskServiceImpl implements TaskService {
 
             query.orderBy(
                     cb.asc(root.get("dueDate")),
-                    cb.asc(root.get("taskPosition"))
-            );
+                    cb.asc(root.get("taskPosition")));
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
     }
@@ -1295,7 +1312,8 @@ public class TaskServiceImpl implements TaskService {
         response.setCanEdit(isAssignee || isPM || isAdmin);
         response.setCanDelete(isPM || isAdmin);
         response.setChecklistTotal((int) checklistItemRepository.countByTaskIdAndDeletedAtIsNull(taskId));
-        response.setChecklistDone((int) checklistItemRepository.countByTaskIdAndIsCompletedTrueAndDeletedAtIsNull(taskId));
+        response.setChecklistDone(
+                (int) checklistItemRepository.countByTaskIdAndIsCompletedTrueAndDeletedAtIsNull(taskId));
         response.setLinks(buildLinkSummaries(taskId));
         response.setAssigneeSuggestions(buildAssigneeSuggestions(projectId, task));
         return response;
@@ -1320,8 +1338,8 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private void validateStartDateAgainstDependencies(Task task, LocalDate newStartDate,
-                                                      Set<UUID> shiftedTaskIds,
-                                                      Map<UUID, LocalDate> shiftedEndDates) {
+            Set<UUID> shiftedTaskIds,
+            Map<UUID, LocalDate> shiftedEndDates) {
         if (newStartDate == null) {
             return;
         }
@@ -1339,8 +1357,7 @@ public class TaskServiceImpl implements TaskService {
     private void validateScheduledWindowWithinSprint(
             Sprint sprint,
             LocalDate scheduledStart,
-            LocalDate scheduledEnd
-    ) {
+            LocalDate scheduledEnd) {
         if (sprint == null || scheduledStart == null) {
             return;
         }
@@ -1395,17 +1412,18 @@ public class TaskServiceImpl implements TaskService {
 
     private List<CalendarViewResponse.DayWorkload> buildCalendarWorkload(
             List<CalendarViewResponse.CalendarTaskItem> items,
-            double hoursPerStoryPoint
-    ) {
+            double hoursPerStoryPoint) {
         Map<LocalDate, DayWorkloadAccumulator> perDay = new LinkedHashMap<>();
         for (CalendarViewResponse.CalendarTaskItem item : items) {
-            if (item.getDueDate() == null || item.getAssignee() == null || item.getStoryPoints() == null || item.getStoryPoints() <= 0) {
+            if (item.getDueDate() == null || item.getAssignee() == null || item.getStoryPoints() == null
+                    || item.getStoryPoints() <= 0) {
                 continue;
             }
-            DayWorkloadAccumulator day = perDay.computeIfAbsent(item.getDueDate(), ignored -> new DayWorkloadAccumulator());
+            DayWorkloadAccumulator day = perDay.computeIfAbsent(item.getDueDate(),
+                    ignored -> new DayWorkloadAccumulator());
             day.totalStoryPoints += item.getStoryPoints();
-            UserWorkloadAccumulator user = day.users.computeIfAbsent(item.getAssignee().getId(), ignored ->
-                    new UserWorkloadAccumulator(item.getAssignee()));
+            UserWorkloadAccumulator user = day.users.computeIfAbsent(item.getAssignee().getId(),
+                    ignored -> new UserWorkloadAccumulator(item.getAssignee()));
             user.storyPoints += item.getStoryPoints();
         }
 
@@ -1417,7 +1435,8 @@ public class TaskServiceImpl implements TaskService {
                     List<CalendarViewResponse.UserWorkload> users = day.users.values().stream()
                             .sorted(Comparator.comparing((UserWorkloadAccumulator u) -> u.storyPoints).reversed())
                             .map(user -> {
-                                double estimatedHours = estimateHoursFromStoryPoints(user.storyPoints, hoursPerStoryPoint);
+                                double estimatedHours = estimateHoursFromStoryPoints(user.storyPoints,
+                                        hoursPerStoryPoint);
                                 return CalendarViewResponse.UserWorkload.builder()
                                         .user(user.user)
                                         .storyPoints(user.storyPoints)
@@ -1456,8 +1475,7 @@ public class TaskServiceImpl implements TaskService {
                     double similarity = computeCosineSimilarity(task.getSkillTagsRequired(), effectiveSkills);
                     double currentWeeklyLoadHours = estimateHoursFromStoryPoints(
                             weeklyStoryPoints.getOrDefault(member.getUser().getId(), 0),
-                            hoursPerStoryPoint
-                    );
+                            hoursPerStoryPoint);
                     double projectedWeeklyLoadHours = roundToOneDecimal(currentWeeklyLoadHours + taskLoadHours);
                     int weeklyCapacityHours = member.getUser().getWorkCapacityHours() != null
                             ? member.getUser().getWorkCapacityHours()
@@ -1479,7 +1497,8 @@ public class TaskServiceImpl implements TaskService {
                         .comparing(TaskDetailResponse.AssigneeSuggestion::getSimilarityScore).reversed()
                         .thenComparing(TaskDetailResponse.AssigneeSuggestion::isWillExceedWeeklyCapacity)
                         .thenComparing(TaskDetailResponse.AssigneeSuggestion::getCurrentWeeklyLoadHours)
-                        .thenComparing(TaskDetailResponse.AssigneeSuggestion::getFullName, String.CASE_INSENSITIVE_ORDER))
+                        .thenComparing(TaskDetailResponse.AssigneeSuggestion::getFullName,
+                                String.CASE_INSENSITIVE_ORDER))
                 .toList();
     }
 
@@ -1487,8 +1506,7 @@ public class TaskServiceImpl implements TaskService {
             UUID projectId,
             List<ProjectMember> members,
             LocalDate weekStart,
-            LocalDate weekEnd
-    ) {
+            LocalDate weekEnd) {
         List<UUID> assigneeIds = members.stream().map(member -> member.getUser().getId()).toList();
         if (assigneeIds.isEmpty()) {
             return Collections.emptyMap();
@@ -1503,11 +1521,11 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private double computeHoursPerStoryPoint(UUID projectId) {
-        List<Sprint> completedSprints = sprintRepository.findByProject_IdAndStatusAndDeletedAtIsNullOrderByCompletedAtDesc(
-                projectId,
-                SprintStatus.COMPLETED,
-                PageRequest.of(0, 5)
-        );
+        List<Sprint> completedSprints = sprintRepository
+                .findByProject_IdAndStatusAndDeletedAtIsNullOrderByCompletedAtDesc(
+                        projectId,
+                        SprintStatus.COMPLETED,
+                        PageRequest.of(0, 5));
 
         double averagePointsPerDay = completedSprints.stream()
                 .filter(sprint -> sprint.getVelocity() != null && sprint.getVelocity() > 0)
@@ -1621,7 +1639,7 @@ public class TaskServiceImpl implements TaskService {
     @Transactional(readOnly = true)
     public void validateETag(UUID taskId, String ifMatch) {
         Task task = taskRepository.findById(taskId)
-            .orElseThrow(() -> new NotFoundException("Task not found: " + taskId));
+                .orElseThrow(() -> new NotFoundException("Task not found: " + taskId));
         String currentETag = "\"" + task.getVersion() + "\"";
         if (!currentETag.equals(ifMatch)) {
             throw new BadRequestException("ETag mismatch — dữ liệu đã thay đổi, vui lòng tải lại");
@@ -1636,37 +1654,37 @@ public class TaskServiceImpl implements TaskService {
         SubTaskResponse.UserSummary assignee = null;
         if (task.getAssignee() != null) {
             assignee = SubTaskResponse.UserSummary.builder()
-                .id(task.getAssignee().getId())
-                .fullName(task.getAssignee().getFullName())
-                .avatarUrl(task.getAssignee().getAvatarUrl())
-                .build();
+                    .id(task.getAssignee().getId())
+                    .fullName(task.getAssignee().getFullName())
+                    .avatarUrl(task.getAssignee().getAvatarUrl())
+                    .build();
         }
         int subtaskCount = task.getChildTasks() != null ? task.getChildTasks().size() : 0;
         int completedSubtaskCount = task.getChildTasks() != null
-            ? (int) task.getChildTasks().stream()
-                .filter(c -> c.getTaskStatus() == TaskStatus.DONE || c.getTaskStatus() == TaskStatus.CANCELLED)
-                .count()
-            : 0;
+                ? (int) task.getChildTasks().stream()
+                        .filter(c -> c.getTaskStatus() == TaskStatus.DONE || c.getTaskStatus() == TaskStatus.CANCELLED)
+                        .count()
+                : 0;
 
         return SubTaskResponse.builder()
-            .id(task.getId())
-            .taskCode(task.getTaskCode())
-            .title(task.getTitle())
-            .taskStatus(task.getTaskStatus())
-            .priority(task.getPriority())
-            .assignee(assignee)
-            .dueDate(task.getDueDate())
-            .depth(task.getDepth())
-            .subtaskCount(subtaskCount)
-            .completedSubtaskCount(completedSubtaskCount)
-            .build();
+                .id(task.getId())
+                .taskCode(task.getTaskCode())
+                .title(task.getTitle())
+                .taskStatus(task.getTaskStatus())
+                .priority(task.getPriority())
+                .assignee(assignee)
+                .dueDate(task.getDueDate())
+                .depth(task.getDepth())
+                .subtaskCount(subtaskCount)
+                .completedSubtaskCount(completedSubtaskCount)
+                .build();
     }
 
     private void softDeleteSubtasksRecursively(UUID projectId, UUID actorId, UUID parentId, Instant now) {
         List<Task> children = taskRepository.findByParentTaskId(parentId);
         for (Task child : children) {
             logActivity(projectId, actorId, EntityType.TASK, child.getId(),
-                ActionType.SUBTASK_DELETED, child.getTitle(), null);
+                    ActionType.SUBTASK_DELETED, child.getTitle(), null);
         }
         taskRepository.softDeleteDirectSubtasks(parentId, now);
         children.forEach(child -> softDeleteSubtasksRecursively(projectId, actorId, child.getId(), now));
@@ -1680,28 +1698,28 @@ public class TaskServiceImpl implements TaskService {
 
     private ProjectMember getMember(UUID projectId, UUID userId) {
         return projectMemberRepository.findByProjectIdAndUserId(projectId, userId)
-            .orElseThrow(() -> new Forbidden("Bạn không phải thành viên dự án này"));
+                .orElseThrow(() -> new Forbidden("Bạn không phải thành viên dự án này"));
     }
 
     private boolean isMemberPM(UUID projectId, UUID userId) {
         return projectMemberRepository.findByProjectIdAndUserId(projectId, userId)
-            .map(m -> m.getProjectRole() == ProjectRole.PROJECT_MANAGER)
-            .orElse(false);
+                .map(m -> m.getProjectRole() == ProjectRole.PROJECT_MANAGER)
+                .orElse(false);
     }
 
     private Task getTaskInProject(UUID taskId, UUID projectId) {
         return taskRepository.findByIdAndProjectId(taskId, projectId)
-            .orElseThrow(() -> new NotFoundException("Task not found: " + taskId));
+                .orElseThrow(() -> new NotFoundException("Task not found: " + taskId));
     }
 
     private Project getProject(UUID projectId) {
         return projectRepository.findById(projectId)
-            .orElseThrow(() -> new NotFoundException("Project not found: " + projectId));
+                .orElseThrow(() -> new NotFoundException("Project not found: " + projectId));
     }
 
     private User getUser(UUID userId) {
         return userRepository.findById(userId)
-            .orElseThrow(() -> new NotFoundException("User not found: " + userId));
+                .orElseThrow(() -> new NotFoundException("User not found: " + userId));
     }
 
     /**
@@ -1710,25 +1728,25 @@ public class TaskServiceImpl implements TaskService {
      */
     private ProjectStatusColumn getOrCreateDefaultColumn(Project project) {
         return columnRepository
-            .findFirstByProjectOrderBySortOrderAsc(project)
-            .orElseGet(() -> {
-                log.warn("[SafeGuard] Project {} có no columns! Auto-seeding...", project.getId());
-                List<ProjectStatusColumn> seeded = defaultColumnSeeder.seedForProject(project);
-                return seeded.get(0);
-            });
+                .findFirstByProjectOrderBySortOrderAsc(project)
+                .orElseGet(() -> {
+                    log.warn("[SafeGuard] Project {} có no columns! Auto-seeding...", project.getId());
+                    List<ProjectStatusColumn> seeded = defaultColumnSeeder.seedForProject(project);
+                    return seeded.get(0);
+                });
     }
 
     private void assertAllDescendantSubtasksDone(UUID taskId) {
         List<Map<String, Object>> pendingList = collectPendingDescendantSubtasks(taskId).stream()
-            .map(subTask -> {
-                Map<String, Object> item = new LinkedHashMap<>();
-                item.put("id", subTask.getId().toString());
-                item.put("taskCode", subTask.getTaskCode());
-                item.put("title", subTask.getTitle());
-                item.put("taskStatus", subTask.getTaskStatus() != null ? subTask.getTaskStatus().name() : null);
-                return item;
-            })
-            .toList();
+                .map(subTask -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("id", subTask.getId().toString());
+                    item.put("taskCode", subTask.getTaskCode());
+                    item.put("title", subTask.getTitle());
+                    item.put("taskStatus", subTask.getTaskStatus() != null ? subTask.getTaskStatus().name() : null);
+                    return item;
+                })
+                .toList();
 
         if (!pendingList.isEmpty()) {
             throw new com.zone.tasksphere.exception.SubtaskPendingException(pendingList);
@@ -1765,12 +1783,12 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private void logActivity(UUID projectId, UUID actorId, EntityType entityType,
-                              UUID entityId, ActionType action, String oldVal, String newVal) {
+            UUID entityId, ActionType action, String oldVal, String newVal) {
         try {
-            HttpServletRequest httpRequest = ((ServletRequestAttributes)
-                RequestContextHolder.currentRequestAttributes()).getRequest();
+            HttpServletRequest httpRequest = ((ServletRequestAttributes) RequestContextHolder
+                    .currentRequestAttributes()).getRequest();
             activityLogService.logActivity(projectId, actorId, entityType, entityId,
-                action, oldVal, newVal, httpRequest);
+                    action, oldVal, newVal, httpRequest);
         } catch (Exception e) {
             log.warn("Failed to log activity for task {}: {}", entityId, e.getMessage());
         }
@@ -1795,7 +1813,7 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private void notifyDoneToPm(Task task, User currentUser, Set<UUID> notifiedUsers,
-                                TaskStatus oldStatus, TaskStatus newStatus) {
+            TaskStatus oldStatus, TaskStatus newStatus) {
         User pm = projectMemberRepository.findFirstByProjectIdAndProjectRoleOrderByJoinedAtAsc(
                 task.getProject().getId(), ProjectRole.PROJECT_MANAGER)
                 .map(ProjectMember::getUser)
@@ -1811,19 +1829,18 @@ public class TaskServiceImpl implements TaskService {
                     "title", task.getTitle(),
                     "projectId", task.getProject().getId(),
                     "completedBy", currentUser.getFullName(),
-                    "completedAt", Instant.now().toString()
-            ));
+                    "completedAt", Instant.now().toString()));
         }
     }
 
     private void enforceQaWorkflowTransition(Task task, TaskStatus oldStatus, TaskStatus newStatus,
-                                             ProjectMember actorMember, User currentUser) {
+            ProjectMember actorMember, User currentUser) {
         if (oldStatus == null || newStatus == null || oldStatus == newStatus) {
             return;
         }
 
         if (newStatus == TaskStatus.DONE && !canTransitionToDoneFrom(oldStatus)) {
-            throw new BusinessRuleException("Task phải qua bước Ready for Test/Testing trước khi chuyển sang Done");
+            throw new BusinessRuleException("Task phải qua bước In Review hoặc Testing trước khi chuyển sang Done");
         }
 
         if (newStatus == TaskStatus.DONE && !canPerformTestingActions(actorMember, currentUser)) {
@@ -1841,7 +1858,8 @@ public class TaskServiceImpl implements TaskService {
         if (isQaControlledStage(oldStatus)
                 && (newStatus == TaskStatus.IN_PROGRESS || newStatus == TaskStatus.TODO)
                 && !canPerformTestingActions(actorMember, currentUser)) {
-            throw new Forbidden("Chỉ PM/Admin hoặc thành viên có skill QA/Testing mới được trả task từ review về xử lý");
+            throw new Forbidden(
+                    "Chỉ PM/Admin hoặc thành viên có skill QA/Testing mới được trả task từ review về xử lý");
         }
     }
 
@@ -1867,14 +1885,14 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private boolean isQaControlledStage(TaskStatus status) {
-        return status == TaskStatus.READY_FOR_TEST
+        return status == TaskStatus.IN_REVIEW
                 || status == TaskStatus.TESTING
-                || status == TaskStatus.IN_REVIEW
                 || status == TaskStatus.DONE;
     }
 
     private String toJson(Object payload) {
-        if (payload == null) return null;
+        if (payload == null)
+            return null;
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException e) {
@@ -1933,7 +1951,7 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private LocalDate resolveRequestedEndDate(LocalDate requestedEndDate, LocalDate requestedDueDate,
-                                              LocalDate resolvedStartDate, Task existingTask) {
+            LocalDate resolvedStartDate, Task existingTask) {
         if (requestedEndDate != null) {
             return requestedEndDate;
         }
@@ -1982,12 +2000,13 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private void validateDependentSchedules(Task task, LocalDate nextEndDate,
-                                            Set<UUID> shiftedTaskIds,
-                                            boolean autoShiftDependents) {
+            Set<UUID> shiftedTaskIds,
+            boolean autoShiftDependents) {
         if (nextEndDate == null) {
             return;
         }
-        List<Task> dependents = taskRepository.findAllById(dependencyRepository.findDependentTaskIdsByTaskId(task.getId()));
+        List<Task> dependents = taskRepository
+                .findAllById(dependencyRepository.findDependentTaskIdsByTaskId(task.getId()));
         for (Task dependent : dependents) {
             if (shiftedTaskIds.contains(dependent.getId())) {
                 continue;
@@ -1997,7 +2016,8 @@ public class TaskServiceImpl implements TaskService {
                 if (autoShiftDependents) {
                     continue;
                 }
-                throw new BadRequestException("Cập nhật này sẽ làm dời lịch các công việc phụ thuộc. Hãy xác nhận dời dây chuyền.");
+                throw new BadRequestException(
+                        "Cập nhật này sẽ làm dời lịch các công việc phụ thuộc. Hãy xác nhận dời dây chuyền.");
             }
         }
     }
@@ -2025,8 +2045,7 @@ public class TaskServiceImpl implements TaskService {
                 HttpStatus.UNPROCESSABLE_ENTITY,
                 "TASK_DEPENDENCY_BLOCKED",
                 "Task không thể chuyển sang DONE vì còn dependency blocker chưa hoàn thành",
-                Map.of("blockingTasks", blockingTasks)
-        );
+                Map.of("blockingTasks", blockingTasks));
     }
 
     private TimelineViewResponse.UserSummary toTimelineUserSummary(User user) {

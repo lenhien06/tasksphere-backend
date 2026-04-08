@@ -8,11 +8,10 @@ import lombok.RequiredArgsConstructor;
 public enum TaskStatus {
     TODO("To Do", "#D9D9D9", 1, false),
     IN_PROGRESS("In Progress", "#1677FF", 2, false),
-    READY_FOR_TEST("Ready for Test", "#FAAD14", 3, false),
+    IN_REVIEW("In Review", "#FAAD14", 3, false),
     TESTING("Testing", "#722ED1", 4, false),
-    IN_REVIEW("In Review", "#FAAD14", 5, false),
-    DONE("Done", "#52C41A", 6, true),
-    CANCELLED("Cancelled", "#FF4D4F", 7, true);
+    DONE("Done", "#52C41A", 5, true),
+    CANCELLED("Cancelled", "#FF4D4F", 6, true);
 
     private final String displayName;
     private final String colorHex;
