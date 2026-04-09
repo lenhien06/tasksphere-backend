@@ -298,7 +298,7 @@ public class WorkspaceAiService {
                                                 continue; // creator already added as PM
                                         userRepository.findById(uid).ifPresent(u -> {
                                                 memberUserMap.put(uid, u);
-                                                workspaceMemberRepository.findByIdWorkspaceIdAndIdUserId(wsId, uid)
+                                                workspaceMemberRepository.findByWorkspaceIdAndUserId(wsId, uid)
                                                         .ifPresent(wm -> workspaceMemberMap.put(uid, wm));
                                                 projectMemberRepository.save(ProjectMember.builder()
                                                                 .project(saved).user(u)

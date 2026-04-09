@@ -110,11 +110,11 @@ public class EmailService {
     public void sendWorkspaceInviteEmail(String toEmail, String workspaceName, String inviterName,
                                          String workspaceRole, boolean existingUser, String workspaceSlug, String inviteToken) {
         String subject = existingUser
-                ? "Bạn đã được thêm vào workspace " + workspaceName
+                ? inviterName + " mời bạn tham gia workspace " + workspaceName + " trên TaskSphere"
                 : inviterName + " mời bạn tham gia workspace " + workspaceName + " trên TaskSphere";
 
         String targetLink = existingUser
-                ? frontendUrl + "/ws/" + workspaceSlug
+                ? frontendUrl + "/workspace-invites/accept?token=" + URLEncoder.encode(inviteToken == null ? "" : inviteToken, StandardCharsets.UTF_8)
                 : frontendUrl + "/signup?email=" + URLEncoder.encode(toEmail, StandardCharsets.UTF_8)
                     + "&inviteToken=" + URLEncoder.encode(inviteToken == null ? "" : inviteToken, StandardCharsets.UTF_8);
 
@@ -131,7 +131,7 @@ public class EmailService {
         } catch (Exception e) {
             log.error("Lỗi khi xử lý template email mời workspace: {}", e.getMessage());
             String simpleMessage = existingUser
-                    ? "Bạn đã được thêm vào workspace " + workspaceName + " bởi " + inviterName + ". Truy cập tại: " + targetLink
+                    ? "Bạn được mời tham gia workspace " + workspaceName + " bởi " + inviterName + ". Xem và phản hồi lời mời tại: " + targetLink
                     : "Bạn được mời tham gia workspace " + workspaceName + " bởi " + inviterName + ". Đăng ký tại: " + targetLink;
             sendSimpleEmail(toEmail, subject, simpleMessage);
         }

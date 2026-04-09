@@ -19,6 +19,13 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, UU
     long countByProjectId(UUID projectId);
     Optional<ProjectMember> findByProjectIdAndUserId(UUID projectId, UUID userId);
     boolean existsByProjectIdAndUserId(UUID projectId, UUID userId);
+    @Query(value = """
+            SELECT * FROM project_members
+            WHERE project_id = :projectId
+              AND user_id = :userId
+            LIMIT 1
+            """, nativeQuery = true)
+    Optional<ProjectMember> findAnyByProjectIdAndUserId(@Param("projectId") UUID projectId, @Param("userId") UUID userId);
     Optional<ProjectMember> findByProjectAndUser(Project project, User user);
 
     @Query("SELECT pm.project.id AS projectId, COUNT(pm.id) AS memberCount " +

@@ -6,6 +6,7 @@ import com.zone.tasksphere.dto.request.WorkspaceInviteMemberRequest;
 import com.zone.tasksphere.dto.response.WorkspaceInviteListResponse;
 import com.zone.tasksphere.dto.request.UpdateMemberSkillsRequest;
 import com.zone.tasksphere.dto.response.UserProfileResponse;
+import com.zone.tasksphere.dto.response.VerifyWorkspaceInviteResponse;
 import com.zone.tasksphere.dto.response.WorkspaceInviteResponse;
 import com.zone.tasksphere.dto.response.WorkspaceMemberResponse;
 import com.zone.tasksphere.dto.response.WorkspaceResponse;
@@ -36,6 +37,12 @@ public interface WorkspaceService {
     void revokeInvite(UUID workspaceId, UUID inviteId, UUID actorId);
 
     void resendInvite(UUID workspaceId, UUID inviteId, UUID actorId);
+
+    VerifyWorkspaceInviteResponse verifyInviteToken(String token);
+
+    WorkspaceResponse acceptInvite(String token, UUID currentUserId);
+
+    void declineInvite(String token, UUID currentUserId);
 
     void acceptInviteAfterSignup(String token, User newUser);
 

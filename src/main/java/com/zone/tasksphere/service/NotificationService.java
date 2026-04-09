@@ -6,6 +6,7 @@ import com.zone.tasksphere.entity.*;
 import com.zone.tasksphere.entity.enums.NotificationType;
 import com.zone.tasksphere.exception.Forbidden;
 import com.zone.tasksphere.exception.NotFoundException;
+import com.zone.tasksphere.repository.CommentRepository;
 import com.zone.tasksphere.repository.NotificationRepository;
 import com.zone.tasksphere.repository.TaskRepository;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class NotificationService {
     private final EmailService emailService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final TaskRepository taskRepository;
+    private final CommentRepository commentRepository;
 
     private static final String UNREAD_COUNT_KEY = "notif:unread:";
     private static final long UNREAD_CACHE_TTL_MINUTES = 10;
@@ -43,7 +45,7 @@ public class NotificationService {
     public PageResponse<NotificationResponse> getNotifications(
             UUID userId, Boolean isRead, NotificationType type, Pageable pageable) {
         Page<Notification> page = notificationRepository.findByRecipientIdFiltered(userId, isRead, type, pageable);
-        PageResponse<NotificationResponse> response = PageResponse.fromPage(page.map(NotificationResponse::from));
+        PageResponse<NotificationResponse> response = PageResponse.fromPage(page.map(this::toResponse));
         // SRS: unreadCount luôn được trả về trong response GET /notifications
         response.setUnreadCount(getUnreadCount(userId));
         return response;
@@ -105,6 +107,35 @@ public class NotificationService {
 
     private void invalidateUnreadCache(UUID userId) {
         redisTemplate.delete(UNREAD_COUNT_KEY + userId);
+    }
+
+    private NotificationResponse toResponse(Notification notification) {
+        NotificationResponse base = NotificationResponse.from(notification);
+
+        if (notification.getType() != NotificationType.TASK_MENTIONED
+                || !"COMMENT".equalsIgnoreCase(notification.getEntityType())
+                || notification.getEntityId() == null) {
+            return base;
+        }
+
+        return commentRepository.findById(notification.getEntityId())
+                .map(comment -> NotificationResponse.builder()
+                        .id(base.getId())
+                        .type(base.getType())
+                        .title(base.getTitle())
+                        .body(base.getBody())
+                        .entityType("TASK")
+                        .entityId(comment.getTask() != null ? comment.getTask().getId() : base.getEntityId())
+                        .projectId(base.getProjectId())
+                        .taskCode(base.getTaskCode() != null
+                                ? base.getTaskCode()
+                                : comment.getTask() != null ? comment.getTask().getTaskCode() : null)
+                        .actor(base.getActor())
+                        .isRead(base.isRead())
+                        .readAt(base.getReadAt())
+                        .createdAt(base.getCreatedAt())
+                        .build())
+                .orElse(base);
     }
 
     // ── Generic method (backward-compat) ─────────────────────────────────────
@@ -184,7 +215,7 @@ public class NotificationService {
                 NotificationType.TASK_MENTIONED,
                 "Bạn được nhắc đến trong bình luận",
                 String.format("%s đã nhắc đến bạn trong task %s", actor.getFullName(), task.getTaskCode()),
-                "COMMENT", comment.getId(),
+                "TASK", task.getId(),
                 task.getProject().getId(),
                 task.getTaskCode(),
                 actor

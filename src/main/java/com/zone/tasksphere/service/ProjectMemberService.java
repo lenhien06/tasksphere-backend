@@ -3,6 +3,7 @@ package com.zone.tasksphere.service;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -15,6 +16,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -25,6 +28,7 @@ import com.zone.tasksphere.dto.response.InviteMemberResponse;
 import com.zone.tasksphere.dto.response.MemberSearchResponse;
 import com.zone.tasksphere.dto.response.ProjectInviteResponse;
 import com.zone.tasksphere.dto.response.ProjectMemberResponse;
+import com.zone.tasksphere.dto.response.UserProfileResponse;
 import com.zone.tasksphere.entity.Project;
 import com.zone.tasksphere.entity.ProjectInvite;
 import com.zone.tasksphere.entity.ProjectMember;
@@ -64,6 +68,8 @@ public class ProjectMemberService {
     private final ActivityLogService activityLogService;
     private final com.zone.tasksphere.repository.TaskRepository taskRepository;
     private final ReportService reportService;
+    private final WebSocketService webSocketService;
+    private final UserProfileService userProfileService;
 
     @Value("${app.membership.max-members-per-project:50}")
     private int maxMembersPerProject;
@@ -101,6 +107,20 @@ public class ProjectMemberService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public UserProfileResponse getMemberProfile(UUID projectId, UUID targetUserId, UUID requesterId) {
+        projectRepository.findById(projectId)
+                .orElseThrow(() -> new NotFoundException("Dự án không tồn tại"));
+
+        projectMemberRepository.findByProjectIdAndUserId(projectId, requesterId)
+                .orElseThrow(() -> new NotFoundException("Bạn không phải thành viên của dự án"));
+
+        projectMemberRepository.findByProjectIdAndUserId(projectId, targetUserId)
+                .orElseThrow(() -> new NotFoundException("Thành viên không tồn tại trong dự án"));
+
+        return userProfileService.getProfile(targetUserId);
+    }
+
     /**
      * LUỒNG 1: Thêm trực tiếp người dùng đã có trong hệ thống
      */
@@ -123,16 +143,11 @@ public class ProjectMemberService {
 
         // Logic giới hạn gói dịch vụ có thể thêm ở đây (BR-12)
 
-        ProjectMember newMember = ProjectMember.builder()
-                .project(project)
-                .user(user)
-                .projectRole(request.getRole())
-                .joinedAt(Instant.now())
-                .invitedBy(actorId)
-                .build();
-
-        projectMemberRepository.save(newMember);
+        ProjectMember newMember = restoreOrCreateMember(project, user, request.getRole(), actorId, null);
         reportService.invalidateOverviewCache(projectId);
+        scheduleMembershipRealtimeBroadcast(project, "project_member_added", Map.of(
+                "memberUserId", user.getId(),
+                "memberRole", request.getRole().name()));
 
         // Ghi log hoạt động
         HttpServletRequest httpServletRequest = ((ServletRequestAttributes) RequestContextHolder
@@ -186,8 +201,10 @@ public class ProjectMemberService {
         User actor = requireInviteManager(projectId, actorId);
         List<String> sanitizedSkills = sanitizeSkillTags(request.getSkillTags());
 
-        if (request.getRole() != ProjectRole.MEMBER && request.getRole() != ProjectRole.VIEWER) {
-            throw new BadRequestException("Role mời qua email chỉ được là MEMBER hoặc VIEWER");
+        if (request.getRole() != ProjectRole.PROJECT_MANAGER
+                && request.getRole() != ProjectRole.MEMBER
+                && request.getRole() != ProjectRole.VIEWER) {
+            throw new BadRequestException("Role mời qua email chỉ được là PROJECT_MANAGER, MEMBER hoặc VIEWER");
         }
 
         String email = request.getEmail().trim().toLowerCase();
@@ -244,6 +261,10 @@ public class ProjectMemberService {
 
         logActivity(projectId, actorId, EntityType.PROJECT, invite.getId(), ActionType.MEMBER_INVITED, null,
                 "email=" + email + ",role=" + request.getRole().name());
+        scheduleMembershipRealtimeBroadcast(project, "project_invites_updated", Map.of(
+                "inviteId", invite.getId(),
+                "inviteEmail", email,
+                "inviteStatus", invite.getStatus().name()));
 
         return InviteMemberResponse.builder()
                 .email(email)
@@ -261,6 +282,33 @@ public class ProjectMemberService {
             return member.getUser().getSkillTags();
         }
         return Collections.emptyList();
+    }
+
+    private ProjectMember restoreOrCreateMember(Project project, User user, ProjectRole role, UUID invitedBy,
+            List<String> skillTags) {
+        Optional<ProjectMember> existingMember = projectMemberRepository.findAnyByProjectIdAndUserId(project.getId(),
+                user.getId());
+
+        if (existingMember.isPresent()) {
+            ProjectMember member = existingMember.get();
+            member.setProjectRole(role);
+            member.setJoinedAt(Instant.now());
+            member.setInvitedBy(invitedBy);
+            member.setSkillTags(skillTags);
+            member.setDeletedAt(null);
+            member.setActiveTaskCount(0);
+            return projectMemberRepository.save(member);
+        }
+
+        ProjectMember newMember = ProjectMember.builder()
+                .project(project)
+                .user(user)
+                .projectRole(role)
+                .joinedAt(Instant.now())
+                .invitedBy(invitedBy)
+                .skillTags(skillTags)
+                .build();
+        return projectMemberRepository.save(newMember);
     }
 
     /**
@@ -314,15 +362,12 @@ public class ProjectMemberService {
             return;
         }
 
-        ProjectMember newMember = ProjectMember.builder()
-                .project(invite.getProject())
-                .user(newUser)
-                .projectRole(invite.getProjectRole())
-                .joinedAt(Instant.now())
-                .invitedBy(invite.getInvitedBy().getId())
-                .skillTags(invite.getSkillTags())
-                .build();
-        projectMemberRepository.save(newMember);
+        ProjectMember newMember = restoreOrCreateMember(
+                invite.getProject(),
+                newUser,
+                invite.getProjectRole(),
+                invite.getInvitedBy().getId(),
+                invite.getSkillTags());
         reportService.invalidateOverviewCache(invite.getProject().getId());
 
         invite.setStatus(InviteStatus.ACCEPTED);
@@ -331,6 +376,11 @@ public class ProjectMemberService {
         projectInviteRepository.save(invite);
         logActivity(invite.getProject().getId(), newUser.getId(), EntityType.MEMBER, newMember.getId(),
                 ActionType.MEMBER_JOINED, null, invite.getProjectRole().name());
+        publishInviteAcceptedNotification(invite, newUser);
+        scheduleMembershipRealtimeBroadcast(invite.getProject(), "project_member_joined", Map.of(
+                "memberUserId", newUser.getId(),
+                "memberRole", invite.getProjectRole().name(),
+                "inviteId", invite.getId()));
 
         log.info("User {} tự động gia nhập dự án {} sau khi đăng ký.", newUser.getEmail(),
                 invite.getProject().getName());
@@ -388,6 +438,9 @@ public class ProjectMemberService {
         invite.setStatus(InviteStatus.REVOKED);
         projectInviteRepository.save(invite);
         logActivity(projectId, actorId, EntityType.PROJECT, inviteId, ActionType.UPDATED, "PENDING", "REVOKED");
+        scheduleMembershipRealtimeBroadcast(invite.getProject(), "project_invites_updated", Map.of(
+                "inviteId", inviteId,
+                "inviteStatus", invite.getStatus().name()));
     }
 
     @Transactional
@@ -409,6 +462,9 @@ public class ProjectMemberService {
         invite.setToken(UUID.randomUUID().toString());
         invite.setExpiresAt(Instant.now().plus(INVITE_EXPIRES_HOURS, ChronoUnit.HOURS));
         projectInviteRepository.save(invite);
+        scheduleMembershipRealtimeBroadcast(invite.getProject(), "project_invites_updated", Map.of(
+                "inviteId", invite.getId(),
+                "inviteStatus", invite.getStatus().name()));
 
         emailService.sendProjectInviteEmail(
                 invite.getInviteeEmail(),
@@ -482,6 +538,9 @@ public class ProjectMemberService {
 
         logActivity(invite.getProject().getId(), currentUserId, EntityType.PROJECT, invite.getId(),
                 ActionType.INVITE_DECLINED, "PENDING", "DECLINED");
+        scheduleMembershipRealtimeBroadcast(invite.getProject(), "project_invites_updated", Map.of(
+                "inviteId", invite.getId(),
+                "inviteStatus", invite.getStatus().name()));
     }
 
     // =========================================================================
@@ -506,6 +565,10 @@ public class ProjectMemberService {
         ProjectRole oldRole = targetMember.getProjectRole();
         targetMember.setProjectRole(request.getRole());
         projectMemberRepository.save(targetMember);
+        scheduleMembershipRealtimeBroadcast(project, "project_member_role_updated", Map.of(
+                "memberUserId", targetUserId,
+                "oldRole", oldRole.name(),
+                "newRole", request.getRole().name()));
 
         // activityLogService.log(actorId, "PROJECT_MEMBER", targetMember.getId(),
         // "CHANGED_ROLE", oldRole.name(), request.getRole().name());
@@ -541,6 +604,8 @@ public class ProjectMemberService {
         targetMember.setDeletedAt(Instant.now());
         projectMemberRepository.save(targetMember);
         reportService.invalidateOverviewCache(projectId);
+        scheduleMembershipRealtimeBroadcast(project, "project_member_removed", Map.of(
+                "memberUserId", targetUserId));
 
         // FIX: FR-12 - Reassign về unassigned tất cả task của member này trong project
         taskRepository.unassignTasksByUserInProject(projectId, targetUserId);
@@ -578,6 +643,8 @@ public class ProjectMemberService {
         member.setDeletedAt(Instant.now());
         projectMemberRepository.save(member);
         reportService.invalidateOverviewCache(projectId);
+        scheduleMembershipRealtimeBroadcast(project, "project_member_left", Map.of(
+                "memberUserId", actorId));
 
         taskRepository.unassignTasksByUserInProject(projectId, actorId);
         logActivity(projectId, actorId, EntityType.MEMBER, member.getId(), ActionType.MEMBER_LEFT, null, null);
@@ -657,15 +724,12 @@ public class ProjectMemberService {
                     "Bạn đã là thành viên của dự án này rồi.");
         }
 
-        ProjectMember newMember = ProjectMember.builder()
-                .project(invite.getProject())
-                .user(currentUser)
-                .projectRole(invite.getProjectRole())
-                .joinedAt(Instant.now())
-                .invitedBy(invite.getInvitedBy().getId())
-                .skillTags(invite.getSkillTags())
-                .build();
-        projectMemberRepository.save(newMember);
+        ProjectMember newMember = restoreOrCreateMember(
+                invite.getProject(),
+                currentUser,
+                invite.getProjectRole(),
+                invite.getInvitedBy().getId(),
+                invite.getSkillTags());
         reportService.invalidateOverviewCache(invite.getProject().getId());
 
         invite.setStatus(InviteStatus.ACCEPTED);
@@ -674,6 +738,11 @@ public class ProjectMemberService {
         projectInviteRepository.save(invite);
         logActivity(invite.getProject().getId(), currentUserId, EntityType.MEMBER, newMember.getId(),
                 ActionType.MEMBER_JOINED, null, invite.getProjectRole().name());
+        publishInviteAcceptedNotification(invite, currentUser);
+        scheduleMembershipRealtimeBroadcast(invite.getProject(), "project_member_joined", Map.of(
+                "memberUserId", currentUserId,
+                "memberRole", invite.getProjectRole().name(),
+                "inviteId", invite.getId()));
 
         return invite.getProject().getId();
     }
@@ -736,5 +805,60 @@ public class ProjectMemberService {
         } catch (Exception e) {
             log.warn("Không thể ghi activity log {} cho entity {}: {}", actionType, entityId, e.getMessage());
         }
+    }
+
+    private void publishInviteAcceptedNotification(ProjectInvite invite, User joinedUser) {
+        User inviter = invite.getInvitedBy();
+        if (inviter == null || joinedUser == null || inviter.getId().equals(joinedUser.getId())) {
+            return;
+        }
+
+        notificationService.createNotification(
+                inviter,
+                NotificationType.MEMBER_JOINED,
+                "Thành viên đã tham gia dự án",
+                String.format("%s đã chấp nhận lời mời và tham gia dự án %s với vai trò %s.",
+                        joinedUser.getFullName(),
+                        invite.getProject().getName(),
+                        invite.getProjectRole().getDisplayName()),
+                EntityType.PROJECT.name(),
+                invite.getProject().getId());
+    }
+
+    private void scheduleMembershipRealtimeBroadcast(Project project, String eventType, Map<String, Object> extraData) {
+        UUID projectId = project.getId();
+        UUID workspaceId = project.getWorkspace() != null ? project.getWorkspace().getId() : null;
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("projectId", projectId);
+        if (workspaceId != null) {
+            payload.put("workspaceId", workspaceId);
+        }
+        if (extraData != null && !extraData.isEmpty()) {
+            payload.putAll(extraData);
+        }
+
+        Runnable publish = () -> {
+            webSocketService.sendToProject(projectId.toString(), eventType, payload);
+            webSocketService.sendToProject(projectId.toString(), "project_members_updated", payload);
+            webSocketService.sendToProject(projectId.toString(), "project_invites_updated", payload);
+            webSocketService.sendToProjects(eventType, payload);
+            webSocketService.sendToProjects("project_members_updated", payload);
+            if (workspaceId != null) {
+                webSocketService.sendToWorkspace(workspaceId.toString(), eventType, payload);
+            }
+        };
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publish.run();
+                }
+            });
+            return;
+        }
+
+        publish.run();
     }
 }

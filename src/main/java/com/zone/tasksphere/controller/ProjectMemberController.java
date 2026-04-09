@@ -59,6 +59,24 @@ public class ProjectMemberController {
     }
 
     @Operation(
+        summary = "Xem hồ sơ thành viên dự án",
+        description = """
+            Lấy thông tin hồ sơ của một thành viên trong dự án.
+
+            **Quyền:** Mọi thành viên của dự án.
+            """
+    )
+    @GetMapping("/{projectId}/members/{userId}/profile")
+    public ResponseEntity<ApiResponse<UserProfileResponse>> getMemberProfile(
+            @PathVariable UUID projectId,
+            @PathVariable UUID userId
+    ) {
+        UUID currentUserId = getCurrentUserId();
+        UserProfileResponse response = projectMemberService.getMemberProfile(projectId, userId, currentUserId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(
         summary = "Mời thành viên vào dự án",
         description = """
             **FR-12:** Thêm user vào dự án với role cho trước.
