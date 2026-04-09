@@ -34,79 +34,84 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final CustomAccessDeniedHandler accessDeniedHandler;
-    private final JwtUtils jwtUtils;
-    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
+        private final CustomAccessDeniedHandler accessDeniedHandler;
+        private final JwtUtils jwtUtils;
+        private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
-    @Value("${app.cors.allowed-origins}")
-    private String allowedOriginPatterns;
+        @Value("${app.cors.allowed-origins}")
+        private String allowedOriginPatterns;
 
-    private static final String[] PUBLIC_MATCHERS = {
-            "/api/auth/**",
-            "/swagger-ui/**",
-            "/swagger-ui.html",
-            "/v3/api-docs/**",
-            "/swagger-resources/**",
-            "/configuration/**",
-            "/api-docs/**",
-            "/actuator/health",
-            "/actuator/health/**",
-            "/actuator/info",
-            "/ws/**",
-    };
+        private static final String[] PUBLIC_MATCHERS = {
+                        "/api/auth/**",
+                        "/swagger-ui/**",
+                        "/swagger-ui.html",
+                        "/v3/api-docs/**",
+                        "/swagger-resources/**",
+                        "/configuration/**",
+                        "/api-docs/**",
+                        "/actuator/health",
+                        "/actuator/health/**",
+                        "/actuator/info",
+                        "/ws/**",
+        };
 
-    @Bean
-    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
-        http
-                .csrf(AbstractHttpConfigurer::disable)
-                .cors(Customizer.withDefaults())
-                .sessionManagement(session ->
-                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .addFilterBefore(new JWTFilter(jwtUtils), UsernamePasswordAuthenticationFilter.class)
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(PUBLIC_MATCHERS).permitAll()
-                        // SRS 4.3.2.1: xác thực token lời mời công khai (path param, không log query)
-                        .requestMatchers(HttpMethod.GET, "/api/v1/invites/*").permitAll()
-                        // FR-38: Cho phép đọc project public/internal qua service-level visibility checks
-                        .requestMatchers(HttpMethod.GET, "/api/v1/projects", "/api/v1/projects/**").permitAll()
-                        .anyRequest().authenticated()
-                )
-                .exceptionHandling(ex -> ex
-                        .accessDeniedHandler(accessDeniedHandler)
-                        .authenticationEntryPoint(jwtAuthenticationEntryPoint))
-                .logout(logout ->
-                        logout.logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler()));
+        @Bean
+        public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+                http
+                                .csrf(AbstractHttpConfigurer::disable)
+                                .cors(Customizer.withDefaults())
+                                .sessionManagement(session -> session
+                                                .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                                .addFilterBefore(new JWTFilter(jwtUtils), UsernamePasswordAuthenticationFilter.class)
+                                .authorizeHttpRequests(auth -> auth
+                                                .requestMatchers(PUBLIC_MATCHERS).permitAll()
+                                                // SRS 4.3.2.1: xác thực token lời mời công khai (path param, không log
+                                                // query)
+                                                .requestMatchers(HttpMethod.GET, "/api/v1/invites/*").permitAll()
+                                                .requestMatchers(HttpMethod.GET, "/api/v1/workspace-invites/*")
+                                                .permitAll()
+                                                // FR-38: Cho phép đọc project public/internal qua service-level
+                                                // visibility checks
+                                                .requestMatchers(HttpMethod.GET, "/api/v1/projects",
+                                                                "/api/v1/projects/**")
+                                                .permitAll()
+                                                .anyRequest().authenticated())
+                                .exceptionHandling(ex -> ex
+                                                .accessDeniedHandler(accessDeniedHandler)
+                                                .authenticationEntryPoint(jwtAuthenticationEntryPoint))
+                                .logout(logout -> logout
+                                                .logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler()));
 
-        return http.build();
-    }
+                return http.build();
+        }
 
-    @Bean
-    public PasswordEncoder defaultPasswordEncoder() {
-        // FIX: BR-07 - BCrypt cost=12 theo SRS requirement
-        return new BCryptPasswordEncoder(12);
-    }
+        @Bean
+        public PasswordEncoder defaultPasswordEncoder() {
+                // FIX: BR-07 - BCrypt cost=12 theo SRS requirement
+                return new BCryptPasswordEncoder(12);
+        }
 
-    @Bean
-    public AuthenticationManager defaultAuthenticationManager(AuthenticationConfiguration config)
-            throws Exception {
-        return config.getAuthenticationManager();
-    }
+        @Bean
+        public AuthenticationManager defaultAuthenticationManager(AuthenticationConfiguration config)
+                        throws Exception {
+                return config.getAuthenticationManager();
+        }
 
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
+        @Bean
+        public CorsConfigurationSource corsConfigurationSource() {
+                CorsConfiguration config = new CorsConfiguration();
 
-        List<String> origins = Arrays.stream(allowedOriginPatterns.split(","))
-                .map(String::trim)
-                .toList();
+                List<String> origins = Arrays.stream(allowedOriginPatterns.split(","))
+                                .map(String::trim)
+                                .toList();
 
-        config.setAllowedOriginPatterns(origins);
-        config.addAllowedHeader("*");
-        config.addAllowedMethod("*");
-        config.setAllowCredentials(true);
+                config.setAllowedOriginPatterns(origins);
+                config.addAllowedHeader("*");
+                config.addAllowedMethod("*");
+                config.setAllowCredentials(true);
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return source;
-    }
+                UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+                source.registerCorsConfiguration("/**", config);
+                return source;
+        }
 }

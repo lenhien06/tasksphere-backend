@@ -15,6 +15,7 @@ public enum NotificationType {
     SPRINT_STARTED("Sprint Started", true),
     SPRINT_COMPLETED("Sprint Completed", true),
     PROJECT_INVITED("Project Invited", true),
+    WORKSPACE_INVITED("Workspace Invited", true),
     // FIX: P5-BE-05 - Thêm các type theo SRS requirement
     PROJECT_ROLE_CHANGED("Project Role Changed", true),
     MEMBER_JOINED("Member Joined", true),
