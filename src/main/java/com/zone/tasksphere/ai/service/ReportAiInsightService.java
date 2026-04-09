@@ -14,7 +14,6 @@ import com.zone.tasksphere.repository.SprintRepository;
 import com.zone.tasksphere.service.SprintService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -44,9 +43,6 @@ public class ReportAiInsightService {
     private final SprintService sprintService;
     private final SprintRepository sprintRepository;
     private final ObjectMapper objectMapper;
-
-    @Value("${ai.gemini.api-key:}")
-    private String geminiApiKey;
 
     public ReportInsightResponse generateInsight(
             UUID projectId,
@@ -154,7 +150,7 @@ public class ReportAiInsightService {
             String prompt,
             String fallbackText
     ) {
-        if (geminiApiKey == null || geminiApiKey.isBlank()) {
+        if (!llmClient.isAvailable()) {
             return fallback(reportType, title, fallbackText);
         }
 
