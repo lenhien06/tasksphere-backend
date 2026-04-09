@@ -23,6 +23,7 @@ public final class TaskFilterSupport {
         resolved.setQ(params.getQ());
         resolved.setOverdue(params.getOverdue());
         resolved.setDueSoon(params.getDueSoon());
+        resolved.setActiveSprintOnly(params.getActiveSprintOnly());
 
         String assigneeId = params.getAssigneeId();
         if (assigneeId != null) {

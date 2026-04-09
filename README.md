@@ -1,85 +1,148 @@
-# TaskSphere Backend — Project & Task Management API
+# TaskSphere — Project & Task Management Platform
 
-REST API cho hệ thống quản lý dự án và công việc theo mô hình Agile/Scrum.
+<div align="center">
 
-**Frontend:** [tasksphere-frontend](https://github.com/lenhien06/tasksphere-frontend)
+**Production API:** [https://api.tasksphere.io.vn](https://api.tasksphere.io.vn)  
+**Swagger UI:** [https://api.tasksphere.io.vn/swagger-ui.html](https://api.tasksphere.io.vn/swagger-ui.html)  
+**Frontend repo:** [tasksphere-frontend](https://github.com/lenhien06/tasksphere-frontend)
 
----
+![Java](https://img.shields.io/badge/Java-21-007396?style=flat&logo=openjdk)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.5-6DB33F?style=flat&logo=springboot)
+![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=flat&logo=mysql)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat&logo=redis)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker)
+![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?style=flat&logo=githubactions)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-## Tính năng
-
-- Xác thực JWT với refresh token rotation
-- Quản lý dự án, thành viên, phân quyền RBAC
-- Kanban Board: task, sprint, custom workflow
-- Realtime thông báo qua WebSocket/STOMP
-- Upload file với virus scan (ClamAV)
-- Báo cáo: burndown chart, sprint velocity, member performance
-- Cache Redis, activity log, soft delete toàn hệ thống
-
----
-
-## Công nghệ
-
-- **Framework:** Java 17, Spring Boot 3
-- **Database:** MySQL 8.0
-- **Cache:** Redis 7
-- **Messaging:** WebSocket + STOMP (SockJS)
-- **Storage:** S3-compatible (MinIO)
-- **Auth:** JWT (access token 1h, refresh token 7 ngày)
+</div>
 
 ---
 
-## Chạy local
+## Overview
 
-### Yêu cầu
-- Java 17+
-- Docker (MySQL + Redis)
+TaskSphere is a project and task management platform built around the **Agile/Scrum** model, providing a comprehensive REST API for software teams. The system supports the entire project lifecycle — from sprint planning, task assignment, and real-time progress tracking to burndown and velocity reporting.
 
-### Bước 1 — Khởi động database
+### Highlights
 
-```bash
-docker-compose up -d
+- **Production-grade security** — JWT with refresh token rotation, Redis blacklist, rate limiting (Bucket4j), and file upload virus scanning (ClamAV)
+- **Real-time capabilities** — WebSocket/STOMP for notifications and instant Kanban board updates
+- **Agile-native workflows** — Sprint management, customizable Kanban workflows, backlog handling, dependency tracking, and recurring tasks
+- **Extensible design** — Project-level custom fields, outbound webhooks, and a system-wide activity log
+- **Deployment-ready** — Dockerized with automated CI/CD to a VPS through GitHub Actions
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Client Layer                         │
+│           Frontend (React)  /  Mobile  /  API Consumer   │
+└────────────────────┬────────────────────────────────────┘
+                     │ HTTPS / WSS
+┌────────────────────▼────────────────────────────────────┐
+│                  Spring Boot 3.5 (Java 21)               │
+│                                                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │  REST API    │  │  WebSocket   │  │  Scheduler    │  │
+│  │ (39 ctrls)   │  │  /STOMP      │  │  (cron jobs)  │  │
+│  └──────┬───────┘  └──────┬───────┘  └───────┬───────┘  │
+│         │                 │                   │          │
+│  ┌──────▼─────────────────▼───────────────────▼───────┐  │
+│  │              Service / Domain Layer                  │  │
+│  └──────┬──────────────────────────────────────────────┘  │
+│         │                                                │
+│  ┌──────▼──────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │  MySQL 8.0  │  │   Redis 7    │  │  MinIO (S3)    │  │
+│  │  (JPA/HQL)  │  │  cache/BL    │  │  file storage  │  │
+│  └─────────────┘  └──────────────┘  └────────────────┘  │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Bước 2 — Cấu hình môi trường
+---
 
-```bash
-cp src/main/resources/application-example.properties \
-   src/main/resources/application-local.properties
-# Sửa DB_URL, DB_USER, DB_PASS, REDIS_HOST
-```
+## Features
 
-### Bước 3 — Chạy
+### Authentication & Security
+| Feature | Detail |
+|---|---|
+| JWT Authentication | Access token (1h) + refresh token (7 days), rotated on refresh |
+| Token Blacklist | Logout revokes token instantly via Redis |
+| RBAC | Role-based access control: ADMIN / PROJECT_MANAGER / MEMBER / VIEWER |
+| Rate Limiting | Bucket4j — protects against brute-force attacks and API spam |
+| Virus Scan | ClamAV scans every uploaded file before storage |
+| XSS Protection | Jsoup sanitizes HTML comments, MIME-type detection via Apache Tika |
+| OTP Flow | Email OTP for registration and password reset |
 
-```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=local
-# API: http://localhost:8080/api/v1
-# Swagger: http://localhost:8080/swagger-ui.html
-```
+### Project & Task Management
+| Feature | Detail |
+|---|---|
+| Multi-project | Multiple isolated projects, each with its own workflow |
+| Kanban Board | Custom columns, drag-and-drop positioning, soft delete |
+| Sprint Management | Create, start, and complete sprints, batch task assignment, burndown chart |
+| Backlog | Manage tasks not yet assigned to a sprint, drag into sprint |
+| Task Detail | Priority, label, assignee, due date, story points, estimate |
+| Sub-tasks | Unlimited-depth task hierarchy |
+| Checklist | Checklist items with reordering and progress tracking |
+| Dependencies | `blocked-by` / `blocks` relationships between tasks |
+| Recurrence | Create recurring tasks on daily, weekly, monthly, or custom schedules |
+| Custom Fields | Text, number, date, select, multi-select — defined per project |
+| Version / Release | Link tasks to release versions and track release progress |
 
-### Tài liệu cho FE (Member & Invite)
+### Collaboration
+| Feature | Detail |
+|---|---|
+| Real-time Notifications | WebSocket push for assignments, comments, mentions, and due dates |
+| Comments | Rich text, member `@mentions`, threaded replies |
+| Activity Log | Full history of task and project changes |
+| Member Invite | Invite by email (link + OTP), or add directly as admin |
+| Worklog | Log working hours with sprint/member statistics |
+| Daily Digest | Daily work summary email (cron job) |
 
-- **[docs/FE_MEMBER_INVITE_API.md](docs/FE_MEMBER_INVITE_API.md)** — đặc tả từng endpoint, body, response, mã lỗi, enum.
+### Reporting & Export
+| Feature | Detail |
+|---|---|
+| Burndown Chart | Daily sprint burndown |
+| Sprint Velocity | Compare velocity across sprints |
+| Member Performance | Completed story points, task counts, and worklog |
+| Export | Excel (Apache POI) and PDF (iText) sprint reports |
 
-### Tài liệu cho FE (Task)
+### Developer & Ops
+| Feature | Detail |
+|---|---|
+| Swagger / OpenAPI | Full API documentation at `/swagger-ui.html` |
+| Webhooks | Outbound webhook when a task changes status |
+| Health Check | `/actuator/health` — monitoring integration |
+| Soft Delete | System-wide `deleted_at` strategy to avoid data loss |
+| Optimistic Locking | `@Version` on the Task entity to prevent race conditions |
+| Docker Compose | Start the entire stack with a single command |
+| CI/CD | GitHub Actions — build, validate, deploy to VPS over SSH, then health check |
 
-- **[docs/FE_TASK_API.md](docs/FE_TASK_API.md)** — CRUD task, Kanban, sub-task, checklist, comment, attachment, worklog, dependency, sprint/backlog, recurrence, version; custom field có bản tóm tắt + link chi tiết.
+---
 
-### Tài liệu cho FE (Comment / @mention / Rich text)
+## Tech Stack
 
-- **[docs/FE_COMMENT_API.md](docs/FE_COMMENT_API.md)** — autocomplete member search, format HTML mention, sanitize & thẻ rich text, notification.
-
-### Tài liệu cho FE (Custom fields)
-
-- **[docs/FE_CUSTOM_FIELD_API.md](docs/FE_CUSTOM_FIELD_API.md)** — định nghĩa field theo project, giá trị trên task, enum kiểu, validation, quyền, DELETE (HIDDEN vs DELETED).
-- **[docs/DB_CUSTOM_FIELDS_VERIFY.md](docs/DB_CUSTOM_FIELDS_VERIFY.md)** — SQL kiểm tra `hasValues` đúng schema, dọn hàng value rỗng, unhide field.
-
-### Quyết định PM (Task API)
-
-- **[docs/PM_TASK_API_DECISIONS.md](docs/PM_TASK_API_DECISIONS.md)** — FEATURE vs SRS, story points, BR-14 (trạng thái đã áp dụng trên BE ghi trong file).
+| Layer | Technology | Version |
+|---|---|---|
+| Language | Java | 21 |
+| Framework | Spring Boot | 3.5.5 |
+| Security | Spring Security + JJWT | 0.12.5 |
+| Database | MySQL | 8.0 |
+| ORM | Spring Data JPA / Hibernate | — |
+| Cache | Redis (Lettuce pool) | 7 |
+| Messaging | WebSocket + STOMP (SockJS) | — |
+| File Storage | MinIO (S3-compatible) | — |
+| Virus Scan | ClamAV (capybara client) | 2.1.2 |
+| Rate Limiting | Bucket4j | 8.10.1 |
+| API Docs | SpringDoc OpenAPI | 2.8.5 |
+| Export | Apache POI + iText PDF | 5.2.5 / 5.5.13 |
+| HTML Sanitizer | Jsoup | 1.17.2 |
+| Build | Maven Wrapper | — |
+| Container | Docker + Docker Compose | — |
+| CI/CD | GitHub Actions | — |
 
 ---
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2025 TaskSphere
