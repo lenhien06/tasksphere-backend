@@ -3,6 +3,7 @@ package com.zone.tasksphere.controller;
 import com.zone.tasksphere.dto.response.ApiResponse;
 import com.zone.tasksphere.dto.response.UserDetail;
 import com.zone.tasksphere.dto.response.VerifyWorkspaceInviteResponse;
+import com.zone.tasksphere.dto.response.WorkspaceInviteListResponse;
 import com.zone.tasksphere.dto.response.WorkspaceResponse;
 import com.zone.tasksphere.exception.CustomAuthenticationException;
 import com.zone.tasksphere.service.WorkspaceService;
@@ -18,6 +19,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/v1/workspace-invites")
 @RequiredArgsConstructor
@@ -32,6 +35,15 @@ public class WorkspaceInviteController {
             throw new CustomAuthenticationException("Bạn cần đăng nhập để thực hiện thao tác này.");
         }
         return userDetail;
+    }
+
+    @Operation(summary = "Lời mời workspace của tôi", description = "Trả về các lời mời workspace đang PENDING dành cho user hiện tại.")
+    @SecurityRequirement(name = "bearerAuth")
+    @GetMapping("/api/v1/users/me/workspace-invites")
+    public ResponseEntity<ApiResponse<List<WorkspaceInviteListResponse>>> getMyWorkspaceInvites() {
+        String email = requireAuth().getEmail();
+        List<WorkspaceInviteListResponse> invites = workspaceService.getMyWorkspaceInvites(email);
+        return ResponseEntity.ok(ApiResponse.success(invites));
     }
 
     @Operation(summary = "Verify workspace invite token")

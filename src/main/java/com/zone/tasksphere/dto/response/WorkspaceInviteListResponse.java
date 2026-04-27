@@ -23,4 +23,8 @@ public class WorkspaceInviteListResponse {
     private Instant invitedAt;
     private Instant expiresAt;
     private Long daysLeft;
+    // Fields for GET /users/me/workspace-invites
+    private UUID workspaceId;
+    private String workspaceName;
+    private String token;
 }

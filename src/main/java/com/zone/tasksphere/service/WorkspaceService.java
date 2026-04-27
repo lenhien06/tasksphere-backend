@@ -38,6 +38,8 @@ public interface WorkspaceService {
 
     void resendInvite(UUID workspaceId, UUID inviteId, UUID actorId);
 
+    List<WorkspaceInviteListResponse> getMyWorkspaceInvites(String email);
+
     VerifyWorkspaceInviteResponse verifyInviteToken(String token);
 
     WorkspaceResponse acceptInvite(String token, UUID currentUserId);

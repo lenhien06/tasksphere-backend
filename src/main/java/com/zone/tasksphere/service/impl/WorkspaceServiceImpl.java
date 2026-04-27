@@ -380,6 +380,25 @@ public class WorkspaceServiceImpl implements WorkspaceService {
         }
 
         @Override
+        public List<WorkspaceInviteListResponse> getMyWorkspaceInvites(String email) {
+                return workspaceInviteRepository.findByInviteeEmailAndStatus(email, InviteStatus.PENDING)
+                        .stream()
+                        .map(invite -> WorkspaceInviteListResponse.builder()
+                                .id(invite.getId())
+                                .email(invite.getInviteeEmail())
+                                .role(invite.getWorkspaceRole())
+                                .status(invite.getStatus())
+                                .inviterName(invite.getInvitedBy().getFullName())
+                                .invitedAt(invite.getCreatedAt())
+                                .expiresAt(invite.getExpiresAt())
+                                .workspaceId(invite.getWorkspace().getId())
+                                .workspaceName(invite.getWorkspace().getName())
+                                .token(invite.getToken())
+                                .build())
+                        .toList();
+        }
+
+        @Override
         @Transactional
         public VerifyWorkspaceInviteResponse verifyInviteToken(String token) {
                 WorkspaceInvite invite = getPendingInviteByToken(token);
