@@ -12,7 +12,6 @@ import com.zone.tasksphere.service.ExportService;
 import com.zone.tasksphere.service.WebSocketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -190,11 +189,17 @@ public class ExportServiceImpl implements ExportService {
             if (job.getFormat() == ExportFormat.EXCEL) {
                 fileBytes = isVelocityReport(reportType)
                     ? excelExportService.exportVelocityToExcel(tasks, job.getProject(), reportSprints)
-                    : excelExportService.exportTasksToExcel(
-                        tasks,
-                        job.getProject(),
-                        sprintRepository.findByProject_IdAndDeletedAtIsNull(job.getProject().getId())
-                    );
+                    : isBurndownReport(reportType)
+                        ? excelExportService.exportBurndownToExcel(
+                            tasks,
+                            job.getProject(),
+                            sprintRepository.findByProject_IdAndDeletedAtIsNull(job.getProject().getId())
+                        )
+                        : excelExportService.exportTasksToExcel(
+                            tasks,
+                            job.getProject(),
+                            sprintRepository.findByProject_IdAndDeletedAtIsNull(job.getProject().getId())
+                        );
                 ext = "xlsx";
                 contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
             } else {
@@ -288,11 +293,17 @@ public class ExportServiceImpl implements ExportService {
         if (format == ExportFormat.EXCEL) {
             fileBytes = isVelocityReport(reportType)
                 ? excelExportService.exportVelocityToExcel(tasks, project, reportSprints)
-                : excelExportService.exportTasksToExcel(
-                    tasks,
-                    project,
-                    sprintRepository.findByProject_IdAndDeletedAtIsNull(project.getId())
-                );
+                : isBurndownReport(reportType)
+                    ? excelExportService.exportBurndownToExcel(
+                        tasks,
+                        project,
+                        sprintRepository.findByProject_IdAndDeletedAtIsNull(project.getId())
+                    )
+                    : excelExportService.exportTasksToExcel(
+                        tasks,
+                        project,
+                        sprintRepository.findByProject_IdAndDeletedAtIsNull(project.getId())
+                    );
             fileName = "tasks-" + project.getProjectKey() + "-" + LocalDate.now() + ".xlsx";
             contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         } else {
@@ -315,15 +326,16 @@ public class ExportServiceImpl implements ExportService {
         return "velocity".equalsIgnoreCase(reportType);
     }
 
+    private boolean isBurndownReport(String reportType) {
+        return "burndown".equalsIgnoreCase(reportType);
+    }
+
     private List<Sprint> getVelocityReportSprints(UUID projectId) {
-        return sprintRepository.findByProject_IdAndStatusAndDeletedAtIsNullOrderByCompletedAtDesc(
-                projectId,
-                SprintStatus.COMPLETED,
-                PageRequest.of(0, 5))
+        return sprintRepository.findByProject_IdAndDeletedAtIsNull(projectId)
             .stream()
             .sorted(Comparator
                 .comparing(Sprint::getStartDate, Comparator.nullsLast(Comparator.naturalOrder()))
-                .thenComparing(Sprint::getCompletedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+                .thenComparing(Sprint::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
             .toList();
     }
 
