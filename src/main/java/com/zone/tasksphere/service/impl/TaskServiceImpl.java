@@ -145,7 +145,9 @@ public class TaskServiceImpl implements TaskService {
         int position = (int) taskRepository.countByStatusColumnId(statusColumn.getId());
 
         // Sinh task code (thread-safe)
-        String taskCode = taskCodeGenerator.generateTaskCode(project);
+        String taskCode = request.getPreGeneratedTaskCode() != null && !request.getPreGeneratedTaskCode().isBlank()
+                ? request.getPreGeneratedTaskCode()
+                : taskCodeGenerator.generateTaskCode(project);
         LocalDate scheduledStart = resolveRequestedStartDate(request.getStartDate(), sprint, null);
         LocalDate scheduledEnd = resolveRequestedEndDate(request.getEndDate(), request.getDueDate(), scheduledStart,
                 null);

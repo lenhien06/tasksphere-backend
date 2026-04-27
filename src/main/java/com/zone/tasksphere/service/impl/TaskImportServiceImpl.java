@@ -14,6 +14,7 @@ import com.zone.tasksphere.repository.SprintRepository;
 import com.zone.tasksphere.repository.UserRepository;
 import com.zone.tasksphere.service.TaskImportService;
 import com.zone.tasksphere.service.TaskService;
+import com.zone.tasksphere.utils.TaskCodeGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
@@ -42,6 +43,7 @@ public class TaskImportServiceImpl implements TaskImportService {
     private final ProjectMemberRepository projectMemberRepository;
     private final UserRepository userRepository;
     private final SprintRepository sprintRepository;
+    private final TaskCodeGenerator taskCodeGenerator;
 
     private static final int MAX_FILE_SIZE = 5 * 1024 * 1024;
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -395,8 +397,16 @@ public class TaskImportServiceImpl implements TaskImportService {
 
         // 5. Create tasks (all-or-nothing in one transaction)
         int createdCount = 0;
-        for (TaskImportRowDto row : rows) {
-            CreateTaskRequest request = buildCreateRequest(row, projectId, sprintNameToId, emailCache);
+        List<String> reservedTaskCodes = taskCodeGenerator.reserveTaskCodes(projectId, rows.size());
+        for (int idx = 0; idx < rows.size(); idx++) {
+            TaskImportRowDto row = rows.get(idx);
+            CreateTaskRequest request = buildCreateRequest(
+                row,
+                projectId,
+                sprintNameToId,
+                emailCache,
+                reservedTaskCodes.get(idx)
+            );
             taskService.createTask(projectId, request, currentUserId);
             createdCount++;
         }
@@ -585,10 +595,12 @@ public class TaskImportServiceImpl implements TaskImportService {
             TaskImportRowDto row,
             UUID projectId,
             Map<String, UUID> sprintNameToId,
-            Map<String, Optional<UUID>> emailCache) {
+            Map<String, Optional<UUID>> emailCache,
+            String preGeneratedTaskCode) {
 
         CreateTaskRequest req = new CreateTaskRequest();
         req.setTitle(row.getTitle());
+        req.setPreGeneratedTaskCode(preGeneratedTaskCode);
 
         if (!row.getDescription().isBlank()) req.setDescription(row.getDescription());
 

@@ -70,4 +70,7 @@ public class CreateTaskRequest {
     /** null = cột đầu tiên của project */
     @Schema(description = "Status column id", example = "550e8400-e29b-41d4-a716-446655440000")
     private UUID statusColumnId;
+
+    @Schema(hidden = true)
+    private String preGeneratedTaskCode;
 }

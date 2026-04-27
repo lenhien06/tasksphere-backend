@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -53,5 +55,33 @@ public class TaskCodeGenerator {
         String code = String.format("%s-%03d", locked.getProjectKey(), next);
         log.debug("[TaskCodeGenerator] Generated code: {} (counter={})", code, next);
         return code;
+    }
+
+    /**
+     * Reserve a contiguous block of task codes with a single pessimistic lock.
+     * This is used by bulk import to avoid locking the same project row once per task.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public List<String> reserveTaskCodes(UUID projectId, int count) {
+        if (count <= 0) {
+            return List.of();
+        }
+
+        Project locked = projectRepository.findByIdWithLock(projectId)
+            .orElseThrow(() -> new NotFoundException("Project not found: " + projectId));
+
+        int start = locked.getTaskCounter() + 1;
+        int end = locked.getTaskCounter() + count;
+        locked.setTaskCounter(end);
+        projectRepository.save(locked);
+
+        List<String> codes = new ArrayList<>(count);
+        for (int seq = start; seq <= end; seq++) {
+            codes.add(String.format("%s-%03d", locked.getProjectKey(), seq));
+        }
+
+        log.debug("[TaskCodeGenerator] Reserved {} codes for project {} ({}..{})",
+            count, projectId, start, end);
+        return codes;
     }
 }
