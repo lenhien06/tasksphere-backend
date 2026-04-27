@@ -35,7 +35,7 @@ import java.util.stream.Collectors;
 public class AiService {
 
     private static final int TOP_K = 3;
-    private static final BigDecimal MIN_RECOMMEND_SCORE = new BigDecimal("0.350");
+    private static final BigDecimal MIN_RECOMMEND_SCORE = new BigDecimal("0.200");
 
     private static final String SYS_GENERATE = """
             Bạn là AI assistant cho hệ thống quản lý dự án Agile/Scrum.
