@@ -151,8 +151,7 @@ public class TaskImportServiceImpl implements TaskImportService {
         DataValidationConstraint constraint = dvHelper.createExplicitListConstraint(values);
         CellRangeAddressList range = new CellRangeAddressList(1, 1000, col, col);
         DataValidation dv = dvHelper.createValidation(constraint, range);
-        dv.setShowDropDownArrow(true);
-        dv.setSuppressDropDownArrow(false);
+        dv.setSuppressDropDownArrow(false); // false = show the dropdown arrow
         sheet.addValidationData(dv);
     }
 
