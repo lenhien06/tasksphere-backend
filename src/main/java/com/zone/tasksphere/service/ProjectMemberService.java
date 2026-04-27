@@ -2,6 +2,7 @@ package com.zone.tasksphere.service;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -655,15 +656,32 @@ public class ProjectMemberService {
     // =========================================================================
     @Transactional(readOnly = true)
     public List<MemberSearchResponse> searchMembers(UUID projectId, String q, UUID currentUserId) {
-        // Validate membership
-        if (!projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId)) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new NotFoundException("Project not found: " + projectId));
+
+        boolean isOwner = project.getOwner() != null && project.getOwner().getId().equals(currentUserId);
+        if (!isOwner && !projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId)) {
             throw new com.zone.tasksphere.exception.Forbidden("Bạn không phải thành viên dự án này");
         }
 
-        List<User> users = userRepository.searchProjectMembers(projectId, q);
+        List<User> users = new ArrayList<>(userRepository.searchProjectMembers(projectId, q));
+        User owner = project.getOwner();
+        if (owner != null
+                && users.stream().noneMatch(user -> user.getId().equals(owner.getId()))
+                && matchesMemberSearch(owner, q)) {
+            users.add(owner);
+        }
 
-        return users.stream().map(u -> {
-            ProjectRole role = projectMemberRepository.findByProjectIdAndUserId(projectId, u.getId())
+        return users.stream()
+                .sorted((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(
+                        Optional.ofNullable(a.getFullName()).orElse(""),
+                        Optional.ofNullable(b.getFullName()).orElse("")
+                ))
+                .limit(10)
+                .map(u -> {
+            ProjectRole role = owner != null && owner.getId().equals(u.getId())
+                    ? ProjectRole.PROJECT_MANAGER
+                    : projectMemberRepository.findByProjectIdAndUserId(projectId, u.getId())
                     .map(ProjectMember::getProjectRole)
                     .orElse(ProjectRole.MEMBER);
             return MemberSearchResponse.builder()
@@ -674,6 +692,17 @@ public class ProjectMemberService {
                     .projectRole(role)
                     .build();
         }).toList();
+    }
+
+    private boolean matchesMemberSearch(User user, String q) {
+        String keyword = q == null ? "" : q.trim().toLowerCase();
+        if (keyword.isEmpty()) {
+            return true;
+        }
+
+        String fullName = Optional.ofNullable(user.getFullName()).orElse("").toLowerCase();
+        String email = Optional.ofNullable(user.getEmail()).orElse("").toLowerCase();
+        return fullName.contains(keyword) || email.contains(keyword);
     }
 
     // =========================================================================

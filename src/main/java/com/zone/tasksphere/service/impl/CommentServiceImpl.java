@@ -56,6 +56,7 @@ public class CommentServiceImpl implements CommentService {
     private final AttachmentRepository attachmentRepository;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
+    private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final NotificationService notificationService;
     private final ActivityLogService activityLogService;
@@ -116,9 +117,7 @@ public class CommentServiceImpl implements CommentService {
         logActivity(projectId, currentUserId, EntityType.COMMENT, comment.getId(), ActionType.COMMENT_ADDED, null,
                 toActivityJson("content", plainText));
 
-        boolean isPM = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
-            .map(m -> m.getProjectRole() == com.zone.tasksphere.entity.enums.ProjectRole.PROJECT_MANAGER)
-            .orElse(false);
+        boolean isPM = isProjectManager(projectId, currentUserId);
         CommentResponse response = buildCommentTree(comment, currentUserId, isPM);
         webSocketService.sendToProject(projectId.toString(), "comment.created", response);
 
@@ -131,9 +130,7 @@ public class CommentServiceImpl implements CommentService {
         getTaskInProject(taskId, projectId);
         validateMembership(projectId, currentUserId);
 
-        boolean isPM = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
-            .map(m -> m.getProjectRole() == com.zone.tasksphere.entity.enums.ProjectRole.PROJECT_MANAGER)
-            .orElse(false);
+        boolean isPM = isProjectManager(projectId, currentUserId);
 
         // Only fetch root-level comments with pagination; replies are loaded recursively
         Page<Comment> page = commentRepository.findByTaskIdAndParentCommentIsNull(taskId, pageable);
@@ -181,9 +178,7 @@ public class CommentServiceImpl implements CommentService {
             notificationService.sendMentionNotification(newlyMentioned, comment.getTask(), comment, comment.getAuthor());
         }
 
-        boolean isPM = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
-            .map(m -> m.getProjectRole() == com.zone.tasksphere.entity.enums.ProjectRole.PROJECT_MANAGER)
-            .orElse(false);
+        boolean isPM = isProjectManager(projectId, currentUserId);
         return buildCommentTree(comment, currentUserId, isPM);
     }
 
@@ -193,9 +188,7 @@ public class CommentServiceImpl implements CommentService {
         UUID projectId = comment.getTask().getProject().getId();
 
         boolean isAuthor = comment.getAuthor().getId().equals(currentUserId);
-        boolean isPM = projectMemberRepository.findByProjectIdAndUserId(projectId, currentUserId)
-            .map(m -> m.getProjectRole() == ProjectRole.PROJECT_MANAGER)
-            .orElse(false);
+        boolean isPM = isProjectManager(projectId, currentUserId);
 
         if (!isAuthor && !isPM) {
             throw new Forbidden("Chỉ tác giả hoặc PM mới được xóa bình luận");
@@ -226,9 +219,27 @@ public class CommentServiceImpl implements CommentService {
     }
 
     private void validateMembership(UUID projectId, UUID userId) {
+        if (isProjectOwner(projectId, userId)) {
+            return;
+        }
         if (!projectMemberRepository.existsByProjectIdAndUserId(projectId, userId)) {
             throw new Forbidden("Bạn không phải thành viên dự án này");
         }
+    }
+
+    private boolean isProjectOwner(UUID projectId, UUID userId) {
+        return projectRepository.findById(projectId)
+            .map(project -> project.getOwner() != null && project.getOwner().getId().equals(userId))
+            .orElse(false);
+    }
+
+    private boolean isProjectManager(UUID projectId, UUID userId) {
+        if (isProjectOwner(projectId, userId)) {
+            return true;
+        }
+        return projectMemberRepository.findByProjectIdAndUserId(projectId, userId)
+            .map(m -> m.getProjectRole() == ProjectRole.PROJECT_MANAGER)
+            .orElse(false);
     }
 
     /**
@@ -247,7 +258,8 @@ public class CommentServiceImpl implements CommentService {
                 try {
                     UUID userId = UUID.fromString(userIdStr);
                     userRepository.findById(userId).ifPresent(user -> {
-                        if (projectMemberRepository.existsByProjectIdAndUserId(projectId, user.getId())) {
+                        if (projectMemberRepository.existsByProjectIdAndUserId(projectId, user.getId())
+                                || isProjectOwner(projectId, user.getId())) {
                             mentioned.add(user);
                         }
                     });
