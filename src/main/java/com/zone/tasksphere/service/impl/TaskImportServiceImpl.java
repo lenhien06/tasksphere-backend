@@ -116,6 +116,9 @@ public class TaskImportServiceImpl implements TaskImportService {
 
             // Sheet "Tasks" left blank — no demo rows
             addInstructionsSheet(workbook, dateStyle);
+            workbook.setActiveSheet(0);
+            workbook.setSelectedTab(0);
+            workbook.setFirstVisibleTab(0);
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             workbook.write(out);
@@ -311,7 +314,8 @@ public class TaskImportServiceImpl implements TaskImportService {
             if (i > 3) sheet.setColumnWidth(i, exColWidths[i]);
         }
 
-        sheet.protectSheet(null); // protect to prevent editing, no password needed
+        // Apache POI may throw when null is used here, so protect with an empty password instead.
+        sheet.protectSheet("");
     }
 
     // ── Import ─────────────────────────────────────────────────────────
