@@ -79,6 +79,8 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       TURNSTILE_ENABLED: ${TURNSTILE_ENABLED}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: ${GROQ_MODEL}
     mem_limit: 700m
     memswap_limit: 1400m
 volumes:

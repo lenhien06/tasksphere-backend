@@ -20,21 +20,16 @@ public final class TaskFilterSupport {
         resolved.setPriority(params.getPriority());
         resolved.setPriorities(params.getPriorities());
         resolved.setType(params.getType());
-        resolved.setQ(params.getQ());
+        resolved.setQ(FilterSanitizer.sanitizeQ(params.getQ()));
         resolved.setOverdue(params.getOverdue());
         resolved.setDueSoon(params.getDueSoon());
         resolved.setActiveSprintOnly(params.getActiveSprintOnly());
 
-        String assigneeId = params.getAssigneeId();
-        if (assigneeId != null) {
-            String trimmed = assigneeId.trim();
-            if (trimmed.isEmpty()) {
-                resolved.setAssigneeId(null);
-            } else if ("me".equalsIgnoreCase(trimmed) && currentUserId != null) {
-                resolved.setAssigneeId(currentUserId.toString());
-            } else {
-                resolved.setAssigneeId(trimmed);
-            }
+        String sanitized = FilterSanitizer.sanitizeAssigneeId(params.getAssigneeId());
+        if ("me".equalsIgnoreCase(sanitized) && currentUserId != null) {
+            resolved.setAssigneeId(currentUserId.toString());
+        } else {
+            resolved.setAssigneeId(sanitized);
         }
 
         return resolved;

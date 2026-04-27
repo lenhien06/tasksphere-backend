@@ -2,6 +2,7 @@ package com.zone.tasksphere.controller;
 
 import com.zone.tasksphere.dto.request.*;
 import com.zone.tasksphere.dto.response.*;
+import com.zone.tasksphere.utils.FilterSanitizer;
 import com.zone.tasksphere.entity.enums.TaskPriority;
 import com.zone.tasksphere.entity.enums.TaskStatus;
 import com.zone.tasksphere.entity.enums.TaskType;
@@ -105,8 +106,16 @@ public class TaskController {
             @RequestParam(required = false) String assigneeId,
             @RequestParam(required = false) UUID sprintId,
             @RequestParam(required = false, name = "priority") List<TaskPriority> priorities) {
+        Integer safeYear  = FilterSanitizer.sanitizeYear(year);
+        Integer safeMonth = FilterSanitizer.sanitizeMonth(month);
+        if (safeYear == null || safeMonth == null) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Invalid year or month"));
+        }
         CalendarViewResponse response = taskService.getCalendarView(
-            projectId, year, month, q, status, assigneeId, sprintId, priorities, getCurrentUserId());
+            projectId, safeYear, safeMonth,
+            FilterSanitizer.sanitizeQ(q), status,
+            FilterSanitizer.sanitizeAssigneeId(assigneeId),
+            sprintId, priorities, getCurrentUserId());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -213,24 +222,18 @@ public class TaskController {
                                    String sortBy, String order) {
         boolean useLimitMode = (limit != null && limit > 0) || Boolean.TRUE.equals(dueSoon);
         int size = useLimitMode
-            ? (limit != null && limit > 0 ? Math.min(limit, 100) : 5)
+            ? FilterSanitizer.sanitizeLimit(limit, 5, 100)
             : defaultPageable.getPageSize();
         int page = useLimitMode ? 0 : defaultPageable.getPageNumber();
 
-        String sortField = null;
-        if (sortBy != null && !sortBy.isBlank()) {
-            sortField = switch (sortBy.toLowerCase()) {
-                case "duedate" -> "dueDate";
-                case "priority" -> "priority";
-                case "createdat" -> "createdAt";
-                default -> sortBy;
-            };
-        } else if (Boolean.TRUE.equals(dueSoon)) {
+        String sortField = FilterSanitizer.sanitizeSortBy(sortBy);
+        if (sortField == null && Boolean.TRUE.equals(dueSoon)) {
             sortField = "dueDate";
         }
 
         if (sortField != null) {
-            Sort.Direction dir = "desc".equalsIgnoreCase(order) ? Sort.Direction.DESC : Sort.Direction.ASC;
+            Sort.Direction dir = "desc".equalsIgnoreCase(FilterSanitizer.sanitizeOrder(order))
+                ? Sort.Direction.DESC : Sort.Direction.ASC;
             return PageRequest.of(page, size, Sort.by(dir, sortField));
         }
         return PageRequest.of(page, size);

@@ -30,9 +30,9 @@ public class ProjectSpecification {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
-            // 1. Full-text search theo name (Case-insensitive)
+            // 1. Full-text search theo name (Case-insensitive; search is pre-escaped by FilterSanitizer.sanitizeQ)
             if (StringUtils.hasText(search)) {
-                predicates.add(cb.like(cb.lower(root.get("name")), "%" + search.trim().toLowerCase() + "%"));
+                predicates.add(cb.like(cb.lower(root.get("name")), "%" + search.trim().toLowerCase() + "%", '\\'));
             }
 
             // 2. Filter theo status

@@ -8,6 +8,7 @@ import com.zone.tasksphere.entity.enums.InviteStatus;
 import com.zone.tasksphere.exception.CustomAuthenticationException;
 import com.zone.tasksphere.service.ProjectMemberService;
 import com.zone.tasksphere.utils.AuthUtils;
+import com.zone.tasksphere.utils.FilterSanitizer;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -142,7 +143,7 @@ public class ProjectMemberController {
             @RequestParam(defaultValue = "") String q) {
         UUID currentUserId = getCurrentUserId();
         List<MemberSearchResponse> results =
-            projectMemberService.searchMembers(projectId, q, currentUserId);
+            projectMemberService.searchMembers(projectId, FilterSanitizer.sanitizeQ(q), currentUserId);
         return ResponseEntity.ok(ApiResponse.success(results));
     }
 

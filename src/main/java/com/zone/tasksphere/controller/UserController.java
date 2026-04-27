@@ -8,10 +8,13 @@ import com.zone.tasksphere.dto.response.InviteePreviewResponse;
 import com.zone.tasksphere.dto.response.NotificationPreferencesResponse;
 import com.zone.tasksphere.dto.response.PageResponse;
 import com.zone.tasksphere.dto.response.UserDetail;
+import com.zone.tasksphere.dto.response.WorkspaceInviteListResponse;
 import com.zone.tasksphere.entity.enums.UserStatus;
 import com.zone.tasksphere.service.UserProfileService;
 import com.zone.tasksphere.service.UserService;
+import com.zone.tasksphere.service.WorkspaceService;
 import com.zone.tasksphere.utils.AuthUtils;
+import com.zone.tasksphere.utils.FilterSanitizer;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -24,6 +27,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -35,6 +39,7 @@ public class UserController {
 
     private final UserService userService;
     private final UserProfileService userProfileService;
+    private final WorkspaceService workspaceService;
 
     @Operation(
         summary = "[Admin] Danh sách tất cả user",
@@ -57,7 +62,7 @@ public class UserController {
             @RequestParam(required = false) UserStatus status,
             @RequestParam(required = false) Long roleId,
             @PageableDefault(size = 20) Pageable pageable) {
-        PageResponse<UserDetail> response = userService.listUsers(q, status, roleId, pageable);
+        PageResponse<UserDetail> response = userService.listUsers(FilterSanitizer.sanitizeQ(q), status, roleId, pageable);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -74,6 +79,14 @@ public class UserController {
     public ResponseEntity<ApiResponse<UserDetail>> createUser(@Valid @RequestBody CreateUserRequest request) {
         UserDetail response = userService.createUser(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Lời mời workspace của tôi", description = "Trả về các lời mời workspace đang PENDING dành cho user hiện tại.")
+    @GetMapping("/me/workspace-invites")
+    public ResponseEntity<ApiResponse<List<WorkspaceInviteListResponse>>> getMyWorkspaceInvites() {
+        String email = AuthUtils.getUserDetail().getEmail();
+        List<WorkspaceInviteListResponse> invites = workspaceService.getMyWorkspaceInvites(email);
+        return ResponseEntity.ok(ApiResponse.success(invites));
     }
 
     @Operation(

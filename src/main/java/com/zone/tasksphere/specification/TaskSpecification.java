@@ -48,12 +48,12 @@ public class TaskSpecification {
                 predicates.add(cb.isNull(root.get("parentTask")));
             }
 
-            // Tìm kiếm theo title hoặc taskCode
+            // Tìm kiếm theo title hoặc taskCode (q is already LIKE-escaped by FilterSanitizer.sanitizeQ)
             if (params.getQ() != null && !params.getQ().isBlank()) {
                 String pattern = "%" + params.getQ().trim().toLowerCase() + "%";
                 predicates.add(cb.or(
-                    cb.like(cb.lower(root.get("title")), pattern),
-                    cb.like(cb.lower(root.get("taskCode")), pattern)
+                    cb.like(cb.lower(root.get("title")), pattern, '\\'),
+                    cb.like(cb.lower(root.get("taskCode")), pattern, '\\')
                 ));
             }
 

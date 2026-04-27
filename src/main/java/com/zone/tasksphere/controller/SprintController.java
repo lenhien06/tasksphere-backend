@@ -8,6 +8,7 @@ import com.zone.tasksphere.entity.enums.TaskType;
 import com.zone.tasksphere.exception.CustomAuthenticationException;
 import com.zone.tasksphere.security.CustomUserDetail;
 import com.zone.tasksphere.service.SprintService;
+import com.zone.tasksphere.utils.FilterSanitizer;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -136,9 +137,9 @@ public class SprintController {
 
         TaskFilterParams params = new TaskFilterParams();
         params.setProjectId(projectId);
-        params.setQ(q);
+        params.setQ(FilterSanitizer.sanitizeQ(q));
         params.setPriorities(priorities);
-        params.setAssigneeId(assigneeId);
+        params.setAssigneeId(FilterSanitizer.sanitizeAssigneeId(assigneeId));
         params.setType(type);
 
         PageResponse<TaskResponse> response = sprintService.getBacklog(projectId, params, pageable, getCurrentUserId());

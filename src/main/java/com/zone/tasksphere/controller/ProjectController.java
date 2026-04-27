@@ -13,6 +13,7 @@ import com.zone.tasksphere.entity.enums.SystemRole;
 import com.zone.tasksphere.security.CustomUserDetail;
 import com.zone.tasksphere.service.ProjectService;
 import com.zone.tasksphere.utils.AuthUtils;
+import com.zone.tasksphere.utils.FilterSanitizer;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -78,10 +79,13 @@ public class ProjectController {
         UserDetail currentUser = AuthUtils.getUserDetail();
         UUID userId = currentUser != null ? currentUser.getId() : null;
         boolean isAdmin = currentUser != null && SystemRole.ADMIN.equals(currentUser.getSystemRole());
-        
-        ProjectStatus projectStatus = ProjectStatus.fromString(status);
 
-        Page<ProjectResponse> projects = projectService.getProjects(q, projectStatus, visibility, workspaceId, scope, userId, isAdmin, pageable);
+        String safeQ     = FilterSanitizer.sanitizeQ(q);
+        String safeScope = FilterSanitizer.sanitizeEnum(scope, "personal", "personal", "all");
+        ProjectStatus projectStatus = ProjectStatus.fromString(
+            FilterSanitizer.sanitizeEnum(status, "active", "active", "completed", "archived"));
+
+        Page<ProjectResponse> projects = projectService.getProjects(safeQ, projectStatus, visibility, workspaceId, safeScope, userId, isAdmin, pageable);
 
         return ResponseEntity.ok(ApiResponse.success(projects));
     }
