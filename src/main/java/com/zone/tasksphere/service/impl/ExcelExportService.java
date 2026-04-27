@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
@@ -22,6 +23,8 @@ import java.util.List;
 @Slf4j
 public class ExcelExportService {
 
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
     private static final String[] TASK_HEADERS = {
         "Task Code", "Title", "Priority", "Assignee", "Sprint", "Actual Hours"
     };
@@ -29,7 +32,7 @@ public class ExcelExportService {
         "Task Code", "Title", "Priority", "Assignee", "Sprint", "Status", "Due Date"
     };
     private static final String[] VELOCITY_HEADERS = {
-        "Task Code", "Title", "Priority", "Assignee", "Status", "Due Date"
+        "Task Code", "Title", "Priority", "Assignee", "Status", "Start Date", "Due Date"
     };
 
     public byte[] exportTasksToExcel(List<Task> tasks, Project project, List<Sprint> sprints) {
@@ -229,11 +232,12 @@ public class ExcelExportService {
                     createTextCell(row, 2, task.getPriority() != null ? task.getPriority().name() : "", textStyle);
                     createTextCell(row, 3, task.getAssignee() != null ? task.getAssignee().getFullName() : "Unassigned", textStyle);
                     createTextCell(row, 4, task.getTaskStatus() != null ? task.getTaskStatus().name() : "", textStyle);
-                    createTextCell(row, 5, resolveProjectedDueDate(task, sprint, hoursPerStoryPoint), textStyle);
+                    createTextCell(row, 5, formatDate(resolveTaskStartDate(task, sprint)), textStyle);
+                    createTextCell(row, 6, resolveProjectedDueDate(task, sprint, hoursPerStoryPoint), textStyle);
                 }
             }
 
-            int[] columnWidths = { 4200, 16000, 4800, 7200, 4800, 4200 };
+            int[] columnWidths = { 4200, 16000, 4800, 7200, 4800, 4200, 4200 };
             for (int i = 0; i < VELOCITY_HEADERS.length; i++) {
                 sheet.setColumnWidth(i, columnWidths[i]);
             }
@@ -323,8 +327,8 @@ public class ExcelExportService {
                 createTextCell(row, 0, sprint.getName(), textStyle);
                 createTextCell(row, 1, sprint.getStatus() != null ? sprint.getStatus().name() : "", textStyle);
                 createTextCell(row, 2, sprint.getGoal(), textStyle);
-                createTextCell(row, 3, sprint.getStartDate() != null ? sprint.getStartDate().toString() : "", textStyle);
-                createTextCell(row, 4, sprint.getEndDate() != null ? sprint.getEndDate().toString() : "", textStyle);
+                createTextCell(row, 3, formatDate(sprint.getStartDate()), textStyle);
+                createTextCell(row, 4, formatDate(sprint.getEndDate()), textStyle);
 
                 Cell velocityCell = row.createCell(5);
                 velocityCell.setCellValue(sprint.getVelocity() != null ? sprint.getVelocity() : 0);
@@ -384,17 +388,13 @@ public class ExcelExportService {
 
     private String resolveProjectedDueDate(Task task, Sprint sprint, double hoursPerStoryPoint) {
         int durationDays = computeProjectedDurationDays(task, hoursPerStoryPoint);
-        LocalDate anchorDate = task.getStartDate() != null
-            ? task.getStartDate()
-            : sprint.getStartDate() != null
-                ? sprint.getStartDate()
-                : task.getDueDate();
+        LocalDate anchorDate = resolveTaskStartDate(task, sprint);
 
         if (anchorDate == null) {
             return "";
         }
 
-        return anchorDate.plusDays(Math.max(durationDays - 1, 0)).toString();
+        return formatDate(anchorDate.plusDays(Math.max(durationDays - 1, 0)));
     }
 
     private int computeProjectedDurationDays(Task task, double hoursPerStoryPoint) {
@@ -403,6 +403,20 @@ public class ExcelExportService {
             return Math.max(1, (int) Math.ceil(projectedHours / 8.0));
         }
         return 1;
+    }
+
+    private LocalDate resolveTaskStartDate(Task task, Sprint sprint) {
+        if (task.getStartDate() != null) {
+            return task.getStartDate();
+        }
+        if (sprint != null && sprint.getStartDate() != null) {
+            return sprint.getStartDate();
+        }
+        return task.getDueDate();
+    }
+
+    private String formatDate(LocalDate date) {
+        return date != null ? date.format(DATE_FORMATTER) : "";
     }
 
     private double roundToOneDecimal(double value) {
