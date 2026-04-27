@@ -52,16 +52,16 @@ public class TaskImportServiceImpl implements TaskImportService {
     };
 
     private static final String[] HEADER_NOTES = {
-        "Bắt buộc. Tiêu đề task, tối đa 255 ký tự.",
-        "Tùy chọn. Mô tả chi tiết cho task.",
-        "Tùy chọn. Loại task: TASK, BUG, FEATURE, STORY, EPIC. Mặc định: TASK.",
-        "Tùy chọn. Độ ưu tiên: LOW, MEDIUM, HIGH, CRITICAL. Mặc định: MEDIUM.",
-        "Tùy chọn. Ngày hết hạn, định dạng yyyy-MM-dd (vd: 2026-05-15). Phải >= ngày hôm nay.",
-        "Tùy chọn. Ngày bắt đầu, định dạng yyyy-MM-dd (vd: 2026-05-01).",
-        "Tùy chọn. Story points, số nguyên từ 1 đến 100.",
-        "Tùy chọn. Số giờ ước tính, số thập phân >= 0 (vd: 8.5).",
-        "Tùy chọn. Email của thành viên trong dự án.",
-        "Tùy chọn. Tên sprint trong dự án. Để trống = Backlog."
+        "Required. Task title, maximum 255 characters.",
+        "Optional. Detailed description of the task.",
+        "Optional. Task type: TASK, BUG, FEATURE, STORY, EPIC. Default: TASK.",
+        "Optional. Priority: LOW, MEDIUM, HIGH, CRITICAL. Default: MEDIUM.",
+        "Optional. Due date in yyyy-MM-dd format (example: 2026-05-15). Must be today or later.",
+        "Optional. Start date in yyyy-MM-dd format (example: 2026-05-01).",
+        "Optional. Story points, integer from 1 to 100.",
+        "Optional. Estimated hours, decimal number greater than or equal to 0 (example: 8.5).",
+        "Optional. Email of a project member.",
+        "Optional. Sprint name in this project. Leave blank for Backlog."
     };
 
     // ── Template generation ────────────────────────────────────────────
@@ -155,7 +155,16 @@ public class TaskImportServiceImpl implements TaskImportService {
         DataValidationConstraint constraint = dvHelper.createExplicitListConstraint(values);
         CellRangeAddressList range = new CellRangeAddressList(1, 1000, col, col);
         DataValidation dv = dvHelper.createValidation(constraint, range);
-        dv.setSuppressDropDownArrow(false); // false = show the dropdown arrow
+        dv.setEmptyCellAllowed(true);
+        dv.setShowErrorBox(true);
+        dv.setShowPromptBox(true);
+        dv.createPromptBox("Select a value", "Please choose a value from the drop-down list.");
+        // For XSSF (.xlsx), Apache POI recommends suppressDropDownArrow=true so Excel renders the list correctly.
+        if (dv instanceof XSSFDataValidation) {
+            dv.setSuppressDropDownArrow(true);
+        } else {
+            dv.setSuppressDropDownArrow(false);
+        }
         sheet.addValidationData(dv);
     }
 
@@ -185,8 +194,8 @@ public class TaskImportServiceImpl implements TaskImportService {
     }
 
     private void addInstructionsSheet(XSSFWorkbook workbook, XSSFCellStyle dateStyle) {
-        XSSFSheet sheet = workbook.createSheet("Hướng dẫn");
-        workbook.setSheetOrder("Hướng dẫn", 1);
+        XSSFSheet sheet = workbook.createSheet("Instructions");
+        workbook.setSheetOrder("Instructions", 1);
 
         // ── Banner ──────────────────────────────────────────────
         XSSFCellStyle bannerStyle = workbook.createCellStyle();
@@ -203,27 +212,28 @@ public class TaskImportServiceImpl implements TaskImportService {
         bannerStyle.setWrapText(true);
 
         XSSFRow bannerRow = sheet.createRow(0);
-        bannerRow.setHeight((short) 900);
+        bannerRow.setHeight((short) 1300);
         XSSFCell bannerCell = bannerRow.createCell(0);
         bannerCell.setCellValue(
-            "⚠  SHEET NÀY CHỈ ĐỂ THAM KHẢO — KHÔNG NHẬP DỮ LIỆU VÀO ĐÂY. " +
-            "Hãy chuyển sang sheet \"Tasks\" để nhập dữ liệu thực tế."
+            "THIS SHEET IS FOR REFERENCE ONLY.\n" +
+            "DO NOT enter task data here.\n" +
+            "Go to the \"Tasks\" sheet to fill in your import data."
         );
         bannerCell.setCellStyle(bannerStyle);
         sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(0, 0, 0, 9));
 
         // ── Column description table ────────────────────────────
         String[][] colDesc = {
-            {"Title",          "Bắt buộc",  "Text (max 255)",         "Tiêu đề task"},
-            {"Description",    "Tùy chọn",  "Text tự do",             "Mô tả chi tiết"},
-            {"Type",           "Tùy chọn",  "TASK | BUG | FEATURE | STORY | EPIC",  "Mặc định: TASK. Chọn từ dropdown."},
-            {"Priority",       "Tùy chọn",  "LOW | MEDIUM | HIGH | CRITICAL",        "Mặc định: MEDIUM. Chọn từ dropdown."},
-            {"DueDate",        "Tùy chọn",  "yyyy-MM-dd (vd: 2026-06-15)",           "Phải >= ngày hôm nay"},
-            {"StartDate",      "Tùy chọn",  "yyyy-MM-dd (vd: 2026-06-01)",           ""},
-            {"StoryPoints",    "Tùy chọn",  "Số nguyên 1–100",        ""},
-            {"EstimatedHours", "Tùy chọn",  "Số thập phân >= 0",      "Ví dụ: 8 hoặc 8.5"},
-            {"AssigneeEmail",  "Tùy chọn",  "Email",                   "Phải là thành viên của dự án"},
-            {"SprintName",     "Tùy chọn",  "Text",                    "Tên sprint trong dự án. Để trống = Backlog"},
+            {"Title",          "Required",  "Text (max 255)",         "Task title"},
+            {"Description",    "Optional",  "Free text",              "Detailed description"},
+            {"Type",           "Optional",  "TASK | BUG | FEATURE | STORY | EPIC",  "Default: TASK. Choose from the drop-down list."},
+            {"Priority",       "Optional",  "LOW | MEDIUM | HIGH | CRITICAL",        "Default: MEDIUM. Choose from the drop-down list."},
+            {"DueDate",        "Optional",  "yyyy-MM-dd (example: 2026-06-15)",      "Must be today or later"},
+            {"StartDate",      "Optional",  "yyyy-MM-dd (example: 2026-06-01)",      ""},
+            {"StoryPoints",    "Optional",  "Integer 1-100",          ""},
+            {"EstimatedHours", "Optional",  "Decimal >= 0",           "Example: 8 or 8.5"},
+            {"AssigneeEmail",  "Optional",  "Email",                  "Must belong to a project member"},
+            {"SprintName",     "Optional",  "Text",                   "Sprint name in this project. Leave blank for Backlog"},
         };
 
         XSSFCellStyle descHeaderStyle = buildHeaderStyle(workbook, new byte[]{(byte) 59, (byte) 130, (byte) 246});
@@ -241,7 +251,7 @@ public class TaskImportServiceImpl implements TaskImportService {
         // Header row for description table
         XSSFRow descHeader = sheet.createRow(2);
         descHeader.setHeight((short) 600);
-        String[] descHeaders = {"Cột", "Bắt buộc?", "Format / Giá trị cho phép", "Ghi chú"};
+        String[] descHeaders = {"Column", "Required?", "Format / Allowed values", "Notes"};
         for (int c = 0; c < descHeaders.length; c++) {
             XSSFCell cell = descHeader.createCell(c);
             cell.setCellValue(descHeaders[c]);
@@ -273,7 +283,7 @@ public class TaskImportServiceImpl implements TaskImportService {
         sectionFont.setBold(true);
         sectionFont.setFontHeightInPoints((short) 11);
         sectionStyle.setFont(sectionFont);
-        sectionCell.setCellValue("Ví dụ dữ liệu mẫu (KHÔNG copy sang sheet Tasks):");
+        sectionCell.setCellValue("Sample rows (for reference only - do not copy directly into the Tasks sheet):");
         sectionCell.setCellStyle(sectionStyle);
 
         // Example header
