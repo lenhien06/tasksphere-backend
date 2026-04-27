@@ -12,6 +12,7 @@ import com.zone.tasksphere.service.ExportService;
 import com.zone.tasksphere.service.WebSocketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -26,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -51,7 +53,7 @@ public class ExportServiceImpl implements ExportService {
     @Override
     @Transactional
     public ResponseEntity<?> createExportJob(UUID projectId, String format, String scope,
-                                              String sprintId, UUID currentUserId) {
+                                              String sprintId, String reportType, UUID currentUserId) {
         Project project = projectRepository.findById(projectId)
             .orElseThrow(() -> new NotFoundException("Project not found"));
 
@@ -81,13 +83,19 @@ public class ExportServiceImpl implements ExportService {
             sprintUuid = UUID.fromString(sprintId);
         }
 
+        List<Sprint> reportSprints = isVelocityReport(reportType)
+            ? getVelocityReportSprints(projectId)
+            : sprintRepository.findByProject_IdAndDeletedAtIsNull(projectId);
+
         // Get tasks to export
-        List<Task> tasks = getTasksForExport(projectId, exportScope, sprintUuid);
+        List<Task> tasks = isVelocityReport(reportType)
+            ? getTasksForVelocityExport(projectId, reportSprints)
+            : getTasksForExport(projectId, exportScope, sprintUuid);
         int rowCount = tasks.size();
 
         if (rowCount <= SYNC_MAX_ROWS) {
             // Synchronous export
-            return buildSyncExportResponse(tasks, project, exportFormat);
+            return buildSyncExportResponse(tasks, project, exportFormat, reportType, reportSprints);
         } else {
             // Async export
             ExportJob job = ExportJob.builder()
@@ -100,7 +108,7 @@ public class ExportServiceImpl implements ExportService {
                 .build();
             job = exportJobRepository.save(job);
 
-            processExportAsync(job, tasks);
+            processExportAsync(job, tasks, reportType, reportSprints);
 
             Map<String, Object> responseData = Map.of(
                 "jobId", job.getId(),
@@ -169,7 +177,7 @@ public class ExportServiceImpl implements ExportService {
 
     @Async("taskExecutor")
     @Transactional
-    public void processExportAsync(ExportJob job, List<Task> tasks) {
+    public void processExportAsync(ExportJob job, List<Task> tasks, String reportType, List<Sprint> reportSprints) {
         try {
             job.setStatus(ExportJobStatus.PROCESSING);
             exportJobRepository.save(job);
@@ -180,11 +188,13 @@ public class ExportServiceImpl implements ExportService {
             String ext;
 
             if (job.getFormat() == ExportFormat.EXCEL) {
-                fileBytes = excelExportService.exportTasksToExcel(
-                    tasks,
-                    job.getProject(),
-                    sprintRepository.findByProject_IdAndDeletedAtIsNull(job.getProject().getId())
-                );
+                fileBytes = isVelocityReport(reportType)
+                    ? excelExportService.exportVelocityToExcel(tasks, job.getProject(), reportSprints)
+                    : excelExportService.exportTasksToExcel(
+                        tasks,
+                        job.getProject(),
+                        sprintRepository.findByProject_IdAndDeletedAtIsNull(job.getProject().getId())
+                    );
                 ext = "xlsx";
                 contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
             } else {
@@ -270,17 +280,19 @@ public class ExportServiceImpl implements ExportService {
     }
 
     private ResponseEntity<?> buildSyncExportResponse(List<Task> tasks, Project project,
-                                                        ExportFormat format) {
+                                                        ExportFormat format, String reportType, List<Sprint> reportSprints) {
         byte[] fileBytes;
         String fileName;
         String contentType;
 
         if (format == ExportFormat.EXCEL) {
-            fileBytes = excelExportService.exportTasksToExcel(
-                tasks,
-                project,
-                sprintRepository.findByProject_IdAndDeletedAtIsNull(project.getId())
-            );
+            fileBytes = isVelocityReport(reportType)
+                ? excelExportService.exportVelocityToExcel(tasks, project, reportSprints)
+                : excelExportService.exportTasksToExcel(
+                    tasks,
+                    project,
+                    sprintRepository.findByProject_IdAndDeletedAtIsNull(project.getId())
+                );
             fileName = "tasks-" + project.getProjectKey() + "-" + LocalDate.now() + ".xlsx";
             contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         } else {
@@ -297,5 +309,38 @@ public class ExportServiceImpl implements ExportService {
                     .build()
                     .toString())
             .body(fileBytes);
+    }
+
+    private boolean isVelocityReport(String reportType) {
+        return "velocity".equalsIgnoreCase(reportType);
+    }
+
+    private List<Sprint> getVelocityReportSprints(UUID projectId) {
+        return sprintRepository.findByProject_IdAndStatusAndDeletedAtIsNullOrderByCompletedAtDesc(
+                projectId,
+                SprintStatus.COMPLETED,
+                PageRequest.of(0, 5))
+            .stream()
+            .sorted(Comparator
+                .comparing(Sprint::getStartDate, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(Sprint::getCompletedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+            .toList();
+    }
+
+    private List<Task> getTasksForVelocityExport(UUID projectId, List<Sprint> sprints) {
+        if (sprints == null || sprints.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> sprintIds = sprints.stream().map(Sprint::getId).toList();
+        return taskRepository.findAll().stream()
+            .filter(t -> projectId.equals(t.getProject().getId())
+                && t.getDeletedAt() == null
+                && t.getSprint() != null
+                && sprintIds.contains(t.getSprint().getId()))
+            .sorted(Comparator
+                .comparing((Task t) -> t.getSprint().getStartDate(), Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(Task::getTaskCode, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+            .toList();
     }
 }

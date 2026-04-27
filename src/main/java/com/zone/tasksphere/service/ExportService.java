@@ -8,7 +8,7 @@ import java.util.UUID;
 public interface ExportService {
 
     ResponseEntity<?> createExportJob(UUID projectId, String format, String scope,
-                                       String sprintId, UUID currentUserId);
+                                       String sprintId, String reportType, UUID currentUserId);
 
     ExportJobStatusResponse getJobStatus(UUID jobId, UUID currentUserId);
 

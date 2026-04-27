@@ -62,7 +62,8 @@ public class ExportController {
             @PathVariable UUID projectId,
             @RequestParam String format,
             @RequestParam(defaultValue = "all") String scope,
-            @RequestParam(required = false) String sprintId) {
+            @RequestParam(required = false) String sprintId,
+            @RequestParam(required = false) String reportType) {
 
         // Validate scope=sprint requires sprintId
         if ("sprint".equalsIgnoreCase(scope) && (sprintId == null || sprintId.isBlank())) {
@@ -82,7 +83,7 @@ public class ExportController {
         };
 
         return exportService.createExportJob(
-                projectId, internalFormat, internalScope, sprintId, getCurrentUserId());
+                projectId, internalFormat, internalScope, sprintId, reportType, getCurrentUserId());
     }
 
     @Operation(
@@ -110,8 +111,9 @@ public class ExportController {
             @PathVariable UUID projectId,
             @RequestParam String format,
             @RequestParam(defaultValue = "ALL") String scope,
-            @RequestParam(required = false) String sprintId) {
-        return exportService.createExportJob(projectId, format, scope, sprintId, getCurrentUserId());
+            @RequestParam(required = false) String sprintId,
+            @RequestParam(required = false) String reportType) {
+        return exportService.createExportJob(projectId, format, scope, sprintId, reportType, getCurrentUserId());
     }
 
     @Operation(
