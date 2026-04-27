@@ -833,15 +833,11 @@ public class SprintServiceImpl implements SprintService {
     public VelocityForecastResponse getVelocityForecast(UUID projectId, int limit, UUID currentUserId) {
         requirePM(projectId, currentUserId);
 
-        int safeLimit = Math.min(Math.max(limit, 1), 10);
-        Pageable pageable = PageRequest.of(0, safeLimit);
-
-        List<Sprint> completedSprints = sprintRepository
-                .findByProject_IdAndStatusAndDeletedAtIsNullOrderByCompletedAtDesc(
-                        projectId, SprintStatus.COMPLETED, pageable);
-
-        List<Sprint> ordered = new ArrayList<>(completedSprints);
-        Collections.reverse(ordered);
+        List<Sprint> ordered = sprintRepository.findByProject_IdAndDeletedAtIsNull(projectId).stream()
+                .sorted(Comparator
+                        .comparing(Sprint::getStartDate, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(Sprint::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
 
         List<VelocityForecastResponse.SprintVelocityPoint> sprintPoints = ordered.stream()
                 .map(sprint -> VelocityForecastResponse.SprintVelocityPoint.builder()
@@ -849,7 +845,7 @@ public class SprintServiceImpl implements SprintService {
                         .sprintName(sprint.getName())
                         .completedAt(sprint.getCompletedAt() != null
                                 ? sprint.getCompletedAt().atZone(ZoneOffset.UTC).toLocalDate()
-                                : null)
+                                : sprint.getEndDate())
                         .committedPoints(getCommittedPoints(sprint))
                         .completedPoints(calculateCompletedPoints(sprint))
                         .build())
