@@ -114,7 +114,8 @@ public class TaskImportServiceImpl implements TaskImportService {
             sheet.setDefaultColumnStyle(4, dateStyle);
             sheet.setDefaultColumnStyle(5, dateStyle);
 
-            addExampleRows(sheet, helper, dateStyle);
+            // Sheet "Tasks" left blank — no demo rows
+            addInstructionsSheet(workbook, dateStyle);
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             workbook.write(out);
@@ -180,23 +181,122 @@ public class TaskImportServiceImpl implements TaskImportService {
         sheet.addValidationData(dv);
     }
 
-    private void addExampleRows(XSSFSheet sheet, CreationHelper helper, XSSFCellStyle dateStyle) {
+    private void addInstructionsSheet(XSSFWorkbook workbook, XSSFCellStyle dateStyle) {
+        XSSFSheet sheet = workbook.createSheet("Hướng dẫn");
+        workbook.setSheetOrder("Hướng dẫn", 1);
+
+        // ── Banner ──────────────────────────────────────────────
+        XSSFCellStyle bannerStyle = workbook.createCellStyle();
+        XSSFColor amber = new XSSFColor(new byte[]{(byte) 245, (byte) 158, (byte) 11}, null);
+        bannerStyle.setFillForegroundColor(amber);
+        bannerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        XSSFFont bannerFont = workbook.createFont();
+        bannerFont.setBold(true);
+        bannerFont.setColor(IndexedColors.WHITE.getIndex());
+        bannerFont.setFontHeightInPoints((short) 11);
+        bannerStyle.setFont(bannerFont);
+        bannerStyle.setAlignment(HorizontalAlignment.CENTER);
+        bannerStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+        bannerStyle.setWrapText(true);
+
+        XSSFRow bannerRow = sheet.createRow(0);
+        bannerRow.setHeight((short) 900);
+        XSSFCell bannerCell = bannerRow.createCell(0);
+        bannerCell.setCellValue(
+            "⚠  SHEET NÀY CHỈ ĐỂ THAM KHẢO — KHÔNG NHẬP DỮ LIỆU VÀO ĐÂY. " +
+            "Hãy chuyển sang sheet \"Tasks\" để nhập dữ liệu thực tế."
+        );
+        bannerCell.setCellStyle(bannerStyle);
+        sheet.addMergedRegion(new org.apache.poi.ss.util.CellRangeAddress(0, 0, 0, 9));
+
+        // ── Column description table ────────────────────────────
+        String[][] colDesc = {
+            {"Title",          "Bắt buộc",  "Text (max 255)",         "Tiêu đề task"},
+            {"Description",    "Tùy chọn",  "Text tự do",             "Mô tả chi tiết"},
+            {"Type",           "Tùy chọn",  "TASK | BUG | FEATURE | STORY | EPIC",  "Mặc định: TASK. Chọn từ dropdown."},
+            {"Priority",       "Tùy chọn",  "LOW | MEDIUM | HIGH | CRITICAL",        "Mặc định: MEDIUM. Chọn từ dropdown."},
+            {"DueDate",        "Tùy chọn",  "yyyy-MM-dd (vd: 2026-06-15)",           "Phải >= ngày hôm nay"},
+            {"StartDate",      "Tùy chọn",  "yyyy-MM-dd (vd: 2026-06-01)",           ""},
+            {"StoryPoints",    "Tùy chọn",  "Số nguyên 1–100",        ""},
+            {"EstimatedHours", "Tùy chọn",  "Số thập phân >= 0",      "Ví dụ: 8 hoặc 8.5"},
+            {"AssigneeEmail",  "Tùy chọn",  "Email",                   "Phải là thành viên của dự án"},
+            {"SprintName",     "Tùy chọn",  "Text",                    "Tên sprint trong dự án. Để trống = Backlog"},
+        };
+
+        XSSFCellStyle descHeaderStyle = buildHeaderStyle(workbook, new byte[]{(byte) 59, (byte) 130, (byte) 246});
+        XSSFCellStyle descHeaderReqStyle = buildHeaderStyle(workbook, new byte[]{(byte) 245, (byte) 158, (byte) 11});
+
+        XSSFCellStyle altRowStyle = workbook.createCellStyle();
+        XSSFColor lightBlue = new XSSFColor(new byte[]{(byte) 239, (byte) 246, (byte) 255}, null);
+        altRowStyle.setFillForegroundColor(lightBlue);
+        altRowStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        altRowStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+
+        XSSFCellStyle normalRowStyle = workbook.createCellStyle();
+        normalRowStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+
+        // Header row for description table
+        XSSFRow descHeader = sheet.createRow(2);
+        descHeader.setHeight((short) 600);
+        String[] descHeaders = {"Cột", "Bắt buộc?", "Format / Giá trị cho phép", "Ghi chú"};
+        for (int c = 0; c < descHeaders.length; c++) {
+            XSSFCell cell = descHeader.createCell(c);
+            cell.setCellValue(descHeaders[c]);
+            cell.setCellStyle(c == 0 ? descHeaderReqStyle : descHeaderStyle);
+        }
+
+        // Data rows
+        for (int r = 0; r < colDesc.length; r++) {
+            XSSFRow row = sheet.createRow(r + 3);
+            row.setHeight((short) 500);
+            XSSFCellStyle rowStyle = (r % 2 == 0) ? altRowStyle : normalRowStyle;
+            for (int c = 0; c < colDesc[r].length; c++) {
+                XSSFCell cell = row.createCell(c);
+                cell.setCellValue(colDesc[r][c]);
+                cell.setCellStyle(rowStyle);
+            }
+        }
+
+        sheet.setColumnWidth(0, 4500);
+        sheet.setColumnWidth(1, 3500);
+        sheet.setColumnWidth(2, 13000);
+        sheet.setColumnWidth(3, 12000);
+
+        // ── Example rows section ────────────────────────────────
+        XSSFRow sectionRow = sheet.createRow(15);
+        XSSFCell sectionCell = sectionRow.createCell(0);
+        XSSFCellStyle sectionStyle = workbook.createCellStyle();
+        XSSFFont sectionFont = workbook.createFont();
+        sectionFont.setBold(true);
+        sectionFont.setFontHeightInPoints((short) 11);
+        sectionStyle.setFont(sectionFont);
+        sectionCell.setCellValue("Ví dụ dữ liệu mẫu (KHÔNG copy sang sheet Tasks):");
+        sectionCell.setCellStyle(sectionStyle);
+
+        // Example header
+        XSSFRow exHeaderRow = sheet.createRow(16);
+        exHeaderRow.setHeight((short) 600);
+        for (int c = 0; c < HEADERS.length; c++) {
+            XSSFCell cell = exHeaderRow.createCell(c);
+            cell.setCellValue(HEADERS[c]);
+            cell.setCellStyle(c == 0 ? descHeaderReqStyle : descHeaderStyle);
+        }
+
+        // Example data
         String[][] examples = {
-            {"Thiết kế giao diện đăng nhập", "Thiết kế UI/UX cho form đăng nhập", "TASK", "HIGH", "2026-06-15", "2026-06-01", "5", "8", "", ""},
-            {"Sửa lỗi form đăng ký", "Bug: validation bỏ qua ký tự đặc biệt", "BUG", "CRITICAL", "2026-06-10", "", "2", "3", "", "Sprint 1"},
-            {"Implement API xác thực", "REST API JWT authentication", "FEATURE", "MEDIUM", "", "", "8", "16", "", ""},
+            {"Thiết kế giao diện đăng nhập", "Thiết kế UI/UX cho form đăng nhập", "TASK",    "HIGH",     "2026-06-15", "2026-06-01", "5", "8",  "", ""},
+            {"Sửa lỗi form đăng ký",          "Bug: validation bỏ qua ký tự đặc biệt", "BUG", "CRITICAL", "2026-06-10", "",           "2", "3",  "", "Sprint 1"},
+            {"Implement API xác thực",         "REST API JWT authentication",      "FEATURE", "MEDIUM",   "",           "",           "8", "16", "", ""},
         };
         for (int r = 0; r < examples.length; r++) {
-            Row row = sheet.createRow(r + 1);
+            XSSFRow row = sheet.createRow(r + 17);
             for (int c = 0; c < examples[r].length; c++) {
-                Cell cell = row.createCell(c);
                 String val = examples[r][c];
+                XSSFCell cell = row.createCell(c);
                 if (val.isEmpty()) continue;
-                if (c == 6) {
+                if (c == 6 || c == 7) {
                     cell.setCellValue(Double.parseDouble(val));
-                } else if (c == 7) {
-                    cell.setCellValue(Double.parseDouble(val));
-                } else if ((c == 4 || c == 5) && !val.isEmpty()) {
+                } else if (c == 4 || c == 5) {
                     cell.setCellValue(val);
                     cell.setCellStyle(dateStyle);
                 } else {
@@ -204,6 +304,14 @@ public class TaskImportServiceImpl implements TaskImportService {
                 }
             }
         }
+
+        // Column widths for example section
+        int[] exColWidths = {8000, 10000, 4000, 4000, 4500, 4500, 4000, 5000, 10000, 6000};
+        for (int i = 0; i < exColWidths.length; i++) {
+            if (i > 3) sheet.setColumnWidth(i, exColWidths[i]);
+        }
+
+        sheet.protectSheet(null); // protect to prevent editing, no password needed
     }
 
     // ── Import ─────────────────────────────────────────────────────────
