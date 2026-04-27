@@ -251,7 +251,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                                 String.format("%s đã mời bạn tham gia workspace %s với vai trò %s", inviterName,
                                                 ws.getName(), request.getRole().name()),
                                 "WORKSPACE",
-                                ws.getId(),
+                                UUID.fromString(invite.getToken()),
                                 null,
                                 null,
                                 inviter));
@@ -369,7 +369,7 @@ public class WorkspaceServiceImpl implements WorkspaceService {
                                         String.format("%s đã gửi lại lời mời bạn vào workspace %s với vai trò %s",
                                                         inviterName, ws.getName(), invite.getWorkspaceRole().name()),
                                         "WORKSPACE",
-                                        ws.getId(),
+                                        UUID.fromString(invite.getToken()),
                                         null,
                                         null,
                                         actor);
