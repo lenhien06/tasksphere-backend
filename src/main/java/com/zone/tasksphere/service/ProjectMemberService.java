@@ -664,45 +664,54 @@ public class ProjectMemberService {
             throw new com.zone.tasksphere.exception.Forbidden("Bạn không phải thành viên dự án này");
         }
 
-        List<User> users = new ArrayList<>(userRepository.searchProjectMembers(projectId, q));
+        String keyword = q == null ? "" : q.trim().toLowerCase();
+
+        List<MemberSearchResponse> members = projectMemberRepository.findByProjectId(projectId).stream()
+                .filter(member -> member.getUser() != null)
+                .filter(member -> matchesMemberSearch(member.getUser(), keyword))
+                .sorted((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(
+                        Optional.ofNullable(a.getUser().getFullName()).orElse(""),
+                        Optional.ofNullable(b.getUser().getFullName()).orElse("")
+                ))
+                .map(member -> MemberSearchResponse.builder()
+                        .id(member.getUser().getId())
+                        .fullName(member.getUser().getFullName())
+                        .email(member.getUser().getEmail())
+                        .avatarUrl(member.getUser().getAvatarUrl())
+                        .projectRole(member.getProjectRole())
+                        .build())
+                .collect(Collectors.toCollection(ArrayList::new));
+
         User owner = project.getOwner();
         if (owner != null
-                && users.stream().noneMatch(user -> user.getId().equals(owner.getId()))
-                && matchesMemberSearch(owner, q)) {
-            users.add(owner);
+                && members.stream().noneMatch(member -> owner.getId().equals(member.getId()))
+                && matchesMemberSearch(owner, keyword)) {
+            members.add(MemberSearchResponse.builder()
+                    .id(owner.getId())
+                    .fullName(owner.getFullName())
+                    .email(owner.getEmail())
+                    .avatarUrl(owner.getAvatarUrl())
+                    .projectRole(ProjectRole.PROJECT_MANAGER)
+                    .build());
         }
 
-        return users.stream()
+        return members.stream()
                 .sorted((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(
                         Optional.ofNullable(a.getFullName()).orElse(""),
                         Optional.ofNullable(b.getFullName()).orElse("")
                 ))
                 .limit(10)
-                .map(u -> {
-            ProjectRole role = owner != null && owner.getId().equals(u.getId())
-                    ? ProjectRole.PROJECT_MANAGER
-                    : projectMemberRepository.findByProjectIdAndUserId(projectId, u.getId())
-                    .map(ProjectMember::getProjectRole)
-                    .orElse(ProjectRole.MEMBER);
-            return MemberSearchResponse.builder()
-                    .id(u.getId())
-                    .fullName(u.getFullName())
-                    .email(u.getEmail())
-                    .avatarUrl(u.getAvatarUrl())
-                    .projectRole(role)
-                    .build();
-        }).toList();
+                .toList();
     }
 
     private boolean matchesMemberSearch(User user, String q) {
-        String keyword = q == null ? "" : q.trim().toLowerCase();
-        if (keyword.isEmpty()) {
+        if (q == null || q.isEmpty()) {
             return true;
         }
 
         String fullName = Optional.ofNullable(user.getFullName()).orElse("").toLowerCase();
         String email = Optional.ofNullable(user.getEmail()).orElse("").toLowerCase();
-        return fullName.contains(keyword) || email.contains(keyword);
+        return fullName.contains(q) || email.contains(q);
     }
 
     // =========================================================================
