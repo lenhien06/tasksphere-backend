@@ -603,12 +603,14 @@ public class SprintServiceImpl implements SprintService {
         // Build actual line: remaining = total - cumulative done
         List<BurndownResponse.DataPoint> actualLine = new ArrayList<>();
         LocalDate today = LocalDate.now();
+        // cutoff: nếu sprint chưa bắt đầu thì lấy start, ngược lại lấy today
+        LocalDate cutoff = today.isBefore(start) ? start : today;
         long cumulativeDone = 0;
 
         for (long i = 0; i <= days; i++) {
             LocalDate date = start.plusDays(i);
-            if (date.isAfter(today))
-                break; // chỉ hiển thị đến hôm nay
+            if (date.isAfter(cutoff))
+                break;
             cumulativeDone += donePointsByDate.getOrDefault(date, 0L);
             double remaining = Math.max(0, totalPoints - cumulativeDone);
             actualLine.add(BurndownResponse.DataPoint.builder()
@@ -630,10 +632,9 @@ public class SprintServiceImpl implements SprintService {
             cumulativeDone = 0;
             for (long i = 0; i <= days; i++) {
                 LocalDate date = start.plusDays(i);
-                if (date.isAfter(today))
+                if (date.isAfter(cutoff))
                     break;
 
-                // On start date, use 0; progress linearly; by today use actual done count
                 double progressRatio = days > 0 ? (double) i / days : 0;
                 long estimatedDone = Math.round(donePointsNow * progressRatio);
                 double remaining = Math.max(0, totalPoints - estimatedDone);
@@ -641,6 +642,14 @@ public class SprintServiceImpl implements SprintService {
                 actualLine.add(BurndownResponse.DataPoint.builder()
                         .date(date)
                         .remainingPoints(remaining)
+                        .build());
+            }
+
+            // Nếu vẫn rỗng (sprint chưa bắt đầu, chưa có task done) → anchor point
+            if (actualLine.isEmpty()) {
+                actualLine.add(BurndownResponse.DataPoint.builder()
+                        .date(start)
+                        .remainingPoints((double) totalPoints)
                         .build());
             }
         }
