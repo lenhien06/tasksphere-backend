@@ -35,8 +35,8 @@ public class LlmClient {
     private static final float TEMPERATURE = 0.7f;
     private static final int MAX_OUTPUT_TOKENS = 8192;
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
-    private static final long[] GEMINI_RETRY_DELAYS_MS = {20_000L, 40_000L};
-    private static final long[] GROQ_RETRY_DELAYS_MS = {5_000L, 10_000L};
+    private static final long[] GEMINI_RETRY_DELAYS_MS = {};
+    private static final long[] GROQ_RETRY_DELAYS_MS = {};
 
     private final OkHttpClient http;
     private final ObjectMapper objectMapper;
@@ -277,6 +277,10 @@ public class LlmClient {
             ObjectNode genConfig = objectMapper.createObjectNode();
             genConfig.put("temperature", TEMPERATURE);
             genConfig.put("maxOutputTokens", MAX_OUTPUT_TOKENS);
+            // Disable extended thinking to reduce latency
+            ObjectNode thinkingConfig = objectMapper.createObjectNode();
+            thinkingConfig.put("thinkingBudget", 0);
+            genConfig.set("thinkingConfig", thinkingConfig);
             root.set("generationConfig", genConfig);
 
             return objectMapper.writeValueAsString(root);
