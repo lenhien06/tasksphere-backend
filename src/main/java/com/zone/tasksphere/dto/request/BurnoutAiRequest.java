@@ -11,4 +11,5 @@ public class BurnoutAiRequest {
     private double endLeadTime;
     private String startDate;
     private String endDate;
+    private String coffeeTime;
 }

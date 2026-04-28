@@ -128,7 +128,7 @@ public class BurnoutServiceImpl implements BurnoutService {
                 - Mở đầu thân thiện, tự nhiên như đồng nghiệp thân (không quá formal)
                 - Đề cập nhẹ nhàng rằng bạn nhận thấy dữ liệu công việc có dấu hiệu bất thường
                 - Hỏi thăm sức khỏe tinh thần, không hề trách móc
-                - Gợi ý buổi cafe hoặc 1-on-1 nhỏ để trao đổi, sẵn sàng điều phối lại task
+                - Gợi ý cụ thể buổi cafe lúc %s hôm nay hoặc ngày gần nhất để trao đổi, sẵn sàng điều phối lại task
                 - Kết thúc ấm áp, tích cực
                 - Khoảng 5–7 câu. Viết tiếng Việt. Chỉ trả về nội dung tin nhắn, không thêm gì khác.
                 """,
@@ -137,7 +137,8 @@ public class BurnoutServiceImpl implements BurnoutService {
                 request.getStartDate(), request.getEndDate(),
                 request.getStartLeadTime(), request.getEndLeadTime(),
                 request.getEndLeadTime() / request.getStartLeadTime(),
-                dev
+                dev,
+                request.getCoffeeTime() != null ? request.getCoffeeTime() : "15:00"
         );
 
         try {
