@@ -3,18 +3,25 @@ package com.zone.tasksphere.service.impl;
 import com.zone.tasksphere.ai.config.LlmClient;
 import com.zone.tasksphere.dto.request.BurnoutAiRequest;
 import com.zone.tasksphere.dto.request.BurnoutAnalyzeRequest;
+import com.zone.tasksphere.dto.request.SlackSendRequest;
 import com.zone.tasksphere.dto.response.BurnoutAiResponse;
 import com.zone.tasksphere.dto.response.BurnoutAnalyzeResponse;
 import com.zone.tasksphere.dto.response.BurnoutDataPoint;
+import com.zone.tasksphere.dto.response.SlackSendResponse;
 import com.zone.tasksphere.service.BurnoutService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 @Service
@@ -158,6 +165,35 @@ public class BurnoutServiceImpl implements BurnoutService {
                             dev, streakDays))
                     .developerName(dev)
                     .build();
+        }
+    }
+
+    @Override
+    public SlackSendResponse sendSlackMessage(SlackSendRequest request) {
+        if (request.getWebhookUrl() == null || request.getWebhookUrl().isBlank()) {
+            return SlackSendResponse.builder().success(false).detail("Webhook URL không được để trống").build();
+        }
+        if (request.getMessage() == null || request.getMessage().isBlank()) {
+            return SlackSendResponse.builder().success(false).detail("Nội dung tin nhắn không được để trống").build();
+        }
+
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            String dev = request.getDeveloperName() != null ? request.getDeveloperName() : "Developer";
+            String slackText = String.format("*Tin nhắn 1-on-1 cho %s*\n\n%s", dev, request.getMessage());
+            Map<String, String> body = Map.of("text", slackText);
+
+            HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
+            restTemplate.postForEntity(request.getWebhookUrl(), entity, String.class);
+
+            log.info("[Burnout] Slack message sent to {} via webhook", dev);
+            return SlackSendResponse.builder().success(true).detail("Tin nhắn đã gửi thành công qua Slack").build();
+        } catch (Exception e) {
+            log.error("[Burnout] Failed to send Slack message", e);
+            return SlackSendResponse.builder().success(false).detail("Gửi thất bại: " + e.getMessage()).build();
         }
     }
 

@@ -2,10 +2,12 @@ package com.zone.tasksphere.controller;
 
 import com.zone.tasksphere.dto.request.BurnoutAiRequest;
 import com.zone.tasksphere.dto.request.BurnoutAnalyzeRequest;
+import com.zone.tasksphere.dto.request.SlackSendRequest;
 import com.zone.tasksphere.dto.response.ApiResponse;
 import com.zone.tasksphere.dto.response.BurnoutAiResponse;
 import com.zone.tasksphere.dto.response.BurnoutAnalyzeResponse;
 import com.zone.tasksphere.dto.response.BurnoutDataPoint;
+import com.zone.tasksphere.dto.response.SlackSendResponse;
 import com.zone.tasksphere.service.BurnoutService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -45,5 +47,13 @@ public class BurnoutController {
             @RequestBody BurnoutAiRequest request) {
         BurnoutAiResponse response = burnoutService.generateAiMessage(request);
         return ResponseEntity.ok(ApiResponse.success(response, "AI message generated"));
+    }
+
+    @Operation(summary = "Gửi tin nhắn qua Slack Incoming Webhook")
+    @PostMapping("/send-slack")
+    public ResponseEntity<ApiResponse<SlackSendResponse>> sendSlack(
+            @RequestBody SlackSendRequest request) {
+        SlackSendResponse response = burnoutService.sendSlackMessage(request);
+        return ResponseEntity.ok(ApiResponse.success(response, response.getDetail()));
     }
 }
