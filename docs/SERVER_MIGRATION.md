@@ -399,56 +399,6 @@ SCRIPT
 chmod +x /root/deploy-frontend.sh
 ```
 
-### `/root/backup.sh`
-
-```bash
-cat > /root/backup.sh << 'SCRIPT'
-#!/bin/bash
-set -euo pipefail
-BACKUP_ROOT="/root/backups"
-TIMESTAMP=$(date '+%Y-%m-%d_%H-%M-%S')
-LABEL="${1:-manual}"
-LABEL_SAFE=$(echo "$LABEL" | tr ' ' '-' | tr -cd '[:alnum:]_-')
-BACKUP_DIR="$BACKUP_ROOT/${TIMESTAMP}_${LABEL_SAFE}"
-BE_DIR="/root/tasksphere-backend"
-FE_DIR="/root/tasksphere-frontend"
-DB_CONTAINER="tasksphere-db"
-DB_NAME="tasksphere_prod"
-DB_USER="tasksphere_user"
-DB_PASS="TaskSphere@2026#SecurePass"
-BE_IMAGE="tasksphere-backend-app"
-FE_IMAGE="tasksphere-frontend-tasksphere-webapp"
-TAG_PREFIX="bk_${TIMESTAMP}"
-LOG_FILE="/var/log/tasksphere-deploy.log"
-
-log() { local ts; ts=$(date '+%Y-%m-%d %H:%M:%S'); echo "[$ts] [BACKUP] $*" | tee -a "$LOG_FILE"; }
-ok() { echo "  [OK] $*"; }
-
-mkdir -p "$BACKUP_DIR"
-log "Starting backup: $TIMESTAMP | label=$LABEL"
-
-if docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
-  docker exec "$DB_CONTAINER" mysqldump -u"$DB_USER" -p"$DB_PASS" --single-transaction --routines --triggers "$DB_NAME" | gzip > "$BACKUP_DIR/db.sql.gz"
-  ok "MySQL dump done ($(du -sh "$BACKUP_DIR/db.sql.gz" | cut -f1))"
-fi
-
-for img in "$BE_IMAGE" "$FE_IMAGE"; do
-  id=$(docker images -q "${img}:latest" 2>/dev/null || true)
-  [[ -n "$id" ]] && docker tag "${img}:latest" "${img}:${TAG_PREFIX}" && ok "Tagged ${img}:${TAG_PREFIX}"
-done
-
-{
-  echo "timestamp=$TIMESTAMP"; echo "label=$LABEL"; echo "tag_prefix=$TAG_PREFIX"; echo ""
-  [[ -d "$BE_DIR/.git" ]] && echo "backend_commit=$(cd "$BE_DIR" && git rev-parse HEAD)"
-  [[ -d "$FE_DIR/.git" ]] && echo "frontend_commit=$(cd "$FE_DIR" && git rev-parse HEAD)"
-} > "$BACKUP_DIR/info.txt"
-
-log "Backup done: $BACKUP_DIR"
-echo "Restore: ./restore.sh ${TIMESTAMP}_${LABEL_SAFE}"
-SCRIPT
-chmod +x /root/backup.sh
-```
-
 ---
 
 ## Bước 5 — Chạy setup
