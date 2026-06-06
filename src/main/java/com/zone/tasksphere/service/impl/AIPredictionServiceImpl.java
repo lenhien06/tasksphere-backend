@@ -74,8 +74,12 @@ public class AIPredictionServiceImpl implements AIPredictionService {
         log.info("Calling Python API at {} with data: {}", pythonApiUrl, request);
 
         try {
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+            org.springframework.http.HttpEntity<AIPredictionRequest> entity = new org.springframework.http.HttpEntity<>(request, headers);
+
             AIPredictionResponse response = restTemplate.postForObject(
-                    pythonApiUrl + "/api/predict", request, AIPredictionResponse.class);
+                    pythonApiUrl + "/api/predict", entity, AIPredictionResponse.class);
             if (response != null) {
                 response.setEmployeeId(user.getId().toString());
                 return response;
