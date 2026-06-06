@@ -19,4 +19,5 @@ public interface UserService {
     void unlockUser(UUID userId);
     NotificationPreferencesResponse getNotificationPreferences(UUID userId);
     NotificationPreferencesResponse updateNotificationPreferences(UUID userId, NotifPrefsRequest request);
+    byte[] exportUserPerformanceCsv(UUID userId);
 }

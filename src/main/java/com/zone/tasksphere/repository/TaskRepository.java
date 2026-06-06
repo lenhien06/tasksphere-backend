@@ -134,6 +134,9 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
                         """)
         List<Task> findAssignedOpenTasksForDashboard(@Param("userId") UUID userId, Pageable pageable);
 
+        @EntityGraph(attributePaths = { "project" })
+        List<Task> findByAssigneeIdAndDeletedAtIsNull(UUID assigneeId);
+
         @EntityGraph(attributePaths = { "project", "assignee" })
         @Query("""
                             SELECT t FROM Task t

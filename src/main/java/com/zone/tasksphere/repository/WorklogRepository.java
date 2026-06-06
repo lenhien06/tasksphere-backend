@@ -17,7 +17,10 @@ public interface WorklogRepository extends JpaRepository<Worklog, UUID> {
     @Query("SELECT COALESCE(SUM(w.timeSpentSeconds), 0) FROM Worklog w WHERE w.task.id = :taskId AND w.deletedAt IS NULL")
     long sumTimeSpentByTaskId(@Param("taskId") UUID taskId);
 
-    /** @deprecated use findByTaskIdAndDeletedAtIsNullOrderByLogDateDescCreatedAtDesc */
+    /** @deprecated use findByTaskIdAndDeletedAtIsNullOrderByLogDateDesc */
     @Deprecated
     List<Worklog> findByTaskId(UUID taskId);
+
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"task", "task.project"})
+    List<Worklog> findByUserIdAndDeletedAtIsNullOrderByLogDateDesc(UUID userId);
 }

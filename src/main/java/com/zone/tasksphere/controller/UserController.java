@@ -184,4 +184,17 @@ public class UserController {
         NotificationPreferencesResponse response = userService.updateNotificationPreferences(userId, request);
         return ResponseEntity.ok(ApiResponse.success(response, "Cập nhật cài đặt thông báo thành công"));
     }
+
+    @Operation(
+        summary = "Xuất file CSV hiệu suất và giờ làm việc của nhân sự",
+        description = "Trả về file CSV thống kê tổng quan, các công việc đã làm và chi tiết giờ làm việc của một nhân sự."
+    )
+    @GetMapping("/{userId}/export-csv")
+    public ResponseEntity<byte[]> exportUserCsv(@PathVariable UUID userId) {
+        byte[] csvData = userService.exportUserPerformanceCsv(userId);
+        return ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"employee_performance_" + userId + ".csv\"")
+                .header(org.springframework.http.HttpHeaders.CONTENT_TYPE, "text/csv; charset=UTF-8")
+                .body(csvData);
+    }
 }
