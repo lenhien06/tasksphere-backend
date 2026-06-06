@@ -12,7 +12,6 @@ public class TestPrediction {
                 .hoursWorked(40.5)
                 .tasksCompleted(10)
                 .lateCount(1)
-                .absenceCount(0)
                 .build();
         try {
             AIPredictionResponse response = restTemplate.postForObject(
