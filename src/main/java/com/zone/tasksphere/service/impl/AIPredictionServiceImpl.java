@@ -1,5 +1,6 @@
 package com.zone.tasksphere.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zone.tasksphere.dto.AIPredictionRequest;
 import com.zone.tasksphere.dto.AIPredictionResponse;
 import com.zone.tasksphere.entity.Task;
@@ -14,6 +15,9 @@ import com.zone.tasksphere.service.AIPredictionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -32,6 +36,7 @@ public class AIPredictionServiceImpl implements AIPredictionService {
     private final TaskRepository taskRepository;
     private final WorklogRepository worklogRepository;
     private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
 
     @Value("${ai.prediction.python-api-url:http://127.0.0.1:8000}")
     private String pythonApiUrl;
@@ -74,9 +79,13 @@ public class AIPredictionServiceImpl implements AIPredictionService {
         log.info("Calling Python API at {} with data: {}", pythonApiUrl, request);
 
         try {
-            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
-            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
-            org.springframework.http.HttpEntity<AIPredictionRequest> entity = new org.springframework.http.HttpEntity<>(request, headers);
+            // Serialize manually to guarantee correct snake_case JSON
+            String jsonBody = objectMapper.writeValueAsString(request);
+            log.info("Serialized request body: {}", jsonBody);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<String> entity = new HttpEntity<>(jsonBody, headers);
 
             AIPredictionResponse response = restTemplate.postForObject(
                     pythonApiUrl + "/api/predict", entity, AIPredictionResponse.class);
