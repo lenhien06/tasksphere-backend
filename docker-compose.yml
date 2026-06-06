@@ -81,6 +81,7 @@ services:
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
       GROQ_API_KEY: ${GROQ_API_KEY}
       GROQ_MODEL: ${GROQ_MODEL}
+      AI_PREDICTION_URL: ${AI_PREDICTION_URL}
     mem_limit: 700m
     memswap_limit: 1400m
 volumes:
