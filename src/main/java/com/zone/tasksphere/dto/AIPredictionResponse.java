@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 @Data
@@ -17,8 +19,27 @@ public class AIPredictionResponse {
     
     @JsonProperty("predicted_performance_score")
     private Double predictedPerformanceScore;
+
+    @JsonProperty("health_score")
+    private Integer healthScore;
     
     private String trend;
+
+    @JsonProperty("history")
+    private List<Double> history;
+
+    @JsonProperty("attrition_probability")
+    private Double attritionProbability;
+
+    @JsonProperty("top_contributing_factors")
+    private List<String> topContributingFactors;
+
+    @JsonProperty("root_causes")
+    private List<String> rootCauses;
+
+    private List<String> recommendations;
+
+    private Double confidence;
     
     private String errorMessage;
 }

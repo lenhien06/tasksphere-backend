@@ -1,5 +1,6 @@
 package com.zone.tasksphere.service.impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zone.tasksphere.dto.AIPredictionResponse;
@@ -72,8 +73,8 @@ public class AIPredictionServiceImpl implements AIPredictionService {
 
         // Build JSON body manually using US locale to ensure dot as decimal separator
         String requestBody = String.format(java.util.Locale.US,
-                "{\"employee_id\":%d,\"hours_worked\":%.4f,\"tasks_completed\":%d,\"late_count\":%d}",
-                1, totalHoursLogged, tasksCompleted, lateCount
+                "{\"employee_id\":\"%s\",\"hours_worked\":%.4f,\"tasks_completed\":%d,\"late_count\":%d}",
+                user.getId().toString(), totalHoursLogged, tasksCompleted, lateCount
         );
 
         log.info("Calling Python AI API: {} | body: {}", pythonApiUrl + "/api/predict", requestBody);
@@ -111,20 +112,14 @@ public class AIPredictionServiceImpl implements AIPredictionService {
             conn.disconnect();
 
             if (statusCode == 200) {
-                JsonNode node = MAPPER.readTree(responseBody);
-                double score = node.path("predicted_performance_score").asDouble(0.0);
-                String trend = node.path("trend").asText("Unknown");
-
-                return AIPredictionResponse.builder()
-                        .employeeId(user.getId().toString())
-                        .predictedPerformanceScore(score)
-                        .trend(trend)
-                        .build();
+                // Parse full advanced response
+                return MAPPER.readValue(responseBody, AIPredictionResponse.class);
             } else {
                 log.error("Python AI API error {}: {}", statusCode, responseBody);
                 return AIPredictionResponse.builder()
                         .employeeId(user.getId().toString())
                         .predictedPerformanceScore(0.0)
+                        .healthScore(0)
                         .trend("Error")
                         .errorMessage("Python API returned HTTP " + statusCode + ": " + responseBody)
                         .build();
@@ -135,6 +130,7 @@ public class AIPredictionServiceImpl implements AIPredictionService {
             return AIPredictionResponse.builder()
                     .employeeId(user.getId().toString())
                     .predictedPerformanceScore(0.0)
+                    .healthScore(0)
                     .trend("Error")
                     .errorMessage("Error calling Python API: " + e.getMessage())
                     .build();
