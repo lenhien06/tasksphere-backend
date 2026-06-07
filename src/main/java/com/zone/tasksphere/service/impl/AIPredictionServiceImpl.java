@@ -1,6 +1,5 @@
 package com.zone.tasksphere.service.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zone.tasksphere.dto.AIPredictionRequest;
 import com.zone.tasksphere.dto.AIPredictionResponse;
 import com.zone.tasksphere.entity.Task;
@@ -36,7 +35,6 @@ public class AIPredictionServiceImpl implements AIPredictionService {
     private final TaskRepository taskRepository;
     private final WorklogRepository worklogRepository;
     private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
 
     @Value("${ai.prediction.python-api-url:http://127.0.0.1:8000}")
     private String pythonApiUrl;
@@ -79,13 +77,14 @@ public class AIPredictionServiceImpl implements AIPredictionService {
         log.info("Calling Python API at {} with data: {}", pythonApiUrl, request);
 
         try {
-            // Serialize manually to guarantee correct snake_case JSON
-            String jsonBody = objectMapper.writeValueAsString(request);
-            log.info("Serialized request body: {}", jsonBody);
-
+            // Let RestTemplate + MappingJackson2HttpMessageConverter serialize the object
+            // @JsonProperty annotations on AIPredictionRequest handle snake_case field names
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<String> entity = new HttpEntity<>(jsonBody, headers);
+            HttpEntity<AIPredictionRequest> entity = new HttpEntity<>(request, headers);
+
+            log.info("Sending request body: employeeId={}, hoursWorked={}, tasksCompleted={}, lateCount={}",
+                    request.getEmployeeId(), request.getHoursWorked(), request.getTasksCompleted(), request.getLateCount());
 
             AIPredictionResponse response = restTemplate.postForObject(
                     pythonApiUrl + "/api/predict", entity, AIPredictionResponse.class);
