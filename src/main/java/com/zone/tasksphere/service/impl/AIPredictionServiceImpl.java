@@ -1,5 +1,6 @@
 package com.zone.tasksphere.service.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zone.tasksphere.dto.AIPredictionResponse;
 import com.zone.tasksphere.entity.Task;
@@ -17,11 +18,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -39,12 +40,7 @@ public class AIPredictionServiceImpl implements AIPredictionService {
     @Value("${ai.prediction.python-api-url:http://127.0.0.1:8000}")
     private String pythonApiUrl;
 
-    // Shared HttpClient instance - thread-safe, reusable
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(5))
-            .build();
-
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Override
     @Transactional(readOnly = true)
@@ -74,8 +70,8 @@ public class AIPredictionServiceImpl implements AIPredictionService {
                 .mapToLong(Worklog::getTimeSpentSeconds)
                 .sum() / 3600.0;
 
-        // Build JSON body manually to ensure correct format - no serialization magic
-        String requestBody = String.format(
+        // Build JSON body manually using US locale to ensure dot as decimal separator
+        String requestBody = String.format(java.util.Locale.US,
                 "{\"employee_id\":%d,\"hours_worked\":%.4f,\"tasks_completed\":%d,\"late_count\":%d}",
                 1, totalHoursLogged, tasksCompleted, lateCount
         );
@@ -83,21 +79,39 @@ public class AIPredictionServiceImpl implements AIPredictionService {
         log.info("Calling Python AI API: {} | body: {}", pythonApiUrl + "/api/predict", requestBody);
 
         try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(pythonApiUrl + "/api/predict"))
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .timeout(Duration.ofSeconds(10))
-                    .build();
+            byte[] bodyBytes = requestBody.getBytes(StandardCharsets.UTF_8);
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            // Use HttpURLConnection - most reliable Java HTTP client
+            URL url = new URL(pythonApiUrl + "/api/predict");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setRequestProperty("Content-Length", String.valueOf(bodyBytes.length));
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(10000);
 
-            log.info("Python AI API response: status={}, body={}", response.statusCode(), response.body());
+            // Write body
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(bodyBytes);
+                os.flush();
+            }
 
-            if (response.statusCode() == 200) {
-                // Parse as JsonNode to handle type differences (e.g. Python int vs Java String)
-                com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(response.body());
+            int statusCode = conn.getResponseCode();
+            log.info("Python AI API HTTP status: {}", statusCode);
+
+            // Read response
+            InputStream responseStream = (statusCode == 200)
+                    ? conn.getInputStream()
+                    : conn.getErrorStream();
+
+            String responseBody = new String(responseStream.readAllBytes(), StandardCharsets.UTF_8);
+            log.info("Python AI API response body: {}", responseBody);
+            conn.disconnect();
+
+            if (statusCode == 200) {
+                JsonNode node = MAPPER.readTree(responseBody);
                 double score = node.path("predicted_performance_score").asDouble(0.0);
                 String trend = node.path("trend").asText("Unknown");
 
@@ -107,11 +121,12 @@ public class AIPredictionServiceImpl implements AIPredictionService {
                         .trend(trend)
                         .build();
             } else {
+                log.error("Python AI API error {}: {}", statusCode, responseBody);
                 return AIPredictionResponse.builder()
                         .employeeId(user.getId().toString())
                         .predictedPerformanceScore(0.0)
                         .trend("Error")
-                        .errorMessage("Python API returned HTTP " + response.statusCode() + ": " + response.body())
+                        .errorMessage("Python API returned HTTP " + statusCode + ": " + responseBody)
                         .build();
             }
 
