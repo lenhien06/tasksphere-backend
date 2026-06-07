@@ -1,6 +1,6 @@
 package com.zone.tasksphere.service.impl;
 
-import com.zone.tasksphere.dto.AIPredictionRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zone.tasksphere.dto.AIPredictionResponse;
 import com.zone.tasksphere.entity.Task;
 import com.zone.tasksphere.entity.User;
@@ -14,13 +14,14 @@ import com.zone.tasksphere.service.AIPredictionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -34,10 +35,16 @@ public class AIPredictionServiceImpl implements AIPredictionService {
     private final UserRepository userRepository;
     private final TaskRepository taskRepository;
     private final WorklogRepository worklogRepository;
-    private final RestTemplate restTemplate;
 
     @Value("${ai.prediction.python-api-url:http://127.0.0.1:8000}")
     private String pythonApiUrl;
+
+    // Shared HttpClient instance - thread-safe, reusable
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(5))
+            .build();
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     @Transactional(readOnly = true)
@@ -67,47 +74,55 @@ public class AIPredictionServiceImpl implements AIPredictionService {
                 .mapToLong(Worklog::getTimeSpentSeconds)
                 .sum() / 3600.0;
 
-        AIPredictionRequest request = AIPredictionRequest.builder()
-                .employeeId(1)
-                .hoursWorked(totalHoursLogged)
-                .tasksCompleted(tasksCompleted)
-                .lateCount(lateCount)
-                .build();
+        // Build JSON body manually to ensure correct format - no serialization magic
+        String requestBody = String.format(
+                "{\"employee_id\":%d,\"hours_worked\":%.4f,\"tasks_completed\":%d,\"late_count\":%d}",
+                1, totalHoursLogged, tasksCompleted, lateCount
+        );
 
-        log.info("Calling Python API at {} with data: {}", pythonApiUrl, request);
+        log.info("Calling Python AI API: {} | body: {}", pythonApiUrl + "/api/predict", requestBody);
 
         try {
-            // Let RestTemplate + MappingJackson2HttpMessageConverter serialize the object
-            // @JsonProperty annotations on AIPredictionRequest handle snake_case field names
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<AIPredictionRequest> entity = new HttpEntity<>(request, headers);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(pythonApiUrl + "/api/predict"))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
 
-            log.info("Sending request body: employeeId={}, hoursWorked={}, tasksCompleted={}, lateCount={}",
-                    request.getEmployeeId(), request.getHoursWorked(), request.getTasksCompleted(), request.getLateCount());
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-            AIPredictionResponse response = restTemplate.postForObject(
-                    pythonApiUrl + "/api/predict", entity, AIPredictionResponse.class);
-            if (response != null) {
-                response.setEmployeeId(user.getId().toString());
-                return response;
+            log.info("Python AI API response: status={}, body={}", response.statusCode(), response.body());
+
+            if (response.statusCode() == 200) {
+                // Parse as JsonNode to handle type differences (e.g. Python int vs Java String)
+                com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(response.body());
+                double score = node.path("predicted_performance_score").asDouble(0.0);
+                String trend = node.path("trend").asText("Unknown");
+
+                return AIPredictionResponse.builder()
+                        .employeeId(user.getId().toString())
+                        .predictedPerformanceScore(score)
+                        .trend(trend)
+                        .build();
+            } else {
+                return AIPredictionResponse.builder()
+                        .employeeId(user.getId().toString())
+                        .predictedPerformanceScore(0.0)
+                        .trend("Error")
+                        .errorMessage("Python API returned HTTP " + response.statusCode() + ": " + response.body())
+                        .build();
             }
+
         } catch (Exception e) {
-            log.error("Error calling Python API: ", e);
+            log.error("Error calling Python AI API: {}", e.getMessage(), e);
             return AIPredictionResponse.builder()
                     .employeeId(user.getId().toString())
                     .predictedPerformanceScore(0.0)
                     .trend("Error")
-                    .errorMessage("Error calling Python API: " + e.getMessage()
-                            + " (Cause: " + (e.getCause() != null ? e.getCause().getMessage() : "none") + ")")
+                    .errorMessage("Error calling Python API: " + e.getMessage())
                     .build();
         }
-
-        return AIPredictionResponse.builder()
-                .employeeId(user.getId().toString())
-                .predictedPerformanceScore(0.0)
-                .trend("Error")
-                .errorMessage("Python API returned null response")
-                .build();
     }
 }
