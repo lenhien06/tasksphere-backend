@@ -1,6 +1,7 @@
 package com.zone.tasksphere.controller;
 
 import com.zone.tasksphere.dto.AIPredictionResponse;
+import com.zone.tasksphere.dto.response.ApiResponse;
 import com.zone.tasksphere.service.AIPredictionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,7 +23,7 @@ public class AIPredictionController {
     @Operation(summary = "Get user performance prediction from AI")
     @GetMapping("/{userId}/performance-prediction")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<AIPredictionResponse> getPerformancePrediction(@PathVariable UUID userId) {
-        return ResponseEntity.ok(aiPredictionService.getPerformancePrediction(userId));
+    public ResponseEntity<ApiResponse<AIPredictionResponse>> getPerformancePrediction(@PathVariable UUID userId) {
+        return ResponseEntity.ok(ApiResponse.success(aiPredictionService.getPerformancePrediction(userId)));
     }
 }
